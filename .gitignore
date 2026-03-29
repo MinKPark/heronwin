@@ -1,0 +1,22 @@
+# Node.js
+node_modules/
+dist/
+*.js.map
+*.d.ts.map
+
+# Environment files
+.env
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp recording files
+herface-*.wav
+
+# Build outputs
+*.tsbuildinfo
