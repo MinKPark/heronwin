@@ -1,12 +1,24 @@
-import { mkdir, readFile, writeFile } from "fs/promises";
+import { readFile, writeFile } from "fs/promises";
 import { resolve } from "path";
 
-import { chromium, type BrowserContext, type Locator, type Page } from "playwright";
+import type { Browser, BrowserContext, Page } from "playwright";
 
 import type { Config } from "../config.js";
+import { bootstrapChatGptLogin, launchChatGptBrowser } from "./chatgpt-auth.js";
+import {
+  CHATGPT_ASSISTANT_MESSAGE_SELECTORS,
+  CHATGPT_COMPOSER_SELECTORS,
+  CHATGPT_NEW_CHAT_SELECTORS,
+  CHATGPT_SEND_BUTTON_SELECTORS,
+  CHATGPT_STOP_BUTTON_SELECTORS,
+  ChatGptWebConfig,
+  detectChatGptUiState,
+  ensureChatGptStorage,
+  firstVisible,
+  hasChatGptAuthState,
+  tryFill,
+} from "./chatgpt-shared.js";
 import type { AgentMessage, ChatResult, LLMClient, ToolDefinition } from "./types.js";
-
-type ChatGptWebConfig = Config["chatgptWeb"];
 
 interface ChatGptSessionRecord {
   id: string;
@@ -22,48 +34,11 @@ interface ChatGptSessionState {
   sessions: ChatGptSessionRecord[];
 }
 
-const COMPOSER_SELECTORS = [
-  'textarea[data-testid="prompt-textarea"]',
-  "#prompt-textarea",
-  'textarea[placeholder*="Message"]',
-  'div[contenteditable="true"][data-testid*="composer"]',
-  'div[contenteditable="true"][aria-label*="Message"]',
-];
-
-const SEND_BUTTON_SELECTORS = [
-  'button[data-testid="send-button"]',
-  'button[aria-label*="Send prompt"]',
-  'button[aria-label*="Send message"]',
-  'button[aria-label="Send"]',
-];
-
-const NEW_CHAT_SELECTORS = [
-  'a[href="/"]',
-  'button[data-testid="create-new-chat-button"]',
-  'button[aria-label*="New chat"]',
-  'a[aria-label*="New chat"]',
-];
-
-const ASSISTANT_MESSAGE_SELECTORS = [
-  '[data-message-author-role="assistant"]',
-  'article[data-testid^="conversation-turn-"] [data-message-author-role="assistant"]',
-];
-
-const LOGIN_HINT_SELECTORS = [
-  'button[data-testid="login-button"]',
-  'a[href*="/auth/login"]',
-  'button:has-text("Log in")',
-];
-
-const STOP_BUTTON_SELECTORS = [
-  'button[aria-label*="Stop"]',
-  'button[data-testid="stop-button"]',
-];
-
 export class ChatGptWebProvider implements LLMClient {
   readonly providerId = "chatgpt-web" as const;
   readonly displayName: string;
 
+  private browser: Browser | null = null;
   private context: BrowserContext | null = null;
   private page: Page | null = null;
   private readonly sessionStatePath: string;
@@ -94,6 +69,10 @@ export class ChatGptWebProvider implements LLMClient {
     if (this.context) {
       await this.context.close();
     }
+    if (this.browser) {
+      await this.browser.close();
+    }
+    this.browser = null;
     this.context = null;
     this.page = null;
   }
@@ -103,42 +82,40 @@ export class ChatGptWebProvider implements LLMClient {
       return this.page;
     }
 
-    await mkdir(this.config.profileDir, { recursive: true });
+    await ensureChatGptStorage(this.config);
     await this.cleanupExpiredSessions();
-
-    const launchOptions: Parameters<typeof chromium.launchPersistentContext>[1] = {
-      headless: this.config.headless,
-      viewport: { width: 1440, height: 1024 },
-    };
-
-    if (this.config.browserChannel !== "chromium") {
-      launchOptions.channel = this.config.browserChannel;
-    }
-
-    this.context = await chromium.launchPersistentContext(this.config.profileDir, launchOptions);
-    this.page = this.context.pages()[0] ?? (await this.context.newPage());
-
-    await this.page.goto(this.config.baseUrl, { waitUntil: "domcontentloaded" });
-    await this.waitForChatReady(this.page);
-    return this.page;
+    return this.openAuthenticatedPage(true);
   }
 
-  private async waitForChatReady(page: Page): Promise<void> {
-    const startedAt = Date.now();
+  private async openAuthenticatedPage(allowReauth: boolean): Promise<Page> {
+    await this.ensureAuthenticatedSession(
+      allowReauth ? "No saved ChatGPT login was found." : null,
+    );
 
-    while (Date.now() - startedAt < this.config.startupTimeoutMs) {
-      const composer = await firstVisible(page, COMPOSER_SELECTORS);
-      if (composer) {
-        return;
-      }
+    const { browser, context, page } = await launchChatGptBrowser(
+      this.config,
+      this.config.headless,
+      true,
+    );
+    this.browser = browser;
+    this.context = context;
+    this.page = page;
 
-      if (await anyVisible(page, LOGIN_HINT_SELECTORS)) {
-        throw new Error(
-          "ChatGPT login is required. The browser profile was opened for you; sign in there and try again.",
-        );
-      }
+    await this.page.goto(this.config.baseUrl, { waitUntil: "domcontentloaded" });
+    const state = await detectChatGptUiState(this.page, this.config.startupTimeoutMs);
+    if (state === "ready") {
+      return this.page;
+    }
 
-      await page.waitForTimeout(500);
+    await this.shutdown();
+
+    if (state === "login_required" && allowReauth) {
+      await bootstrapChatGptLogin(this.config, "Saved ChatGPT login expired. Please sign in again.");
+      return this.openAuthenticatedPage(false);
+    }
+
+    if (state === "login_required") {
+      throw new Error("ChatGPT login is required. Re-run the login bootstrap to refresh the saved session.");
     }
 
     throw new Error("Timed out waiting for the ChatGPT composer to become available.");
@@ -146,9 +123,17 @@ export class ChatGptWebProvider implements LLMClient {
 
   private async prepareFreshChat(page: Page): Promise<void> {
     await page.goto(this.config.baseUrl, { waitUntil: "domcontentloaded" });
-    await this.waitForChatReady(page);
+    const state = await detectChatGptUiState(page, this.config.startupTimeoutMs);
+    if (state === "login_required") {
+      await this.shutdown();
+      await bootstrapChatGptLogin(this.config, "Saved ChatGPT login expired. Please sign in again.");
+      throw new Error("ChatGPT login was refreshed. Please send your message again.");
+    }
+    if (state !== "ready") {
+      throw new Error("ChatGPT page was not ready when preparing a fresh chat.");
+    }
 
-    const newChatButton = await firstVisible(page, NEW_CHAT_SELECTORS);
+    const newChatButton = await firstVisible(page, CHATGPT_NEW_CHAT_SELECTORS);
     if (newChatButton) {
       await newChatButton.click().catch(() => undefined);
       await page.waitForTimeout(400);
@@ -156,7 +141,7 @@ export class ChatGptWebProvider implements LLMClient {
   }
 
   private async fillComposer(page: Page, prompt: string): Promise<void> {
-    const composer = await firstVisible(page, COMPOSER_SELECTORS);
+    const composer = await firstVisible(page, CHATGPT_COMPOSER_SELECTORS);
     if (!composer) {
       throw new Error("Could not find the ChatGPT message composer.");
     }
@@ -169,7 +154,7 @@ export class ChatGptWebProvider implements LLMClient {
   }
 
   private async submitPrompt(page: Page): Promise<void> {
-    const sendButton = await firstVisible(page, SEND_BUTTON_SELECTORS);
+    const sendButton = await firstVisible(page, CHATGPT_SEND_BUTTON_SELECTORS);
     if (sendButton) {
       await sendButton.click();
       return;
@@ -185,7 +170,7 @@ export class ChatGptWebProvider implements LLMClient {
 
     while (Date.now() - startedAt < this.config.responseTimeoutMs) {
       const currentText = await this.getLatestAssistantText(page);
-      const generating = await anyVisible(page, STOP_BUTTON_SELECTORS);
+      const generating = (await firstVisible(page, CHATGPT_STOP_BUTTON_SELECTORS)) !== null;
 
       if (currentText && currentText !== previousText) {
         if (currentText === latestText) {
@@ -207,7 +192,7 @@ export class ChatGptWebProvider implements LLMClient {
   }
 
   private async getLatestAssistantText(page: Page): Promise<string> {
-    for (const selector of ASSISTANT_MESSAGE_SELECTORS) {
+    for (const selector of CHATGPT_ASSISTANT_MESSAGE_SELECTORS) {
       const items = page.locator(selector);
       const count = await items.count();
       if (count === 0) {
@@ -274,29 +259,17 @@ export class ChatGptWebProvider implements LLMClient {
   private async writeSessionState(state: ChatGptSessionState): Promise<void> {
     await writeFile(this.sessionStatePath, JSON.stringify(state, null, 2), "utf8");
   }
-}
 
-async function firstVisible(page: Page, selectors: string[]): Promise<Locator | null> {
-  for (const selector of selectors) {
-    const locator = page.locator(selector).first();
-    if (await locator.isVisible().catch(() => false)) {
-      return locator;
+  private async ensureAuthenticatedSession(reason: string | null): Promise<void> {
+    if (await hasChatGptAuthState(this.config)) {
+      return;
     }
-  }
 
-  return null;
-}
+    if (!reason) {
+      throw new Error("ChatGPT auth state is missing.");
+    }
 
-async function anyVisible(page: Page, selectors: string[]): Promise<boolean> {
-  return (await firstVisible(page, selectors)) !== null;
-}
-
-async function tryFill(locator: Locator, value: string): Promise<boolean> {
-  try {
-    await locator.fill(value);
-    return true;
-  } catch {
-    return false;
+    await bootstrapChatGptLogin(this.config, reason);
   }
 }
 

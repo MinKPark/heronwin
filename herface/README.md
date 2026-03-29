@@ -44,6 +44,12 @@ Or run directly (no build step):
 npm run dev
 ```
 
+For browser-backed ChatGPT auth bootstrap:
+
+```bash
+npm run chatgpt:login
+```
+
 ## MCP Validation Helpers
 
 When `eyesandhands` is built locally, you can validate it without going through the LLM:
@@ -72,9 +78,10 @@ npm run mcp:eyesandhands:configured
 | `CHATGPT_BASE_URL` | `https://chatgpt.com/` | Base URL for browser-driven ChatGPT |
 | `CHATGPT_BROWSER_CHANNEL` | `msedge` | `msedge`, `chrome`, or `chromium` |
 | `CHATGPT_PROFILE_DIR` | `.chatgpt-profile` | Persistent browser profile directory |
-| `CHATGPT_HEADLESS` | `false` | Launch ChatGPT browser headless or visible |
+| `CHATGPT_HEADLESS` | `true` | Launch ChatGPT browser headless or visible |
 | `CHATGPT_PROJECT_NAME` | `her` | Local project label used by browser mode |
 | `CHATGPT_SESSION_RETENTION_DAYS` | `14` | How long local ChatGPT browser session records are kept |
+| `CHATGPT_LOGIN_TIMEOUT_MS` | `900000` | Max wait for manual ChatGPT login during bootstrap |
 | `CHATGPT_STARTUP_TIMEOUT_MS` | `120000` | Max wait for ChatGPT UI login/composer readiness |
 | `CHATGPT_RESPONSE_TIMEOUT_MS` | `120000` | Max wait for ChatGPT browser responses |
 | `WHISPER_MODEL` | `whisper-1` | OpenAI Whisper model for STT |
@@ -98,7 +105,9 @@ npm run mcp:eyesandhands:configured
 Set `LLM_PROVIDER=chatgpt-web` to run `herface` against a persistent Chromium session instead of a direct API endpoint.
 
 - `herface` will launch a browser profile and reuse it across runs.
-- Sign in to ChatGPT in that browser profile the first time if prompted.
+- Headless mode is the default, so no visible browser window is shown.
+- Run `npm run chatgpt:login` once to sign in and save reusable auth state.
+- If the saved ChatGPT session expires, `herface` will open the login bootstrap again and ask you to re-authenticate.
 - Browser mode bridges tool use by asking ChatGPT to emit a JSON envelope that `herface` converts back into tool calls.
 - Session metadata is kept locally for the configured retention window.
 

@@ -28,6 +28,7 @@ export interface Config {
     headless: boolean;
     projectName: string;
     sessionRetentionDays: number;
+    loginTimeoutMs: number;
     startupTimeoutMs: number;
     responseTimeoutMs: number;
   };
@@ -59,9 +60,10 @@ export function loadConfig(): Config {
       baseUrl: process.env.CHATGPT_BASE_URL ?? "https://chatgpt.com/",
       browserChannel: parseBrowserChannel(process.env.CHATGPT_BROWSER_CHANNEL),
       profileDir: resolve(process.cwd(), process.env.CHATGPT_PROFILE_DIR ?? ".chatgpt-profile"),
-      headless: parseBoolean(process.env.CHATGPT_HEADLESS, false),
+      headless: parseBoolean(process.env.CHATGPT_HEADLESS, true),
       projectName: process.env.CHATGPT_PROJECT_NAME ?? "her",
       sessionRetentionDays: parseInt(process.env.CHATGPT_SESSION_RETENTION_DAYS ?? "14", 10),
+      loginTimeoutMs: parseInt(process.env.CHATGPT_LOGIN_TIMEOUT_MS ?? "900000", 10),
       startupTimeoutMs: parseInt(process.env.CHATGPT_STARTUP_TIMEOUT_MS ?? "120000", 10),
       responseTimeoutMs: parseInt(process.env.CHATGPT_RESPONSE_TIMEOUT_MS ?? "120000", 10),
     },

@@ -23,11 +23,16 @@ async function main(): Promise<void> {
   }
 
   const audioTranscriber = createAudioTranscriber(cfg);
+  const allowVoiceInput = cfg.llmProvider !== "chatgpt-web";
+  const promptText = allowVoiceInput
+    ? "\n🎤  Press Enter to speak (or type your message): "
+    : "\n💬  Type your message and press Enter: ";
   display.info(`LLM: ${llmClient.displayName}`);
   if (cfg.llmProvider === "chatgpt-web") {
     display.info(
-      `ChatGPT browser mode will use ${cfg.chatgptWeb.browserChannel} with profile ${cfg.chatgptWeb.profileDir}`,
+      `ChatGPT browser mode will use ${cfg.chatgptWeb.browserChannel} with profile ${cfg.chatgptWeb.profileDir} (${cfg.chatgptWeb.headless ? "headless" : "visible"})`,
     );
+    display.info("Voice input is disabled in ChatGPT Web mode; typed input goes to the browser-backed provider.");
   }
 
   // ── MCP servers ────────────────────────────────────────────
@@ -46,7 +51,11 @@ async function main(): Promise<void> {
   }
 
   display.separator();
-  display.info('Type your message and press Enter, or just press Enter to use the microphone.');
+  display.info(
+    allowVoiceInput
+      ? 'Type your message and press Enter, or just press Enter to use the microphone.'
+      : "Type your message and press Enter.",
+  );
   display.info('Type "exit" or press Ctrl+C to quit.');
   display.separator();
 
@@ -55,7 +64,7 @@ async function main(): Promise<void> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
   const askPrompt = (): void => {
-    display.prompt();
+    display.prompt(promptText);
     rl.once("line", async (line) => {
       const trimmed = line.trim();
 
@@ -67,6 +76,12 @@ async function main(): Promise<void> {
       let userText = trimmed;
 
       if (!userText) {
+        if (!allowVoiceInput) {
+          display.warn("ChatGPT Web mode requires typed input. Enter a message to continue.");
+          askPrompt();
+          return;
+        }
+
         // No typed text — use microphone
         display.recording();
 

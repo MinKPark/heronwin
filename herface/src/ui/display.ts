@@ -49,9 +49,9 @@ export const display = {
     console.error(chalk.red(`✖  ${text}`));
   },
 
-  /** Print the "press Enter to speak" prompt. */
-  prompt(): void {
-    process.stdout.write(chalk.cyan("\n🎤  Press Enter to speak (or type your message): "));
+  /** Print the input prompt. */
+  prompt(text = "\n🎤  Press Enter to speak (or type your message): "): void {
+    process.stdout.write(chalk.cyan(text));
   },
 
   /** Print the "recording..." indicator. */
