@@ -9,6 +9,7 @@ Each subdirectory is a standalone MCP server that can be consumed by the `herfac
 | Directory | Language | Description |
 |-----------|----------|-------------|
 | [`process-manager/`](./process-manager/) | TypeScript | Start, stop, and list processes on the local machine |
+| [`eyesandhands/`](./eyesandhands/) | C# | Inspect visible Windows UI and interact with top-level windows and main menus |
 
 ## Adding a New Server
 

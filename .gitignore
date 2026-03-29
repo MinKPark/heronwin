@@ -20,3 +20,5 @@ herface-*.wav
 
 # Build outputs
 *.tsbuildinfo
+bin/
+obj/

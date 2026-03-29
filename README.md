@@ -8,7 +8,8 @@
 heronwin/
 ├── herface/          # Node.js/TypeScript AI agent UI (voice input → LLM → text output)
 └── herbody/          # MCP servers (TypeScript / C#)
-    └── process-manager/   # Start, stop, and list processes on the local machine
+    ├── process-manager/   # Start, stop, and list processes on the local machine
+    └── eyesandhands/      # Inspect Windows UI and interact with windows via UI Automation
 ```
 
 ## Quick Start
@@ -34,10 +35,11 @@ npm start
 
 ### Running without a build step
 
-Both packages support `npm run dev` (via [tsx](https://tsx.is)) for hot-reload development.
+The TypeScript packages support `npm run dev` (via [tsx](https://tsx.is)) for hot-reload development. The C# server can be started directly with `dotnet run --project herbody/eyesandhands/eyesandhands.csproj`.
 
 ## Documentation
 
 - [herface README](./herface/README.md)
 - [herbody README](./herbody/README.md)
 - [process-manager README](./herbody/process-manager/README.md)
+- [eyesandhands README](./herbody/eyesandhands/README.md)

@@ -43,6 +43,22 @@ Or run directly (no build step):
 npm run dev
 ```
 
+## MCP Validation Helpers
+
+When `eyesandhands` is built locally, you can validate it without going through the LLM:
+
+```bash
+npm run mcp:eyesandhands:direct
+```
+
+That script launches the bundled `eyesandhands.exe` directly and calls `list_windows`.
+
+To validate the MCP configuration currently defined in `herface/.env`:
+
+```bash
+npm run mcp:eyesandhands:configured
+```
+
 ## Environment Variables
 
 | Variable | Default | Description |
