@@ -36,43 +36,46 @@ public static class EyesAndHandsTools
         return WindowAutomation.Serialize(result);
     }
 
-    [McpServerTool, Description("Describe the active foreground window as a structured UI Automation tree. maxDepth includes the root level and must be between 1 and 4.")]
+    [McpServerTool, Description("Describe the selected window as a structured UI Automation tree. If a window has been selected, the server focuses it before inspection; otherwise it falls back to the current foreground window. maxDepth includes the root level and must be between 1 and 4.")]
     public static async Task<string> DescribeActiveWindow(
         UiAutomationExecutor executor,
+        WindowSelectionState selectionState,
         [Description("How many UI tree levels to include, counting the window root as level 1. Must be between 1 and 4.")]
         int maxDepth = 2,
         CancellationToken cancellationToken = default)
     {
         var result = await executor.RunAsync(
-            () => WindowAutomation.DescribeActiveWindow(maxDepth),
+            () => WindowAutomation.DescribeActiveWindow(selectionState, maxDepth),
             cancellationToken);
 
         return WindowAutomation.Serialize(result);
     }
 
-    [McpServerTool, Description("Focus a specific child element in the active window using the slash-delimited path returned by describe_active_window, such as 0, 1/3, or 2/0/1.")]
+    [McpServerTool, Description("Focus a specific child element in the selected window using the slash-delimited path returned by describe_active_window, such as 0, 1/3, or 2/0/1. If a window has been selected, the server focuses it before attempting the element focus.")]
     public static async Task<string> FocusActiveWindowElement(
         UiAutomationExecutor executor,
+        WindowSelectionState selectionState,
         [Description("Slash-delimited child path from describe_active_window. Use root to focus the window element itself.")]
         string elementPath,
         CancellationToken cancellationToken = default)
     {
         var result = await executor.RunAsync(
-            () => WindowAutomation.FocusActiveWindowElement(elementPath),
+            () => WindowAutomation.FocusActiveWindowElement(selectionState, elementPath),
             cancellationToken);
 
         return WindowAutomation.Serialize(result);
     }
 
-    [McpServerTool, Description("Describe the currently focused UI element inside the active window as a structured UI Automation tree. maxDepth includes the focused element as level 1 and must be between 1 and 4.")]
+    [McpServerTool, Description("Describe the currently focused UI element inside the selected window as a structured UI Automation tree. If a window has been selected, the server focuses it before inspection; otherwise it falls back to the current foreground window. maxDepth includes the focused element as level 1 and must be between 1 and 4.")]
     public static async Task<string> DescribeFocusedElement(
         UiAutomationExecutor executor,
+        WindowSelectionState selectionState,
         [Description("How many UI tree levels to include, counting the focused element as level 1. Must be between 1 and 4.")]
         int maxDepth = 2,
         CancellationToken cancellationToken = default)
     {
         var result = await executor.RunAsync(
-            () => WindowAutomation.DescribeFocusedElement(maxDepth),
+            () => WindowAutomation.DescribeFocusedElement(selectionState, maxDepth),
             cancellationToken);
 
         return WindowAutomation.Serialize(result);

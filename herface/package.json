@@ -9,6 +9,7 @@
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "chatgpt:login": "tsx scripts/chatgpt-login.ts",
+    "mcp:eyesandhands:call": "tsx scripts/eyesandhands-call.ts",
     "mcp:eyesandhands:direct": "tsx scripts/eyesandhands-direct.ts",
     "mcp:eyesandhands:configured": "tsx scripts/eyesandhands-configured.ts"
   },

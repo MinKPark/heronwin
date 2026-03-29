@@ -20,7 +20,8 @@ export async function bootstrapChatGptLogin(
   try {
     console.log(`ChatGPT login required: ${reason}`);
     console.log(`Opening ${config.browserChannel} for one-time authentication...`);
-    console.log("Complete login in the opened browser window. The session will be saved for later headless runs.");
+    console.log("Complete login in the opened browser window.");
+    console.log("After ChatGPT is ready, keep the window open as long as you want, then close it yourself.");
 
     await page.goto(config.baseUrl, { waitUntil: "domcontentloaded" });
     const ready = await waitForChatGptReadyForLogin(page, config.loginTimeoutMs);
@@ -30,10 +31,15 @@ export async function bootstrapChatGptLogin(
 
     await context.storageState({ path: authStatePath });
     console.log(`Saved ChatGPT auth state to ${authStatePath}`);
+    console.log("Close the browser window when you are done. herface will continue after it closes.");
+
+    await keepAuthStateFreshUntilBrowserCloses(browser, context, authStatePath);
     return authStatePath;
   } finally {
-    await context.close();
-    await browser.close();
+    if (browser.isConnected()) {
+      await context.close().catch(() => undefined);
+      await browser.close().catch(() => undefined);
+    }
   }
 }
 
@@ -42,9 +48,11 @@ export async function launchChatGptBrowser(
   headless: boolean,
   useSavedAuth = false,
 ): Promise<{ browser: Browser; context: BrowserContext; page: Page }> {
+  const useChannel = !headless && config.browserChannel !== "chromium";
   const browser = await chromium.launch({
     headless,
-    ...(config.browserChannel !== "chromium" ? { channel: config.browserChannel } : {}),
+    ...(useChannel ? { channel: config.browserChannel } : {}),
+    timeout: config.startupTimeoutMs,
   });
 
   const context = await browser.newContext({
@@ -74,4 +82,20 @@ async function waitForChatGptReadyForLogin(page: Page, timeoutMs: number): Promi
 
   const composer = await page.locator(CHATGPT_COMPOSER_SELECTORS[0]).count().catch(() => 0);
   return composer > 0;
+}
+
+async function keepAuthStateFreshUntilBrowserCloses(
+  browser: Browser,
+  context: BrowserContext,
+  authStatePath: string,
+): Promise<void> {
+  while (browser.isConnected()) {
+    try {
+      await context.storageState({ path: authStatePath });
+    } catch {
+      break;
+    }
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 3000));
+  }
 }

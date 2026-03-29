@@ -10,9 +10,9 @@ It is designed for "look at the current app, pick the right window, inspect the 
 |------|-------------|
 | `list_windows` | List visible top-level windows on the current desktop session |
 | `select_window` | Select a window by handle or title substring and bring it to the foreground |
-| `describe_active_window` | Return a bounded UI Automation tree for the foreground window |
-| `focus_active_window_element` | Focus an element from the active window tree using its path |
-| `describe_focused_element` | Return a bounded UI Automation tree rooted at the currently focused element |
+| `describe_active_window` | Return a bounded UI Automation tree for the selected window, refocusing it first when possible |
+| `focus_active_window_element` | Focus an element from the selected window tree using its path |
+| `describe_focused_element` | Return a bounded UI Automation tree rooted at the currently focused element inside the selected window |
 | `invoke_main_menu_item` | Open or invoke a menu path such as `File > Open` |
 
 ## How It Works
@@ -20,7 +20,7 @@ It is designed for "look at the current app, pick the right window, inspect the 
 - Window discovery uses Win32 window enumeration.
 - UI inspection and interaction use `System.Windows.Automation`.
 - All UI Automation work is serialized onto a dedicated STA thread, which is the safest way to interact with many Windows accessibility APIs.
-- The server keeps an in-memory "selected window" handle. That state is used by `list_windows` and lets `invoke_main_menu_item` omit `windowHandle`.
+- The server keeps an in-memory "selected window" handle. That state is used by `list_windows`, the `describe_*` tools, `focus_active_window_element`, and lets `invoke_main_menu_item` omit `windowHandle`.
 
 ## Requirements
 
@@ -80,12 +80,12 @@ Most clients should use the tools in this order:
 
 1. Call `list_windows`.
 2. Call `select_window` with a specific `windowHandle` when possible.
-3. Call `describe_active_window` to inspect the current control tree.
+3. Call `describe_active_window` to inspect the selected window's control tree.
 4. Use a returned `path` with `focus_active_window_element`.
 5. Optionally call `describe_focused_element` to verify where focus landed.
 6. Use `invoke_main_menu_item` for top-level menu navigation.
 
-This sequence matters because only `select_window` persists target-window state, and menu invocation falls back to that saved selection when `windowHandle` is omitted.
+This sequence matters because `select_window` persists target-window state, and subsequent inspection, focus, and menu operations refocus that saved window before acting.
 
 ## Tool Reference
 
@@ -150,7 +150,7 @@ Notes:
 
 ### `describe_active_window`
 
-Returns a UI Automation tree for the current foreground window.
+Returns a UI Automation tree for the selected window. If no window has been selected yet, the server falls back to the current foreground window.
 
 Parameters:
 
@@ -212,13 +212,14 @@ Response shape:
 
 Notes:
 
+- When a selected window exists, the server attempts to bring it back to the foreground before capturing the tree.
 - Child paths use slash-delimited indexes like `0`, `2/1`, or `3/0/4`.
 - The root path is always `root`.
 - `availableActions` is descriptive metadata only. This server currently exposes focus and menu tools, not a general action executor.
 
 ### `focus_active_window_element`
 
-Attempts to focus a specific element in the active window.
+Attempts to focus a specific element in the selected window.
 
 Parameters:
 
@@ -254,13 +255,14 @@ Response shape:
 
 Notes:
 
+- If a selected window exists, the server focuses that window before attempting the element focus.
 - If the requested element cannot take focus directly, the server walks downward and tries focusable descendants.
 - `actionTaken` may be `focused`, `selected_and_focused`, or `scrolled_and_focused`.
 - When focus lands on a descendant, the returned `focusedElement.path` may differ from the requested path.
 
 ### `describe_focused_element`
 
-Returns a UI Automation tree rooted at the current focused element inside the active window.
+Returns a UI Automation tree rooted at the current focused element inside the selected window.
 
 Parameters:
 
@@ -269,7 +271,8 @@ Parameters:
 Notes:
 
 - The root path in this response is `focused`.
-- The call fails if the currently focused element does not belong to the active foreground window.
+- If a selected window exists, the server focuses that window before inspection.
+- The call fails if the currently focused element does not belong to the selected window.
 
 ### `invoke_main_menu_item`
 
@@ -302,7 +305,7 @@ Notes:
 ## Practical Caveats
 
 - UI Automation coverage varies by application. Classic Win32 apps often work well; custom-rendered apps may expose little or nothing.
-- Focus is inherently stateful. If the user changes the foreground window between calls, `describe_active_window` and `describe_focused_element` will reflect the new active app.
+- Focus is inherently stateful. When a window has been selected, the server refocuses that window before inspection and focus operations. Without a selected window, `describe_active_window` and `describe_focused_element` still reflect the current foreground app.
 - `describe_*` responses are intentionally depth-limited to keep MCP payloads bounded.
 - Menu discovery waits briefly for submenu items to appear, but heavily animated or delayed UIs can still time out.
 - The selected window is process-local state. Restarting the server clears it.

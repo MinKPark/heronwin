@@ -98,11 +98,12 @@ internal static class WindowAutomation
         return BuildSelectionResult(handle, wasFocused: true);
     }
 
-    internal static WindowTreeResult DescribeActiveWindow(int maxDepth)
+    internal static WindowTreeResult DescribeActiveWindow(
+        WindowSelectionState selectionState,
+        int maxDepth)
     {
         var normalizedDepth = NormalizeDepth(maxDepth);
-        var handle = GetActiveWindowHandle();
-        EnsureWindowExists(handle);
+        var handle = ResolveInteractionWindowHandle(selectionState);
 
         var windowElement = AutomationElement.FromHandle(handle);
         return new WindowTreeResult(
@@ -111,10 +112,11 @@ internal static class WindowAutomation
             CaptureElementTree(windowElement, normalizedDepth, "root"));
     }
 
-    internal static FocusedElementResult FocusActiveWindowElement(string elementPath)
+    internal static FocusedElementResult FocusActiveWindowElement(
+        WindowSelectionState selectionState,
+        string elementPath)
     {
-        var handle = GetActiveWindowHandle();
-        EnsureWindowExists(handle);
+        var handle = ResolveInteractionWindowHandle(selectionState);
 
         var normalizedPath = NormalizeElementPath(elementPath);
         var windowElement = AutomationElement.FromHandle(handle);
@@ -127,11 +129,12 @@ internal static class WindowAutomation
             focusedTarget.ActionTaken);
     }
 
-    internal static FocusedElementTreeResult DescribeFocusedElement(int maxDepth)
+    internal static FocusedElementTreeResult DescribeFocusedElement(
+        WindowSelectionState selectionState,
+        int maxDepth)
     {
         var normalizedDepth = NormalizeDepth(maxDepth);
-        var handle = GetActiveWindowHandle();
-        EnsureWindowExists(handle);
+        var handle = ResolveInteractionWindowHandle(selectionState);
 
         var windowElement = AutomationElement.FromHandle(handle);
         var focusedElement = AutomationElement.FocusedElement
@@ -140,7 +143,7 @@ internal static class WindowAutomation
         if (!IsSameOrDescendantOf(focusedElement, windowElement))
         {
             throw new InvalidOperationException(
-                "The currently focused UI element does not belong to the active window.");
+                "The currently focused UI element does not belong to the selected window.");
         }
 
         return new FocusedElementTreeResult(
@@ -586,6 +589,17 @@ internal static class WindowAutomation
         }
 
         return maxDepth;
+    }
+
+    private static nint ResolveInteractionWindowHandle(WindowSelectionState selectionState)
+    {
+        var handle = InteractionWindowResolver.ResolveWindowForInteraction(
+            selectionState,
+            NativeMethods.IsWindow,
+            FocusWindow,
+            GetActiveWindowHandle);
+        EnsureWindowExists(handle);
+        return handle;
     }
 
     private static nint GetActiveWindowHandle()

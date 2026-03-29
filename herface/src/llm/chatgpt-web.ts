@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "fs/promises";
+import { mkdir, readFile, writeFile } from "fs/promises";
 import { resolve } from "path";
 
 import type { Browser, BrowserContext, Page } from "playwright";
@@ -42,25 +42,33 @@ export class ChatGptWebProvider implements LLMClient {
   private context: BrowserContext | null = null;
   private page: Page | null = null;
   private readonly sessionStatePath: string;
+  private readonly diagnosticsDir: string;
   private currentSessionId: string | null = null;
 
   constructor(private readonly config: ChatGptWebConfig) {
     this.displayName = `ChatGPT Web (${config.browserChannel}, project ${config.projectName})`;
     this.sessionStatePath = resolve(config.profileDir, "herface-chatgpt-sessions.json");
+    this.diagnosticsDir = resolve(config.profileDir, "diagnostics");
   }
 
   async chat(messages: AgentMessage[], tools: ToolDefinition[]): Promise<ChatResult> {
+    console.log("[chatgpt-web] Starting browser-backed turn.");
     const page = await this.getPage();
+    console.log("[chatgpt-web] Browser page ready.");
     await this.prepareFreshChat(page);
+    console.log("[chatgpt-web] Fresh chat prepared.");
     await this.touchSession(page.url());
 
     const prompt = buildChatGptBridgePrompt(messages, tools, this.config.projectName);
     const beforeText = await this.getLatestAssistantText(page);
 
+    console.log("[chatgpt-web] Sending prompt.");
     await this.fillComposer(page, prompt);
     await this.submitPrompt(page);
 
+    console.log("[chatgpt-web] Waiting for assistant reply.");
     const rawReply = await this.waitForAssistantReply(page, beforeText);
+    console.log("[chatgpt-web] Assistant reply received.");
     await this.touchSession(page.url());
     return parseChatGptBridgeReply(rawReply);
   }
@@ -79,11 +87,13 @@ export class ChatGptWebProvider implements LLMClient {
 
   private async getPage(): Promise<Page> {
     if (this.page && !this.page.isClosed()) {
+      console.log("[chatgpt-web] Reusing existing browser page.");
       return this.page;
     }
 
     await ensureChatGptStorage(this.config);
     await this.cleanupExpiredSessions();
+    console.log("[chatgpt-web] Opening authenticated browser page.");
     return this.openAuthenticatedPage(true);
   }
 
@@ -92,6 +102,9 @@ export class ChatGptWebProvider implements LLMClient {
       allowReauth ? "No saved ChatGPT login was found." : null,
     );
 
+    console.log(
+      `[chatgpt-web] Launching ${this.config.headless ? "playwright chromium" : this.config.browserChannel} (${this.config.headless ? "headless" : "visible"}) with saved auth.`,
+    );
     const { browser, context, page } = await launchChatGptBrowser(
       this.config,
       this.config.headless,
@@ -103,6 +116,7 @@ export class ChatGptWebProvider implements LLMClient {
 
     await this.page.goto(this.config.baseUrl, { waitUntil: "domcontentloaded" });
     const state = await detectChatGptUiState(this.page, this.config.startupTimeoutMs);
+    console.log(`[chatgpt-web] Initial page state: ${state}`);
     if (state === "ready") {
       return this.page;
     }
@@ -118,18 +132,21 @@ export class ChatGptWebProvider implements LLMClient {
       throw new Error("ChatGPT login is required. Re-run the login bootstrap to refresh the saved session.");
     }
 
+    await this.writeDiagnostics("initial-page-timeout", this.page);
     throw new Error("Timed out waiting for the ChatGPT composer to become available.");
   }
 
   private async prepareFreshChat(page: Page): Promise<void> {
     await page.goto(this.config.baseUrl, { waitUntil: "domcontentloaded" });
     const state = await detectChatGptUiState(page, this.config.startupTimeoutMs);
+    console.log(`[chatgpt-web] Fresh chat page state: ${state}`);
     if (state === "login_required") {
       await this.shutdown();
       await bootstrapChatGptLogin(this.config, "Saved ChatGPT login expired. Please sign in again.");
       throw new Error("ChatGPT login was refreshed. Please send your message again.");
     }
     if (state !== "ready") {
+      await this.writeDiagnostics("fresh-chat-not-ready", page);
       throw new Error("ChatGPT page was not ready when preparing a fresh chat.");
     }
 
@@ -167,6 +184,7 @@ export class ChatGptWebProvider implements LLMClient {
     const startedAt = Date.now();
     let latestText = previousText;
     let stableTicks = 0;
+    let lastLogAt = 0;
 
     while (Date.now() - startedAt < this.config.responseTimeoutMs) {
       const currentText = await this.getLatestAssistantText(page);
@@ -183,6 +201,13 @@ export class ChatGptWebProvider implements LLMClient {
         if (!generating && stableTicks >= 2) {
           return latestText;
         }
+      }
+
+      if (Date.now() - lastLogAt > 5000) {
+        console.log(
+          `[chatgpt-web] Still waiting... generating=${generating} currentTextLength=${currentText.length}`,
+        );
+        lastLogAt = Date.now();
       }
 
       await page.waitForTimeout(1000);
@@ -260,8 +285,35 @@ export class ChatGptWebProvider implements LLMClient {
     await writeFile(this.sessionStatePath, JSON.stringify(state, null, 2), "utf8");
   }
 
+  private async writeDiagnostics(reason: string, page: Page): Promise<void> {
+    try {
+      await mkdir(this.diagnosticsDir, { recursive: true });
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const prefix = resolve(this.diagnosticsDir, `${stamp}-${reason}`);
+
+      const html = await page.content().catch(() => "");
+      const title = await page.title().catch(() => "");
+      const url = page.url();
+
+      await writeFile(
+        `${prefix}.json`,
+        JSON.stringify({ reason, url, title }, null, 2),
+        "utf8",
+      );
+      await writeFile(`${prefix}.html`, html, "utf8");
+      await page.screenshot({ path: `${prefix}.png`, fullPage: true }).catch(() => undefined);
+
+      console.log(`[chatgpt-web] Wrote diagnostics to ${prefix}.*`);
+    } catch (error) {
+      console.log(
+        `[chatgpt-web] Failed to write diagnostics: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
   private async ensureAuthenticatedSession(reason: string | null): Promise<void> {
     if (await hasChatGptAuthState(this.config)) {
+      console.log("[chatgpt-web] Found saved ChatGPT auth state.");
       return;
     }
 
