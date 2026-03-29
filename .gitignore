@@ -22,6 +22,7 @@ herface-*.wav
 *.tsbuildinfo
 bin/
 obj/
+.tmp/
 
 # gpt profile
 herface/.chatgpt-profile/

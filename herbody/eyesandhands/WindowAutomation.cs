@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Runtime.InteropServices;
 using System.Windows.Automation;
 
 namespace HeronWin.HerBody.EyesAndHands;
@@ -737,32 +738,112 @@ internal static class WindowAutomation
         };
     }
 
+    internal static TaskbarActivationMode ResolveTaskbarActivationMode(
+        bool canInvoke,
+        bool canSelect,
+        bool canToggle,
+        bool isKeyboardFocusable)
+    {
+        if (canInvoke)
+        {
+            return TaskbarActivationMode.Invoke;
+        }
+
+        if (canSelect)
+        {
+            return TaskbarActivationMode.Select;
+        }
+
+        if (canToggle)
+        {
+            return TaskbarActivationMode.Toggle;
+        }
+
+        return isKeyboardFocusable
+            ? TaskbarActivationMode.FocusAndPressEnter
+            : TaskbarActivationMode.FocusOnly;
+    }
+
     private static string ActivateTaskbarElement(AutomationElement element)
     {
-        if (TryGetPattern<InvokePattern>(element, InvokePattern.Pattern, out var invokePattern))
-        {
-            invokePattern.Invoke();
-            Thread.Sleep(150);
-            return "invoked";
-        }
+        var canInvoke = TryGetPattern<InvokePattern>(element, InvokePattern.Pattern, out var invokePattern);
+        var canSelect = TryGetPattern<SelectionItemPattern>(element, SelectionItemPattern.Pattern, out var selectionItemPattern);
+        var canToggle = TryGetPattern<TogglePattern>(element, TogglePattern.Pattern, out var togglePattern);
+        var activationMode = ResolveTaskbarActivationMode(
+            canInvoke,
+            canSelect,
+            canToggle,
+            GetIsKeyboardFocusable(element));
 
-        if (TryGetPattern<SelectionItemPattern>(element, SelectionItemPattern.Pattern, out var selectionItemPattern))
+        switch (activationMode)
         {
-            selectionItemPattern.Select();
-            Thread.Sleep(150);
-            return "selected";
-        }
+            case TaskbarActivationMode.Invoke:
+                invokePattern.Invoke();
+                Thread.Sleep(150);
+                return "invoked";
 
-        if (TryGetPattern<TogglePattern>(element, TogglePattern.Pattern, out var togglePattern))
+            case TaskbarActivationMode.Select:
+                selectionItemPattern.Select();
+                Thread.Sleep(150);
+                return "selected";
+
+            case TaskbarActivationMode.Toggle:
+                togglePattern.Toggle();
+                Thread.Sleep(150);
+                return "toggled";
+
+            case TaskbarActivationMode.FocusAndPressEnter:
+                element.SetFocus();
+                Thread.Sleep(150);
+                PressEnterKey();
+                Thread.Sleep(150);
+                return "focused_and_pressed_enter";
+
+            default:
+                element.SetFocus();
+                Thread.Sleep(150);
+                return "focused";
+        }
+    }
+
+    private static void PressEnterKey()
+    {
+        var inputs = new[]
         {
-            togglePattern.Toggle();
-            Thread.Sleep(150);
-            return "toggled";
-        }
+            new NativeMethods.INPUT
+            {
+                type = NativeMethods.InputKeyboard,
+                U = new NativeMethods.InputUnion
+                {
+                    ki = new NativeMethods.KEYBDINPUT
+                    {
+                        wVk = NativeMethods.VkReturn,
+                    },
+                },
+            },
+            new NativeMethods.INPUT
+            {
+                type = NativeMethods.InputKeyboard,
+                U = new NativeMethods.InputUnion
+                {
+                    ki = new NativeMethods.KEYBDINPUT
+                    {
+                        wVk = NativeMethods.VkReturn,
+                        dwFlags = NativeMethods.KeyEventFKeyUp,
+                    },
+                },
+            },
+        };
 
-        element.SetFocus();
-        Thread.Sleep(150);
-        return "focused";
+        var sent = NativeMethods.SendInput(
+            (uint)inputs.Length,
+            inputs,
+            Marshal.SizeOf<NativeMethods.INPUT>());
+
+        if (sent != (uint)inputs.Length)
+        {
+            throw new InvalidOperationException("Failed to send Enter to the focused taskbar item.");
+        }
     }
 
     private static (AutomationElement Element, string Path, string ActionTaken) FocusAutomationElementOrDescendant(
@@ -912,7 +993,16 @@ internal static class WindowAutomation
 
         _ = NativeMethods.BringWindowToTop(handle);
         _ = NativeMethods.SetForegroundWindow(handle);
-        AutomationElement.FromHandle(handle).SetFocus();
+
+        try
+        {
+            AutomationElement.FromHandle(handle).SetFocus();
+        }
+        catch (InvalidOperationException)
+        {
+            // Shell windows like the taskbar may reject direct UIA focus even after they are foregrounded.
+        }
+
         Thread.Sleep(150);
     }
 
@@ -1299,3 +1389,12 @@ internal sealed record MenuInvocationResult(
     int ProcessId,
     string MenuPath,
     string ActionTaken);
+
+internal enum TaskbarActivationMode
+{
+    Invoke,
+    Select,
+    Toggle,
+    FocusAndPressEnter,
+    FocusOnly,
+}

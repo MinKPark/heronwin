@@ -8,6 +8,9 @@ internal static class NativeMethods
     internal delegate bool EnumWindowsProc(nint hWnd, nint lParam);
 
     internal const int SwRestore = 9;
+    internal const uint InputKeyboard = 1;
+    internal const ushort VkReturn = 0x0D;
+    internal const uint KeyEventFKeyUp = 0x0002;
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -59,6 +62,9 @@ internal static class NativeMethods
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     internal static extern int GetClassNameW(nint hWnd, StringBuilder lpClassName, int nMaxCount);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
     internal static string GetWindowText(nint hWnd)
     {
         var length = GetWindowTextLengthW(hWnd);
@@ -81,5 +87,54 @@ internal static class NativeMethods
         public int Top;
         public int Right;
         public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct INPUT
+    {
+        public uint type;
+        public InputUnion U;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    internal struct InputUnion
+    {
+        [FieldOffset(0)]
+        public KEYBDINPUT ki;
+
+        [FieldOffset(0)]
+        public MOUSEINPUT mi;
+
+        [FieldOffset(0)]
+        public HARDWAREINPUT hi;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct KEYBDINPUT
+    {
+        public ushort wVk;
+        public ushort wScan;
+        public uint dwFlags;
+        public uint time;
+        public nuint dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct MOUSEINPUT
+    {
+        public int dx;
+        public int dy;
+        public uint mouseData;
+        public uint dwFlags;
+        public uint time;
+        public nuint dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct HARDWAREINPUT
+    {
+        public uint uMsg;
+        public ushort wParamL;
+        public ushort wParamH;
     }
 }

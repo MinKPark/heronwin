@@ -388,19 +388,19 @@ Response shape:
   "hostElement": { "...": "same host snapshot as above" },
   "activatedElement": {
     "path": "2/0/5",
-    "name": "Visual Studio Code - 1 running window pinned",
+    "name": "Netflix pinned",
     "controlType": "Button",
-    "automationId": "Appid: Microsoft.VisualStudioCode",
+    "automationId": "Appid: 4DF9E0F8.Netflix_mcm4njqhnhss8!Netflix.App",
     "className": "Taskbar.TaskListButtonAutomationPeer",
     "isEnabled": true,
     "isOffscreen": false,
     "hasKeyboardFocus": false,
     "isKeyboardFocusable": true,
-    "availableActions": ["focus", "invoke"],
+    "availableActions": ["focus", "scroll_into_view"],
     "bounds": null,
     "isAppButton": true
   },
-  "actionTaken": "invoked"
+  "actionTaken": "focused_and_pressed_enter"
 }
 ```
 
@@ -409,6 +409,8 @@ Notes:
 - `elementPath` is the most stable selector because taskbar labels can be localized or include running-window counts.
 - If a substring match is ambiguous, the tool fails and asks you to use `elementPath`.
 - This tool only targets visible app buttons from the main taskbar strip, not notification-area icons.
+- When a taskbar button exposes `invoke`, `selection`, or `toggle`, the tool uses that UI Automation pattern first.
+- If the button is only keyboard-focusable, the tool focuses it and sends `Enter`, which can start pinned apps that do not expose an invoke pattern.
 
 ## Practical Caveats
 
