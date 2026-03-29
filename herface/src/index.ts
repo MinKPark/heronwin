@@ -87,6 +87,7 @@ async function main(): Promise<void> {
         let recording;
         try {
           recording = await recordAudio(cfg.maxRecordMs);
+          display.transcribing();
           userText = await openaiClient.transcribeAudio(recording.filePath);
         } catch (err) {
           display.error(

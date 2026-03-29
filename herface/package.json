@@ -14,8 +14,8 @@
     "@modelcontextprotocol/sdk": "^1.26.0",
     "chalk": "^5.4.1",
     "dotenv": "^16.4.7",
-    "mic": "^2.1.2",
-    "openai": "^4.86.2"
+    "openai": "^4.86.2",
+    "speech-recorder": "^2.1.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

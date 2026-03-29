@@ -1,8 +1,7 @@
-import mic from "mic";
-import { createWriteStream } from "fs";
-import { unlink } from "fs/promises";
+import { unlink, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
+import { SpeechRecorder } from "speech-recorder";
 
 export interface RecordingResult {
   filePath: string;
@@ -10,60 +9,193 @@ export interface RecordingResult {
   cleanup: () => Promise<void>;
 }
 
+const SAMPLE_RATE = 16_000;
+const CHANNEL_COUNT = 1;
+const BITS_PER_SAMPLE = 16;
+const SILENCE_GRACE_MS = 1_500;
+
+function ensureWindowsSupported(): void {
+  if (process.platform !== "win32") {
+    throw new Error("This build records directly from the microphone on Windows only.");
+  }
+}
+
+function toBuffer(chunk: Buffer | ArrayBuffer | ArrayBufferView): Buffer {
+  if (Buffer.isBuffer(chunk)) {
+    return chunk;
+  }
+
+  if (ArrayBuffer.isView(chunk)) {
+    return Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+  }
+
+  return Buffer.from(chunk);
+}
+
+function createWavBuffer(pcmData: Buffer): Buffer {
+  const blockAlign = (CHANNEL_COUNT * BITS_PER_SAMPLE) / 8;
+  const byteRate = SAMPLE_RATE * blockAlign;
+  const header = Buffer.alloc(44);
+
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + pcmData.length, 4);
+  header.write("WAVE", 8);
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(CHANNEL_COUNT, 22);
+  header.writeUInt32LE(SAMPLE_RATE, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(BITS_PER_SAMPLE, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(pcmData.length, 40);
+
+  return Buffer.concat([header, pcmData]);
+}
+
 /**
- * Record audio from the default microphone until silence is detected or
+ * Record audio from the default Windows microphone until silence is detected or
  * `maxDurationMs` elapses, whichever comes first.
- *
- * Prerequisites (must be available in PATH):
- *   - Linux/macOS: `arecord` (ALSA) or `rec` (SoX)
- *   - Windows:     `sox` (http://sox.sourceforge.net)
- *
+ * The output is saved as a temporary WAV file for Whisper transcription.
  * Returns the path to a temporary WAV file containing the recorded audio.
  */
 export function recordAudio(maxDurationMs = 30_000): Promise<RecordingResult> {
+  ensureWindowsSupported();
+
   return new Promise((resolve, reject) => {
     const filePath = join(tmpdir(), `herface-${Date.now()}.wav`);
-    const outputStream = createWriteStream(filePath);
+    const pcmChunks: Buffer[] = [];
+    let settled = false;
+    let stopRequested = false;
+    let speechDetected = false;
+    let silenceTimer: NodeJS.Timeout | null = null;
 
-    const micInstance = mic({
-      rate: "16000",
-      channels: "1",
-      bitwidth: "16",
-      encoding: "signed-integer",
-      endian: "little",
-      fileType: "wav",
-      exitOnSilence: 6,
-    });
+    let recorder!: SpeechRecorder;
 
-    const audioStream = micInstance.getAudioStream();
+    const cleanupTempFile = async (): Promise<void> => {
+      await unlink(filePath).catch(() => undefined);
+    };
 
-    audioStream.on("silence", () => {
-      micInstance.stop();
-    });
+    const fail = async (error: unknown): Promise<void> => {
+      if (settled) {
+        return;
+      }
 
-    audioStream.on("error", (err: Error) => {
-      micInstance.stop();
-      reject(err);
-    });
+      settled = true;
+      clearTimeout(timeout);
+      if (silenceTimer) {
+        clearTimeout(silenceTimer);
+      }
 
-    outputStream.on("error", (err: Error) => {
-      micInstance.stop();
-      reject(err);
-    });
+      try {
+        recorder.stop();
+      } catch {
+        // Ignore stop failures once we're already unwinding.
+      }
 
-    outputStream.on("finish", () => {
-      resolve({
-        filePath,
-        cleanup: () => unlink(filePath).catch(() => undefined),
-      });
-    });
+      await cleanupTempFile();
+      reject(error instanceof Error ? error : new Error(String(error)));
+    };
 
-    audioStream.pipe(outputStream);
-    micInstance.start();
+    const finalize = async (): Promise<void> => {
+      if (settled) {
+        return;
+      }
 
-    // Safety timeout — stop recording after maxDurationMs regardless
-    setTimeout(() => {
-      micInstance.stop();
+      settled = true;
+      clearTimeout(timeout);
+      if (silenceTimer) {
+        clearTimeout(silenceTimer);
+      }
+
+      try {
+        const pcmData = Buffer.concat(pcmChunks);
+        if (pcmData.length === 0) {
+          throw new Error(
+            speechDetected
+              ? "No audio was captured from the microphone."
+              : "No speech was detected before recording stopped.",
+          );
+        }
+
+        await writeFile(filePath, createWavBuffer(pcmData));
+        resolve({
+          filePath,
+          cleanup: () => unlink(filePath).catch(() => undefined),
+        });
+      } catch (error) {
+        await cleanupTempFile();
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    };
+
+    const stopAndFinalize = (): void => {
+      if (stopRequested || settled) {
+        return;
+      }
+
+      stopRequested = true;
+      if (silenceTimer) {
+        clearTimeout(silenceTimer);
+        silenceTimer = null;
+      }
+
+      try {
+        recorder.stop();
+      } catch (error) {
+        void fail(error);
+        return;
+      }
+
+      void finalize();
+    };
+
+    const timeout = setTimeout(() => {
+      stopAndFinalize();
     }, maxDurationMs);
+
+    try {
+      recorder = new SpeechRecorder({
+        sampleRate: SAMPLE_RATE,
+        device: -1,
+        consecutiveFramesForSilence: 20,
+        onAudio: ({ audio, speaking, speech }) => {
+          pcmChunks.push(toBuffer(audio));
+
+          const isSpeechFrame = speaking ?? speech ?? false;
+          if (isSpeechFrame) {
+            speechDetected = true;
+            if (silenceTimer) {
+              clearTimeout(silenceTimer);
+              silenceTimer = null;
+            }
+            return;
+          }
+
+          if (speechDetected && !silenceTimer) {
+            silenceTimer = setTimeout(() => {
+              stopAndFinalize();
+            }, SILENCE_GRACE_MS);
+          }
+        },
+        onChunkStart: () => {
+          speechDetected = true;
+          if (silenceTimer) {
+            clearTimeout(silenceTimer);
+            silenceTimer = null;
+          }
+        },
+        onChunkEnd: () => {
+          if (speechDetected) {
+            stopAndFinalize();
+          }
+        },
+      });
+
+      recorder.start();
+    } catch (error) {
+      void fail(error);
+    }
   });
 }

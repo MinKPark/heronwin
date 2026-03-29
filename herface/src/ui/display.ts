@@ -59,6 +59,11 @@ export const display = {
     process.stdout.write(chalk.red("⏺  Recording… (stop on silence or timeout)\n"));
   },
 
+  /** Print the "transcribing..." indicator. */
+  transcribing(): void {
+    process.stdout.write(chalk.blue("📝  Transcribing speech…\n"));
+  },
+
   /** Print a visual separator. */
   separator(): void {
     console.log(chalk.dim("─".repeat(60)));
@@ -67,7 +72,7 @@ export const display = {
   /** Print the application banner. */
   banner(): void {
     console.log(chalk.bold.green("\n  ╔══════════════════════════════╗"));
-    console.log(chalk.bold.green("  ║      H E R F A C E  🎙️        ║"));
+    console.log(chalk.bold.green("  ║      H E R F A C E  MIC      ║"));
     console.log(chalk.bold.green("  ║  AI voice agent — heronwin   ║"));
     console.log(chalk.bold.green("  ╚══════════════════════════════╝\n"));
   },
