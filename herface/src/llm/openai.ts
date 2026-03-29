@@ -1,22 +1,25 @@
 import OpenAI from "openai";
 import { readFile } from "fs/promises";
-import type { AgentMessage, ChatResult, LLMClient, ToolDefinition } from "./types.js";
+import type {
+  AgentMessage,
+  AudioTranscriber,
+  ChatResult,
+  LLMClient,
+  ToolDefinition,
+} from "./types.js";
 import type {
   ChatCompletionMessageParam,
   ChatCompletionTool,
 } from "openai/resources/chat/completions.js";
 
-export class OpenAILLMClient implements LLMClient {
+export class OpenAIApiProvider implements LLMClient {
+  readonly providerId = "openai-api" as const;
   private client: OpenAI;
-  private apiKey: string;
-  private model: string;
-  private whisperModel: string;
+  readonly displayName: string;
 
-  constructor(apiKey: string, model: string, whisperModel: string) {
+  constructor(apiKey: string, private model: string) {
     this.client = new OpenAI({ apiKey });
-    this.apiKey = apiKey;
-    this.model = model;
-    this.whisperModel = whisperModel;
+    this.displayName = `OpenAI API (${model})`;
   }
 
   async chat(messages: AgentMessage[], tools: ToolDefinition[]): Promise<ChatResult> {
@@ -48,6 +51,14 @@ export class OpenAILLMClient implements LLMClient {
       })) ?? [];
 
     return { text: message.content, toolCalls };
+  }
+}
+
+export class OpenAIWhisperTranscriber implements AudioTranscriber {
+  readonly displayName: string;
+
+  constructor(private apiKey: string, private whisperModel: string) {
+    this.displayName = `OpenAI Whisper (${whisperModel})`;
   }
 
   /** Transcribe an audio file using OpenAI Whisper. */

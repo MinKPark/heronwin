@@ -28,12 +28,26 @@ export interface ChatResult {
   toolCalls: ToolCallRequest[];
 }
 
-/** Common interface implemented by both OpenAI and Claude clients. */
+export type LlmProviderId = "openai-api" | "chatgpt-web" | "claude-api";
+
+/** Common interface implemented by every chat backend. */
 export interface LLMClient {
+  readonly providerId: LlmProviderId;
+  readonly displayName: string;
+
   /**
    * Send the conversation so far to the LLM and return its response.
    * @param messages - Conversation history
    * @param tools    - Available tools the LLM may call
    */
   chat(messages: AgentMessage[], tools: ToolDefinition[]): Promise<ChatResult>;
+
+  /** Optional cleanup hook for browser-backed providers. */
+  shutdown?(): Promise<void>;
+}
+
+/** Speech-to-text is a separate capability from chat completion. */
+export interface AudioTranscriber {
+  readonly displayName: string;
+  transcribeAudio(audioFilePath: string): Promise<string>;
 }

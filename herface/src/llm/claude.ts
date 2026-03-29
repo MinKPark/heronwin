@@ -10,12 +10,13 @@ import type {
 } from "@anthropic-ai/sdk/resources/messages.js";
 
 export class ClaudeLLMClient implements LLMClient {
+  readonly providerId = "claude-api" as const;
   private client: Anthropic;
-  private model: string;
+  readonly displayName: string;
 
-  constructor(apiKey: string, model: string) {
+  constructor(apiKey: string, private model: string) {
     this.client = new Anthropic({ apiKey });
-    this.model = model;
+    this.displayName = `Claude API (${model})`;
   }
 
   async chat(messages: AgentMessage[], tools: ToolDefinition[]): Promise<ChatResult> {

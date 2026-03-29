@@ -17,6 +17,7 @@
     "chalk": "^5.4.1",
     "dotenv": "^16.4.7",
     "openai": "^4.86.2",
+    "playwright": "^1.53.2",
     "speech-recorder": "^2.1.0"
   },
   "devDependencies": {

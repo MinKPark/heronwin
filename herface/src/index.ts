@@ -1,7 +1,6 @@
 import readline from "readline";
 import { loadConfig } from "./config.js";
-import { OpenAILLMClient } from "./llm/openai.js";
-import { ClaudeLLMClient } from "./llm/claude.js";
+import { createAudioTranscriber, createLlmProvider } from "./llm/factory.js";
 import { McpClientManager } from "./mcp/client.js";
 import { recordAudio } from "./voice/recorder.js";
 import { display } from "./ui/display.js";
@@ -16,20 +15,19 @@ async function main(): Promise<void> {
 
   // ── LLM client ─────────────────────────────────────────────
   let llmClient: LLMClient;
-  if (cfg.llmProvider === "openai") {
-    if (!cfg.openaiApiKey) {
-      display.error("OPENAI_API_KEY is not set. Copy .env.example to .env and fill it in.");
-      process.exit(1);
-    }
-    llmClient = new OpenAILLMClient(cfg.openaiApiKey, cfg.openaiModel, cfg.whisperModel);
-    display.info(`LLM: OpenAI ${cfg.openaiModel}`);
-  } else {
-    if (!cfg.anthropicApiKey) {
-      display.error("ANTHROPIC_API_KEY is not set. Copy .env.example to .env and fill it in.");
-      process.exit(1);
-    }
-    llmClient = new ClaudeLLMClient(cfg.anthropicApiKey, cfg.anthropicModel);
-    display.info(`LLM: Anthropic ${cfg.anthropicModel}`);
+  try {
+    llmClient = createLlmProvider(cfg);
+  } catch (err) {
+    display.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+
+  const audioTranscriber = createAudioTranscriber(cfg);
+  display.info(`LLM: ${llmClient.displayName}`);
+  if (cfg.llmProvider === "chatgpt-web") {
+    display.info(
+      `ChatGPT browser mode will use ${cfg.chatgptWeb.browserChannel} with profile ${cfg.chatgptWeb.profileDir}`,
+    );
   }
 
   // ── MCP servers ────────────────────────────────────────────
@@ -72,13 +70,9 @@ async function main(): Promise<void> {
         // No typed text — use microphone
         display.recording();
 
-        const openaiClient =
-          cfg.llmProvider === "openai" ? (llmClient as OpenAILLMClient) : null;
-
-        if (!openaiClient) {
+        if (!audioTranscriber) {
           display.warn(
-            "Voice transcription requires the OpenAI provider (Whisper). " +
-              "Please type your message instead.",
+            "Voice transcription requires OPENAI_API_KEY for Whisper. Please type your message instead.",
           );
           askPrompt();
           return;
@@ -88,7 +82,7 @@ async function main(): Promise<void> {
         try {
           recording = await recordAudio(cfg.maxRecordMs);
           display.transcribing();
-          userText = await openaiClient.transcribeAudio(recording.filePath);
+          userText = await audioTranscriber.transcribeAudio(recording.filePath);
         } catch (err) {
           display.error(
             `Recording/transcription failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -123,6 +117,7 @@ async function main(): Promise<void> {
   const shutdown = async (): Promise<void> => {
     display.info("Shutting down…");
     rl.close();
+    await llmClient.shutdown?.();
     await mcpManager.disconnectAll();
     process.exit(0);
   };

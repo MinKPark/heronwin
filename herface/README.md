@@ -2,13 +2,13 @@
 
 AI voice-agent UI for **heronwin**.
 
-Connects to Cloud LLMs (OpenAI GPT and Anthropic Claude) and local MCP servers. The primary input mode is **voice** via the Windows microphone; all output is displayed as text in the terminal.
+Connects to multiple LLM backends and local MCP servers. The primary input mode is **voice** via the Windows microphone; all output is displayed as text in the terminal.
 
 ## Features
 
 - 🎙️ **Voice input** — records directly from the default Windows microphone and transcribes speech using OpenAI Whisper
 - ⌨️ **Keyboard fallback** — type a message if voice is unavailable
-- 🤖 **Multi-LLM** — switch between OpenAI GPT or Anthropic Claude via an environment variable
+- 🤖 **Multi-provider** — switch between OpenAI API, browser-driven ChatGPT, or Anthropic Claude
 - 🔧 **MCP tool use** — connects to any number of local MCP servers and exposes their tools to the LLM
 - 💬 **Multi-turn conversation** — full conversation history is maintained across turns
 
@@ -18,8 +18,9 @@ Connects to Cloud LLMs (OpenAI GPT and Anthropic Claude) and local MCP servers. 
 |-------------|-------|
 | Windows 10/11 | This build records directly from the Windows microphone |
 | Node.js ≥ 18 | |
-| OpenAI API key | Required for GPT and/or Whisper transcription |
+| OpenAI API key | Required for OpenAI API mode and for Whisper transcription |
 | Anthropic API key | Required only when using Claude as the LLM provider |
+| Chrome / Edge desktop browser | Required for browser-driven ChatGPT mode |
 
 ### Native microphone backend
 
@@ -63,11 +64,19 @@ npm run mcp:eyesandhands:configured
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LLM_PROVIDER` | `openai` | `openai` or `claude` |
+| `LLM_PROVIDER` | `openai-api` | `openai-api`, `chatgpt-web`, or `claude-api` |
 | `OPENAI_API_KEY` | | OpenAI API key |
-| `OPENAI_MODEL` | `gpt-4o` | OpenAI model name |
+| `OPENAI_MODEL` | `gpt-5.2-chat-latest` | OpenAI API model name |
 | `ANTHROPIC_API_KEY` | | Anthropic API key |
 | `ANTHROPIC_MODEL` | `claude-3-5-sonnet-20241022` | Claude model name |
+| `CHATGPT_BASE_URL` | `https://chatgpt.com/` | Base URL for browser-driven ChatGPT |
+| `CHATGPT_BROWSER_CHANNEL` | `msedge` | `msedge`, `chrome`, or `chromium` |
+| `CHATGPT_PROFILE_DIR` | `.chatgpt-profile` | Persistent browser profile directory |
+| `CHATGPT_HEADLESS` | `false` | Launch ChatGPT browser headless or visible |
+| `CHATGPT_PROJECT_NAME` | `her` | Local project label used by browser mode |
+| `CHATGPT_SESSION_RETENTION_DAYS` | `14` | How long local ChatGPT browser session records are kept |
+| `CHATGPT_STARTUP_TIMEOUT_MS` | `120000` | Max wait for ChatGPT UI login/composer readiness |
+| `CHATGPT_RESPONSE_TIMEOUT_MS` | `120000` | Max wait for ChatGPT browser responses |
 | `WHISPER_MODEL` | `whisper-1` | OpenAI Whisper model for STT |
 | `MAX_RECORD_MS` | `30000` | Max recording duration (ms) |
 | `MCP_SERVERS` | `[]` | JSON array of MCP server configs |
@@ -83,6 +92,15 @@ npm run mcp:eyesandhands:configured
   }
 ]
 ```
+
+### Browser-driven ChatGPT mode
+
+Set `LLM_PROVIDER=chatgpt-web` to run `herface` against a persistent Chromium session instead of a direct API endpoint.
+
+- `herface` will launch a browser profile and reuse it across runs.
+- Sign in to ChatGPT in that browser profile the first time if prompted.
+- Browser mode bridges tool use by asking ChatGPT to emit a JSON envelope that `herface` converts back into tool calls.
+- Session metadata is kept locally for the configured retention window.
 
 ## Usage
 
