@@ -1,53 +1,64 @@
 # eyesandhands
 
-An MCP server for Windows UI inspection and interaction using UI Automation.
+`eyesandhands` is a Windows-only MCP server that lets an agent inspect desktop UI state and perform a small set of accessibility-style interactions through Win32 and UI Automation.
 
-`eyesandhands` is intended to help `herface` understand desktop UI state and carry out basic accessibility-style actions against native Windows applications.
+It is designed for "look at the current app, pick the right window, inspect the control tree, focus the element I want, and activate a top-level menu item" workflows rather than full GUI automation.
 
-## First Tools
+## What It Can Do
 
 | Tool | Description |
 |------|-------------|
-| `list_windows` | List visible top-level windows on the desktop |
-| `select_window` | Select a window by handle or title and bring it to the foreground |
-| `describe_active_window` | Return a structured UI Automation tree for the current active window |
-| `focus_active_window_element` | Focus a specific child element in the active window by path |
-| `describe_focused_element` | Return a structured UI Automation tree rooted at the focused element |
-| `invoke_main_menu_item` | Open or invoke a main-menu path such as `File > Open` |
+| `list_windows` | List visible top-level windows on the current desktop session |
+| `select_window` | Select a window by handle or title substring and bring it to the foreground |
+| `describe_active_window` | Return a bounded UI Automation tree for the foreground window |
+| `focus_active_window_element` | Focus an element from the active window tree using its path |
+| `describe_focused_element` | Return a bounded UI Automation tree rooted at the currently focused element |
+| `invoke_main_menu_item` | Open or invoke a menu path such as `File > Open` |
 
-## Notes
+## How It Works
 
-- Windows only
-- Requires a .NET 8+ SDK to build and run
-- Uses Win32 window enumeration plus `System.Windows.Automation` for menu discovery and focus
-- Keeps track of the currently selected window so menu actions can omit `windowHandle`
-- UI tree inspection tools cap `maxDepth` at 4 levels to keep JSON payloads bounded
+- Window discovery uses Win32 window enumeration.
+- UI inspection and interaction use `System.Windows.Automation`.
+- All UI Automation work is serialized onto a dedicated STA thread, which is the safest way to interact with many Windows accessibility APIs.
+- The server keeps an in-memory "selected window" handle. That state is used by `list_windows` and lets `invoke_main_menu_item` omit `windowHandle`.
+
+## Requirements
+
+- Windows desktop session
+- .NET 8 SDK or newer
+- An interactive user session if you want to inspect or focus real windows
+
+If you start the server from a non-interactive session, window enumeration and focus behavior may be incomplete or unavailable.
 
 ## Build and Run
+
+From this directory:
 
 ```bash
 dotnet restore
 dotnet build
-dotnet run --project ./eyesandhands.csproj
+dotnet run --project .\eyesandhands.csproj
 ```
 
-The server communicates over stdio using MCP and is meant to be launched by an MCP client.
+The normal startup mode is an MCP stdio server intended to be launched by an MCP client.
 
-For a quick manual desktop check without MCP:
+### Console Helpers
+
+`eyesandhands` also includes a small console mode for quick sanity checks:
 
 ```bash
-dotnet run --project ./eyesandhands.csproj -- --selftest
+dotnet run --project .\eyesandhands.csproj -- --help
+dotnet run --project .\eyesandhands.csproj -- --selftest
+dotnet run --project .\eyesandhands.csproj -- --selftest-json
 ```
 
-Or print the same result as JSON:
-
-```bash
-dotnet run --project ./eyesandhands.csproj -- --selftest-json
-```
+- `--help` prints the supported console flags.
+- `--selftest` prints a human-readable list of visible titled windows.
+- `--selftest-json` prints the same information as JSON.
 
 ## MCP Client Configuration
 
-From `herface`, add an entry like this to `MCP_SERVERS`:
+### Run From Source
 
 ```json
 [
@@ -59,4 +70,247 @@ From `herface`, add an entry like this to `MCP_SERVERS`:
 ]
 ```
 
-If you prefer a build-first workflow, point `command` and `args` at the compiled executable instead.
+### Run From a Built Executable
+
+After `dotnet build`, point your MCP client at the compiled executable instead. This is a good fit when you want predictable startup time and do not need a source-based workflow.
+
+## Recommended Flow
+
+Most clients should use the tools in this order:
+
+1. Call `list_windows`.
+2. Call `select_window` with a specific `windowHandle` when possible.
+3. Call `describe_active_window` to inspect the current control tree.
+4. Use a returned `path` with `focus_active_window_element`.
+5. Optionally call `describe_focused_element` to verify where focus landed.
+6. Use `invoke_main_menu_item` for top-level menu navigation.
+
+This sequence matters because only `select_window` persists target-window state, and menu invocation falls back to that saved selection when `windowHandle` is omitted.
+
+## Tool Reference
+
+### `list_windows`
+
+Lists visible top-level windows that have a non-empty title.
+
+Response shape:
+
+```json
+{
+  "selectedWindowHandle": "0x00123456",
+  "windows": [
+    {
+      "handle": "0x00123456",
+      "title": "Untitled - Notepad",
+      "className": "Notepad",
+      "processId": 12345,
+      "bounds": {
+        "left": 100,
+        "top": 100,
+        "width": 900,
+        "height": 700
+      },
+      "isSelected": true
+    }
+  ]
+}
+```
+
+Notes:
+
+- `selectedWindowHandle` is `null` until `select_window` succeeds.
+- `isSelected` marks the same handle inside the returned list.
+- Windows are sorted with the selected one first, then by title.
+
+### `select_window`
+
+Brings a window to the foreground and stores it as the selected window.
+
+Parameters:
+
+- `windowHandle`: preferred; use a value returned by `list_windows`
+- `titleContains`: case-insensitive title substring match; only used when `windowHandle` is omitted
+
+Response shape:
+
+```json
+{
+  "handle": "0x00123456",
+  "title": "Untitled - Notepad",
+  "className": "Notepad",
+  "processId": 12345,
+  "wasFocused": true
+}
+```
+
+Notes:
+
+- If `titleContains` matches multiple windows, the call fails and asks for a specific handle.
+- Minimized windows are restored before focus is attempted.
+
+### `describe_active_window`
+
+Returns a UI Automation tree for the current foreground window.
+
+Parameters:
+
+- `maxDepth`: required range `1..4`
+
+Response shape:
+
+```json
+{
+  "window": {
+    "handle": "0x00123456",
+    "title": "Untitled - Notepad",
+    "className": "Notepad",
+    "processId": 12345,
+    "bounds": {
+      "left": 100,
+      "top": 100,
+      "width": 900,
+      "height": 700
+    }
+  },
+  "maxDepth": 2,
+  "elementTree": {
+    "path": "root",
+    "name": "Untitled - Notepad",
+    "controlType": "Window",
+    "automationId": "",
+    "className": "Notepad",
+    "isEnabled": true,
+    "isOffscreen": false,
+    "hasKeyboardFocus": false,
+    "isKeyboardFocusable": true,
+    "availableActions": ["close", "focus", "maximize", "minimize", "move", "resize", "restore"],
+    "bounds": {
+      "left": 100,
+      "top": 100,
+      "width": 900,
+      "height": 700
+    },
+    "children": [
+      {
+        "path": "0",
+        "name": "Menu bar",
+        "controlType": "MenuBar",
+        "automationId": "",
+        "className": "",
+        "isEnabled": true,
+        "isOffscreen": false,
+        "hasKeyboardFocus": false,
+        "isKeyboardFocusable": false,
+        "availableActions": [],
+        "bounds": null,
+        "children": []
+      }
+    ]
+  }
+}
+```
+
+Notes:
+
+- Child paths use slash-delimited indexes like `0`, `2/1`, or `3/0/4`.
+- The root path is always `root`.
+- `availableActions` is descriptive metadata only. This server currently exposes focus and menu tools, not a general action executor.
+
+### `focus_active_window_element`
+
+Attempts to focus a specific element in the active window.
+
+Parameters:
+
+- `elementPath`: a path returned by `describe_active_window`, or `root`
+
+Response shape:
+
+```json
+{
+  "window": { "...": "same window descriptor as above" },
+  "focusedElement": {
+    "path": "2/1",
+    "name": "Text Editor",
+    "controlType": "Edit",
+    "automationId": "15",
+    "className": "RichEditD2DPT",
+    "isEnabled": true,
+    "isOffscreen": false,
+    "hasKeyboardFocus": true,
+    "isKeyboardFocusable": true,
+    "availableActions": ["focus", "set_value"],
+    "bounds": {
+      "left": 110,
+      "top": 145,
+      "width": 880,
+      "height": 620
+    },
+    "children": []
+  },
+  "actionTaken": "focused"
+}
+```
+
+Notes:
+
+- If the requested element cannot take focus directly, the server walks downward and tries focusable descendants.
+- `actionTaken` may be `focused`, `selected_and_focused`, or `scrolled_and_focused`.
+- When focus lands on a descendant, the returned `focusedElement.path` may differ from the requested path.
+
+### `describe_focused_element`
+
+Returns a UI Automation tree rooted at the current focused element inside the active window.
+
+Parameters:
+
+- `maxDepth`: required range `1..4`
+
+Notes:
+
+- The root path in this response is `focused`.
+- The call fails if the currently focused element does not belong to the active foreground window.
+
+### `invoke_main_menu_item`
+
+Invokes a traditional main-menu path such as `File > Open`.
+
+Parameters:
+
+- `menuPath`: `>`-separated menu labels
+- `windowHandle`: optional; when omitted, the server uses the current selected window
+
+Response shape:
+
+```json
+{
+  "handle": "0x00123456",
+  "title": "Untitled - Notepad",
+  "processId": 12345,
+  "menuPath": "File > Open",
+  "actionTaken": "invoked"
+}
+```
+
+Notes:
+
+- Menu matching is forgiving: it ignores access-key markers such as `&File` and also tolerates trailing ellipses.
+- Intermediate menu items are expanded or selected as needed.
+- If no window is supplied and no window has been selected yet, the call fails with guidance to run `list_windows` and `select_window` first.
+- This tool is intended for standard main menus exposed through UI Automation. Ribbon controls, custom toolbars, and owner-drawn menus may not appear.
+
+## Practical Caveats
+
+- UI Automation coverage varies by application. Classic Win32 apps often work well; custom-rendered apps may expose little or nothing.
+- Focus is inherently stateful. If the user changes the foreground window between calls, `describe_active_window` and `describe_focused_element` will reflect the new active app.
+- `describe_*` responses are intentionally depth-limited to keep MCP payloads bounded.
+- Menu discovery waits briefly for submenu items to appear, but heavily animated or delayed UIs can still time out.
+- The selected window is process-local state. Restarting the server clears it.
+
+## Troubleshooting
+
+- No windows returned: run from the logged-in desktop session, not a background service or detached shell.
+- `maxDepth` error: use a value from `1` to `4`.
+- "No window was supplied and no window is currently selected": call `select_window` first or pass `windowHandle`.
+- Wrong window focused: prefer `windowHandle` over `titleContains` when multiple similar windows are open.
+- Menu item not found: confirm the app exposes a standard menu bar through UI Automation and that the labels match what the accessibility tree reports.
