@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
 import { config } from "dotenv";
 
@@ -14,6 +15,8 @@ export interface McpServerConfig {
 
 export interface Config {
   llmProvider: LlmProviderId;
+  agentDefinitionPath: string;
+  agentDefinition: string;
   openaiApiKey: string;
   openaiModel: string;
   anthropicApiKey: string;
@@ -36,6 +39,10 @@ export interface Config {
 
 export function loadConfig(): Config {
   const provider = normalizeProvider(process.env.LLM_PROVIDER ?? "openai-api");
+  const agentDefinitionPath = resolve(
+    process.cwd(),
+    process.env.AGENT_DEFINITION_PATH ?? ".github/agents/her.agent.md",
+  );
 
   let mcpServers: McpServerConfig[] = [];
   const mcpServersRaw = process.env.MCP_SERVERS;
@@ -49,6 +56,8 @@ export function loadConfig(): Config {
 
   return {
     llmProvider: provider,
+    agentDefinitionPath,
+    agentDefinition: loadAgentDefinition(agentDefinitionPath),
     openaiApiKey: process.env.OPENAI_API_KEY ?? "",
     openaiModel: process.env.OPENAI_MODEL ?? "gpt-5.2-chat-latest",
     anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
@@ -68,6 +77,25 @@ export function loadConfig(): Config {
       responseTimeoutMs: parseInt(process.env.CHATGPT_RESPONSE_TIMEOUT_MS ?? "120000", 10),
     },
   };
+}
+
+function loadAgentDefinition(agentDefinitionPath: string): string {
+  if (!existsSync(agentDefinitionPath)) {
+    console.warn(
+      `Warning: agent definition file not found at "${agentDefinitionPath}" — continuing without it.`,
+    );
+    return "";
+  }
+
+  try {
+    return readFileSync(agentDefinitionPath, "utf8").trim();
+  } catch (error) {
+    console.warn(
+      `Warning: failed to read agent definition at "${agentDefinitionPath}" — continuing without it.`,
+      error,
+    );
+    return "";
+  }
 }
 
 function normalizeProvider(value: string): LlmProviderId {

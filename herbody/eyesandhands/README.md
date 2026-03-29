@@ -14,10 +14,13 @@ It is designed for "look at the current app, pick the right window, inspect the 
 | `focus_active_window_element` | Focus an element from the selected window tree using its path |
 | `describe_focused_element` | Return a bounded UI Automation tree rooted at the currently focused element inside the selected window |
 | `invoke_main_menu_item` | Open or invoke a menu path such as `File > Open` |
+| `list_taskbar_elements` | List visible elements on the main Windows taskbar strip |
+| `activate_taskbar_app` | Activate one visible app button from the main Windows taskbar |
 
 ## How It Works
 
 - Window discovery uses Win32 window enumeration.
+- Taskbar discovery uses the main `Shell_TrayWnd` window plus UI Automation.
 - UI inspection and interaction use `System.Windows.Automation`.
 - All UI Automation work is serialized onto a dedicated STA thread, which is the safest way to interact with many Windows accessibility APIs.
 - The server keeps an in-memory "selected window" handle. That state is used by `list_windows`, the `describe_*` tools, `focus_active_window_element`, and lets `invoke_main_menu_item` omit `windowHandle`.
@@ -84,6 +87,12 @@ Most clients should use the tools in this order:
 4. Use a returned `path` with `focus_active_window_element`.
 5. Optionally call `describe_focused_element` to verify where focus landed.
 6. Use `invoke_main_menu_item` for top-level menu navigation.
+
+For taskbar-driven workflows:
+
+1. Call `list_taskbar_elements`.
+2. Pick an app button from the returned `elements`.
+3. Call `activate_taskbar_app`, preferably with the returned `path`.
 
 This sequence matters because `select_window` persists target-window state, and subsequent inspection, focus, and menu operations refocus that saved window before acting.
 
@@ -301,6 +310,105 @@ Notes:
 - Intermediate menu items are expanded or selected as needed.
 - If no window is supplied and no window has been selected yet, the call fails with guidance to run `list_windows` and `select_window` first.
 - This tool is intended for standard main menus exposed through UI Automation. Ribbon controls, custom toolbars, and owner-drawn menus may not appear.
+
+### `list_taskbar_elements`
+
+Lists visible direct children of the main Windows taskbar strip. On modern Windows builds this usually includes Start, Search, Task View, and pinned or running app buttons.
+
+Response shape:
+
+```json
+{
+  "taskbarWindow": {
+    "handle": "0x00000000",
+    "title": "",
+    "className": "Shell_TrayWnd",
+    "processId": 1234,
+    "bounds": {
+      "left": 0,
+      "top": 1040,
+      "width": 1920,
+      "height": 40
+    }
+  },
+  "hostElement": {
+    "path": "2/0",
+    "name": "",
+    "controlType": "Pane",
+    "automationId": "TaskbarFrame",
+    "className": "Taskbar.TaskbarFrameAutomationPeer",
+    "isEnabled": true,
+    "isOffscreen": false,
+    "hasKeyboardFocus": false,
+    "isKeyboardFocusable": false,
+    "availableActions": [],
+    "bounds": null,
+    "children": []
+  },
+  "elements": [
+    {
+      "path": "2/0/1",
+      "name": "Start",
+      "controlType": "Button",
+      "automationId": "StartButton",
+      "className": "ToggleButton",
+      "isEnabled": true,
+      "isOffscreen": false,
+      "hasKeyboardFocus": false,
+      "isKeyboardFocusable": true,
+      "availableActions": ["focus", "invoke", "toggle"],
+      "bounds": null,
+      "isAppButton": false
+    }
+  ]
+}
+```
+
+Notes:
+
+- `elements` only includes visible direct children of the main taskbar host.
+- `path` values can be passed directly to `activate_taskbar_app`.
+- `isAppButton` distinguishes pinned/running app buttons from Start/Search-style taskbar controls.
+
+### `activate_taskbar_app`
+
+Activates one visible taskbar app button. If the app is pinned but not running, this typically starts it. If it is already running, this usually behaves like clicking its taskbar button.
+
+Parameters:
+
+- `elementPath`: preferred; use a `path` returned by `list_taskbar_elements`
+- `titleContains`: optional fallback match against the visible app button label
+- `automationIdContains`: optional fallback match against the visible app button automation id
+
+Response shape:
+
+```json
+{
+  "taskbarWindow": { "...": "same taskbar window descriptor as above" },
+  "hostElement": { "...": "same host snapshot as above" },
+  "activatedElement": {
+    "path": "2/0/5",
+    "name": "Visual Studio Code - 1 running window pinned",
+    "controlType": "Button",
+    "automationId": "Appid: Microsoft.VisualStudioCode",
+    "className": "Taskbar.TaskListButtonAutomationPeer",
+    "isEnabled": true,
+    "isOffscreen": false,
+    "hasKeyboardFocus": false,
+    "isKeyboardFocusable": true,
+    "availableActions": ["focus", "invoke"],
+    "bounds": null,
+    "isAppButton": true
+  },
+  "actionTaken": "invoked"
+}
+```
+
+Notes:
+
+- `elementPath` is the most stable selector because taskbar labels can be localized or include running-window counts.
+- If a substring match is ambiguous, the tool fails and asks you to use `elementPath`.
+- This tool only targets visible app buttons from the main taskbar strip, not notification-area icons.
 
 ## Practical Caveats
 

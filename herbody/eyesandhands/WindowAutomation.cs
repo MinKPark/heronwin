@@ -19,6 +19,14 @@ internal static class WindowAutomation
     private static readonly Condition MenuItemCondition =
         new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem);
 
+    private static readonly string[] TaskbarHostAutomationIds = ["TaskbarFrame"];
+    private static readonly string[] TaskbarHostClassNames =
+    [
+        "Taskbar.TaskbarFrameAutomationPeer",
+        "MSTaskSwWClass",
+        "MSTaskListWClass",
+    ];
+
     private static readonly TimeSpan MenuSearchTimeout = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan MenuSearchInterval = TimeSpan.FromMilliseconds(150);
 
@@ -96,6 +104,55 @@ internal static class WindowAutomation
         selectionState.SetSelectedHandle(handle);
 
         return BuildSelectionResult(handle, wasFocused: true);
+    }
+
+    internal static TaskbarElementListResult ListTaskbarElements()
+    {
+        var (taskbarHandle, taskbarRoot) = GetTaskbarRootElement();
+        var (hostElement, hostPath) = FindMainTaskbarHost(taskbarRoot);
+        var visibleElements = EnumerateVisibleTaskbarChildren(hostElement, hostPath);
+
+        return new TaskbarElementListResult(
+            BuildWindowDescriptor(taskbarHandle),
+            BuildElementSnapshot(hostElement, hostPath, [], includeChildren: false),
+            visibleElements);
+    }
+
+    internal static TaskbarAppActivationResult ActivateTaskbarApp(
+        string? elementPath,
+        string? titleContains,
+        string? automationIdContains)
+    {
+        if (string.IsNullOrWhiteSpace(elementPath) &&
+            string.IsNullOrWhiteSpace(titleContains) &&
+            string.IsNullOrWhiteSpace(automationIdContains))
+        {
+            throw new InvalidOperationException(
+                "Provide elementPath, titleContains, or automationIdContains to target a taskbar app.");
+        }
+
+        var (taskbarHandle, taskbarRoot) = GetTaskbarRootElement();
+        var (hostElement, hostPath) = FindMainTaskbarHost(taskbarRoot);
+        var visibleApps = EnumerateVisibleTaskbarChildren(hostElement, hostPath)
+            .Where(static element => element.IsAppButton)
+            .ToArray();
+
+        if (visibleApps.Length == 0)
+        {
+            throw new InvalidOperationException("No visible taskbar app buttons are currently available.");
+        }
+
+        var target = ResolveTaskbarAppTarget(visibleApps, elementPath, titleContains, automationIdContains);
+        FocusWindow(taskbarHandle);
+
+        var targetElement = ResolveElementPath(taskbarRoot, target.Path);
+        var actionTaken = ActivateTaskbarElement(targetElement);
+
+        return new TaskbarAppActivationResult(
+            BuildWindowDescriptor(taskbarHandle),
+            BuildElementSnapshot(hostElement, hostPath, [], includeChildren: false),
+            BuildTaskbarElementSummary(targetElement, target.Path),
+            actionTaken);
     }
 
     internal static WindowTreeResult DescribeActiveWindow(
@@ -481,6 +538,231 @@ internal static class WindowAutomation
         }
 
         return elementPath.Trim().Replace('\\', '/');
+    }
+
+    private static (nint Handle, AutomationElement RootElement) GetTaskbarRootElement()
+    {
+        var handle = NativeMethods.FindWindowW("Shell_TrayWnd", null);
+        if (handle == nint.Zero || !NativeMethods.IsWindow(handle))
+        {
+            throw new InvalidOperationException("Could not locate the main Windows taskbar window.");
+        }
+
+        return (handle, AutomationElement.FromHandle(handle));
+    }
+
+    private static (AutomationElement Element, string Path) FindMainTaskbarHost(AutomationElement taskbarRoot)
+    {
+        foreach (var automationId in TaskbarHostAutomationIds)
+        {
+            var match = FindElementWithPath(
+                taskbarRoot,
+                "root",
+                element => string.Equals(GetAutomationId(element), automationId, StringComparison.Ordinal));
+            if (match is not null)
+            {
+                return match.Value;
+            }
+        }
+
+        foreach (var className in TaskbarHostClassNames)
+        {
+            var match = FindElementWithPath(
+                taskbarRoot,
+                "root",
+                element => string.Equals(GetAutomationClassName(element), className, StringComparison.Ordinal));
+            if (match is not null)
+            {
+                return match.Value;
+            }
+        }
+
+        var runningApplicationsMatch = FindElementWithPath(
+            taskbarRoot,
+            "root",
+            element => string.Equals(GetElementName(element), "Running applications", StringComparison.OrdinalIgnoreCase));
+        if (runningApplicationsMatch is not null)
+        {
+            return runningApplicationsMatch.Value;
+        }
+
+        throw new InvalidOperationException("Could not find the main taskbar host element through UI Automation.");
+    }
+
+    private static (AutomationElement Element, string Path)? FindElementWithPath(
+        AutomationElement root,
+        string path,
+        Func<AutomationElement, bool> predicate)
+    {
+        if (predicate(root))
+        {
+            return (root, path);
+        }
+
+        var children = root.FindAll(TreeScope.Children, Condition.TrueCondition);
+        for (var i = 0; i < children.Count; i++)
+        {
+            var childPath = path == "root" ? $"{i}" : $"{path}/{i}";
+            var match = FindElementWithPath(children[i], childPath, predicate);
+            if (match is not null)
+            {
+                return match;
+            }
+        }
+
+        return null;
+    }
+
+    private static IReadOnlyList<TaskbarElementSummary> EnumerateVisibleTaskbarChildren(
+        AutomationElement hostElement,
+        string hostPath)
+    {
+        var result = new List<TaskbarElementSummary>();
+        var children = hostElement.FindAll(TreeScope.Children, Condition.TrueCondition);
+        for (var i = 0; i < children.Count; i++)
+        {
+            var child = children[i];
+            if (GetIsOffscreen(child))
+            {
+                continue;
+            }
+
+            var childPath = hostPath == "root" ? $"{i}" : $"{hostPath}/{i}";
+            result.Add(BuildTaskbarElementSummary(child, childPath));
+        }
+
+        return result;
+    }
+
+    private static TaskbarElementSummary BuildTaskbarElementSummary(AutomationElement element, string path)
+    {
+        return new TaskbarElementSummary(
+            path,
+            GetElementName(element),
+            GetControlTypeName(element),
+            GetAutomationId(element),
+            GetAutomationClassName(element),
+            GetIsEnabled(element),
+            GetIsOffscreen(element),
+            GetHasKeyboardFocus(element),
+            GetIsKeyboardFocusable(element),
+            GetAvailableActions(element),
+            GetBoundingRectangle(element),
+            IsTaskbarAppButton(element));
+    }
+
+    private static bool IsTaskbarAppButton(AutomationElement element)
+    {
+        var className = GetAutomationClassName(element);
+        var automationId = GetAutomationId(element);
+
+        return string.Equals(className, "Taskbar.TaskListButtonAutomationPeer", StringComparison.Ordinal) ||
+               automationId.StartsWith("Appid:", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static TaskbarElementSummary ResolveTaskbarAppTarget(
+        IReadOnlyList<TaskbarElementSummary> visibleApps,
+        string? elementPath,
+        string? titleContains,
+        string? automationIdContains)
+    {
+        if (!string.IsNullOrWhiteSpace(elementPath))
+        {
+            var normalizedPath = NormalizeElementPath(elementPath);
+            return visibleApps.FirstOrDefault(app => string.Equals(app.Path, normalizedPath, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException(
+                    $"No visible taskbar app button matched elementPath '{elementPath}'.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(automationIdContains))
+        {
+            return ResolveTaskbarAppBySubstring(
+                visibleApps,
+                automationIdContains,
+                static app => app.AutomationId,
+                "automationIdContains");
+        }
+
+        return ResolveTaskbarAppByTitle(visibleApps, titleContains!);
+    }
+
+    private static TaskbarElementSummary ResolveTaskbarAppByTitle(
+        IReadOnlyList<TaskbarElementSummary> visibleApps,
+        string expectedLabel)
+    {
+        var exactMatch = visibleApps.FirstOrDefault(app =>
+            string.Equals(NormalizeLabel(app.Name), NormalizeLabel(expectedLabel), StringComparison.Ordinal));
+        if (exactMatch is not null)
+        {
+            return exactMatch;
+        }
+
+        var matches = visibleApps
+            .Where(app =>
+            {
+                var normalizedActual = NormalizeLabel(app.Name);
+                var normalizedExpected = NormalizeLabel(expectedLabel);
+                return normalizedActual.StartsWith(normalizedExpected, StringComparison.Ordinal) ||
+                       normalizedActual.Contains(normalizedExpected, StringComparison.Ordinal);
+            })
+            .ToArray();
+
+        return matches.Length switch
+        {
+            0 => throw new InvalidOperationException(
+                $"No visible taskbar app button label contains '{expectedLabel}'."),
+            1 => matches[0],
+            _ => throw new InvalidOperationException(
+                $"Multiple visible taskbar app buttons matched '{expectedLabel}': {string.Join(", ", matches.Select(match => $"{match.Path} ({match.Name})"))}. Use elementPath instead."),
+        };
+    }
+
+    private static TaskbarElementSummary ResolveTaskbarAppBySubstring(
+        IReadOnlyList<TaskbarElementSummary> visibleApps,
+        string expectedSubstring,
+        Func<TaskbarElementSummary, string> selector,
+        string argumentName)
+    {
+        var matches = visibleApps
+            .Where(app => selector(app).Contains(expectedSubstring, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        return matches.Length switch
+        {
+            0 => throw new InvalidOperationException(
+                $"No visible taskbar app button matched {argumentName} '{expectedSubstring}'."),
+            1 => matches[0],
+            _ => throw new InvalidOperationException(
+                $"Multiple visible taskbar app buttons matched '{expectedSubstring}': {string.Join(", ", matches.Select(match => $"{match.Path} ({match.Name})"))}. Use elementPath instead."),
+        };
+    }
+
+    private static string ActivateTaskbarElement(AutomationElement element)
+    {
+        if (TryGetPattern<InvokePattern>(element, InvokePattern.Pattern, out var invokePattern))
+        {
+            invokePattern.Invoke();
+            Thread.Sleep(150);
+            return "invoked";
+        }
+
+        if (TryGetPattern<SelectionItemPattern>(element, SelectionItemPattern.Pattern, out var selectionItemPattern))
+        {
+            selectionItemPattern.Select();
+            Thread.Sleep(150);
+            return "selected";
+        }
+
+        if (TryGetPattern<TogglePattern>(element, TogglePattern.Pattern, out var togglePattern))
+        {
+            togglePattern.Toggle();
+            Thread.Sleep(150);
+            return "toggled";
+        }
+
+        element.SetFocus();
+        Thread.Sleep(150);
+        return "focused";
     }
 
     private static (AutomationElement Element, string Path, string ActionTaken) FocusAutomationElementOrDescendant(
@@ -985,6 +1267,31 @@ internal sealed record WindowSelectionResult(
     string ClassName,
     int ProcessId,
     bool WasFocused);
+
+internal sealed record TaskbarElementListResult(
+    WindowDescriptor TaskbarWindow,
+    UiElementSnapshot HostElement,
+    IReadOnlyList<TaskbarElementSummary> Elements);
+
+internal sealed record TaskbarElementSummary(
+    string Path,
+    string Name,
+    string ControlType,
+    string AutomationId,
+    string ClassName,
+    bool IsEnabled,
+    bool IsOffscreen,
+    bool HasKeyboardFocus,
+    bool IsKeyboardFocusable,
+    IReadOnlyList<string> AvailableActions,
+    ElementBounds? Bounds,
+    bool IsAppButton);
+
+internal sealed record TaskbarAppActivationResult(
+    WindowDescriptor TaskbarWindow,
+    UiElementSnapshot HostElement,
+    TaskbarElementSummary ActivatedElement,
+    string ActionTaken);
 
 internal sealed record MenuInvocationResult(
     string Handle,

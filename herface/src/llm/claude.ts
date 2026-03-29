@@ -14,7 +14,11 @@ export class ClaudeLLMClient implements LLMClient {
   private client: Anthropic;
   readonly displayName: string;
 
-  constructor(apiKey: string, private model: string) {
+  constructor(
+    apiKey: string,
+    private model: string,
+    private readonly agentDefinition: string,
+  ) {
     this.client = new Anthropic({ apiKey });
     this.displayName = `Claude API (${model})`;
   }
@@ -27,6 +31,7 @@ export class ClaudeLLMClient implements LLMClient {
     const response = await this.client.messages.create({
       model: this.model,
       max_tokens: 4096,
+      ...(this.agentDefinition.trim() ? { system: this.agentDefinition } : {}),
       messages: anthropicMessages,
       ...(anthropicTools ? { tools: anthropicTools } : {}),
     });

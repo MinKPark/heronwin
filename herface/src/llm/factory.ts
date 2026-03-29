@@ -10,16 +10,16 @@ export function createLlmProvider(cfg: Config): LLMClient {
       if (!cfg.openaiApiKey) {
         throw new Error("OPENAI_API_KEY is not set. OpenAI API mode requires an API key.");
       }
-      return new OpenAIApiProvider(cfg.openaiApiKey, cfg.openaiModel);
+      return new OpenAIApiProvider(cfg.openaiApiKey, cfg.openaiModel, cfg.agentDefinition);
 
     case "chatgpt-web":
-      return new ChatGptWebProvider(cfg.chatgptWeb);
+      return new ChatGptWebProvider(cfg.chatgptWeb, cfg.agentDefinition);
 
     case "claude-api":
       if (!cfg.anthropicApiKey) {
         throw new Error("ANTHROPIC_API_KEY is not set. Claude API mode requires an API key.");
       }
-      return new ClaudeLLMClient(cfg.anthropicApiKey, cfg.anthropicModel);
+      return new ClaudeLLMClient(cfg.anthropicApiKey, cfg.anthropicModel, cfg.agentDefinition);
   }
 }
 

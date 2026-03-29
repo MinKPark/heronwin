@@ -71,6 +71,7 @@ npm run mcp:eyesandhands:configured
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LLM_PROVIDER` | `openai-api` | `openai-api`, `chatgpt-web`, or `claude-api` |
+| `AGENT_DEFINITION_PATH` | `.github/agents/her.agent.md` | Markdown file loaded as the default agent definition |
 | `OPENAI_API_KEY` | | OpenAI API key |
 | `OPENAI_MODEL` | `gpt-5.2-chat-latest` | OpenAI API model name |
 | `ANTHROPIC_API_KEY` | | Anthropic API key |
@@ -120,3 +121,10 @@ Once running, the agent will prompt you each turn:
 - Type `exit` to quit.
 
 The LLM will use available MCP tools automatically when needed, and the tool calls and results are shown inline in the terminal.
+
+## Default Agent Definition
+
+`herface` now loads an agent definition file from `.github/agents/her.agent.md` by default.
+
+- Override the path with `AGENT_DEFINITION_PATH`.
+- If the file is missing, `herface` logs a warning and continues without custom agent instructions.

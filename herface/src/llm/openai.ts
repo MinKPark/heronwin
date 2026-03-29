@@ -17,13 +17,17 @@ export class OpenAIApiProvider implements LLMClient {
   private client: OpenAI;
   readonly displayName: string;
 
-  constructor(apiKey: string, private model: string) {
+  constructor(
+    apiKey: string,
+    private model: string,
+    private readonly agentDefinition: string,
+  ) {
     this.client = new OpenAI({ apiKey });
     this.displayName = `OpenAI API (${model})`;
   }
 
   async chat(messages: AgentMessage[], tools: ToolDefinition[]): Promise<ChatResult> {
-    const openaiMessages = toOpenAIMessages(messages);
+    const openaiMessages = toOpenAIMessages(messages, this.agentDefinition);
     const openaiTools: ChatCompletionTool[] | undefined =
       tools.length > 0 ? toOpenAITools(tools) : undefined;
 
@@ -134,8 +138,15 @@ function getOpenAIMessage(payload: Record<string, unknown> | null, fallback: str
   return fallback || "OpenAI request failed.";
 }
 
-function toOpenAIMessages(messages: AgentMessage[]): ChatCompletionMessageParam[] {
+function toOpenAIMessages(
+  messages: AgentMessage[],
+  agentDefinition: string,
+): ChatCompletionMessageParam[] {
   const result: ChatCompletionMessageParam[] = [];
+
+  if (agentDefinition.trim()) {
+    result.push({ role: "system", content: agentDefinition });
+  }
 
   for (const msg of messages) {
     if (msg.role === "user") {

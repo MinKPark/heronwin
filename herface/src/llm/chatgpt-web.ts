@@ -45,7 +45,10 @@ export class ChatGptWebProvider implements LLMClient {
   private readonly diagnosticsDir: string;
   private currentSessionId: string | null = null;
 
-  constructor(private readonly config: ChatGptWebConfig) {
+  constructor(
+    private readonly config: ChatGptWebConfig,
+    private readonly agentDefinition: string,
+  ) {
     this.displayName = `ChatGPT Web (${config.browserChannel}, project ${config.projectName})`;
     this.sessionStatePath = resolve(config.profileDir, "herface-chatgpt-sessions.json");
     this.diagnosticsDir = resolve(config.profileDir, "diagnostics");
@@ -59,7 +62,12 @@ export class ChatGptWebProvider implements LLMClient {
     console.log("[chatgpt-web] Fresh chat prepared.");
     await this.touchSession(page.url());
 
-    const prompt = buildChatGptBridgePrompt(messages, tools, this.config.projectName);
+    const prompt = buildChatGptBridgePrompt(
+      messages,
+      tools,
+      this.config.projectName,
+      this.agentDefinition,
+    );
     const beforeText = await this.getLatestAssistantText(page);
 
     console.log("[chatgpt-web] Sending prompt.");
@@ -329,9 +337,11 @@ function buildChatGptBridgePrompt(
   messages: AgentMessage[],
   tools: ToolDefinition[],
   projectName: string,
+  agentDefinition: string,
 ): string {
   const transcript = messages.map((message) => serializeAgentMessage(message)).join("\n");
   const toolSpec = JSON.stringify(tools, null, 2);
+  const trimmedAgentDefinition = agentDefinition.trim();
 
   return [
     `You are the browser-backed ChatGPT adapter for the local project "${projectName}".`,
@@ -340,6 +350,9 @@ function buildChatGptBridgePrompt(
     'If you need a tool, emit one or more toolCalls and keep "arguments" as a JSON-encoded string.',
     'If you do not need a tool, return "toolCalls": [].',
     "Only use tools from the provided schema.",
+    ...(trimmedAgentDefinition
+      ? ["", "Agent definition:", trimmedAgentDefinition]
+      : []),
     "",
     "Available tools:",
     toolSpec,

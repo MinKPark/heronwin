@@ -19,6 +19,36 @@ public static class EyesAndHandsTools
         return WindowAutomation.Serialize(result);
     }
 
+    [McpServerTool, Description("List visible elements on the main Windows taskbar strip, such as Start, Search, and pinned or running app buttons.")]
+    public static async Task<string> ListTaskbarElements(
+        UiAutomationExecutor executor,
+        CancellationToken cancellationToken)
+    {
+        var result = await executor.RunAsync(
+            WindowAutomation.ListTaskbarElements,
+            cancellationToken);
+
+        return WindowAutomation.Serialize(result);
+    }
+
+    [McpServerTool, Description("Select or start an app from the main Windows taskbar by activating one visible app button. Prefer elementPath values returned by list_taskbar_elements.")]
+    public static async Task<string> ActivateTaskbarApp(
+        UiAutomationExecutor executor,
+        [Description("Full element path returned by list_taskbar_elements, such as 2/0/5. Preferred when available.")]
+        string? elementPath = null,
+        [Description("Case-insensitive substring match against the visible taskbar app button label. Used only when elementPath is omitted.")]
+        string? titleContains = null,
+        [Description("Case-insensitive substring match against the visible taskbar app button automation id. Useful for stable AppUserModelIds.")]
+        string? automationIdContains = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await executor.RunAsync(
+            () => WindowAutomation.ActivateTaskbarApp(elementPath, titleContains, automationIdContains),
+            cancellationToken);
+
+        return WindowAutomation.Serialize(result);
+    }
+
     [McpServerTool, Description("Select a window and bring it to the foreground. Prefer windowHandle values returned by list_windows.")]
     public static async Task<string> SelectWindow(
         UiAutomationExecutor executor,
