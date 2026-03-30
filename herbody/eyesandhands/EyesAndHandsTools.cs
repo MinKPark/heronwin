@@ -127,6 +127,23 @@ public static class EyesAndHandsTools
         return WindowAutomation.Serialize(result);
     }
 
+    [McpServerTool, Description("Mouse-click a specific child element in the selected window using the slash-delimited path returned by describe_selected_window, such as 0, 1/3, or 2/0/1. Supports left and right clicks.")]
+    public static async Task<string> ClickSelectedWindowElement(
+        UiAutomationExecutor executor,
+        WindowSelectionState selectionState,
+        [Description("Slash-delimited child path from describe_selected_window. Use root to click the window element itself.")]
+        string elementPath,
+        [Description("Mouse button to press: left or right. Defaults to left.")]
+        string mouseButton = "left",
+        CancellationToken cancellationToken = default)
+    {
+        var result = await executor.RunAsync(
+            () => WindowAutomation.ClickSelectedWindowElement(selectionState, elementPath, mouseButton),
+            cancellationToken);
+
+        return WindowAutomation.Serialize(result);
+    }
+
     [McpServerTool, Description("Send a key press, shortcut, or typed text to the selected window. Provide either key or text. The tool brings the selected or foreground window to the front without intentionally changing the focused control inside it.")]
     public static async Task<string> SendInputToWindow(
         UiAutomationExecutor executor,

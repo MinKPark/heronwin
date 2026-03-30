@@ -23,6 +23,7 @@ herface-*.wav
 bin/
 obj/
 .tmp/
+artifacts/
 
 # gpt profile
 herface/.chatgpt-profile/

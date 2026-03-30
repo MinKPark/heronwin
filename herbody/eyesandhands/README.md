@@ -13,6 +13,7 @@ It is designed for "look at the current app, pick the right window, inspect the 
 | `describe_selected_window` | Return a UI Automation tree for the selected window, either bounded or full depth |
 | `capture_selected_window_screenshot` | Capture a PNG screenshot of the selected or foreground window |
 | `focus_selected_window_element` | Focus an element from the selected window tree using its path |
+| `click_selected_window_element` | Mouse-click an element from the selected window tree using its path |
 | `send_input_to_window` | Send a key press, shortcut, or typed text to the selected window |
 | `describe_selected_window_focus` | Return a bounded UI Automation tree rooted at the currently focused element inside the selected window |
 | `list_main_menu_items` | List traditional main-menu sections and their immediate visible items |
@@ -92,10 +93,11 @@ Most clients should use the tools in this order:
 3. Call `describe_selected_window` to inspect the selected window's control tree.
 4. If the UI Automation tree is too sparse, call `capture_selected_window_screenshot` and inspect the saved image.
 5. Use a returned `path` with `focus_selected_window_element`.
-6. Use `send_input_to_window` when the user wants to press a shortcut or type text into the current app.
-7. Optionally call `describe_selected_window_focus` to verify where focus landed.
-8. Use `list_main_menu_items` to discover traditional menu commands and `invoke_main_menu_item` to run a chosen path.
-9. If the user wants an action on the focused control, use `list_context_menu_items` and then `invoke_context_menu_item`.
+6. Use `click_selected_window_element` when the user wants a left or right mouse click on a specific UI element.
+7. Use `send_input_to_window` when the user wants to press a shortcut or type text into the current app.
+8. Optionally call `describe_selected_window_focus` to verify where focus landed.
+9. Use `list_main_menu_items` to discover traditional menu commands and `invoke_main_menu_item` to run a chosen path.
+10. If the user wants an action on the focused control, use `list_context_menu_items` and then `invoke_context_menu_item`.
 
 For taskbar-driven workflows:
 
@@ -322,6 +324,57 @@ Notes:
 - If the requested element cannot take focus directly, the server walks downward and tries focusable descendants.
 - `actionTaken` may be `focused`, `selected_and_focused`, or `scrolled_and_focused`.
 - When focus lands on a descendant, the returned `focusedElement.path` may differ from the requested path.
+
+### `click_selected_window_element`
+
+Mouse-clicks a specific element in the selected window.
+
+Parameters:
+
+- `elementPath`: a path returned by `describe_selected_window`, or `root`
+- `mouseButton`: optional; `left` or `right`, default `left`
+
+Response shape:
+
+```json
+{
+  "window": { "...": "same window descriptor as above" },
+  "clickedElement": {
+    "path": "2/1",
+    "name": "Open",
+    "controlType": "Button",
+    "automationId": "OpenButton",
+    "className": "Button",
+    "isEnabled": true,
+    "isOffscreen": false,
+    "hasKeyboardFocus": true,
+    "isKeyboardFocusable": true,
+    "availableActions": ["focus", "invoke"],
+    "bounds": {
+      "left": 200,
+      "top": 160,
+      "width": 90,
+      "height": 28
+    },
+    "children": []
+  },
+  "mouseButton": "left",
+  "clickPoint": {
+    "x": 245,
+    "y": 174
+  },
+  "preparationActionTaken": "focused",
+  "actionTaken": "left_clicked"
+}
+```
+
+Notes:
+
+- The tool brings the selected or foreground window to the front before clicking.
+- The click target is the center of the element's visible bounds.
+- If the requested element does not expose usable bounds, the tool searches downward for a descendant that does.
+- The tool may scroll, select, or focus the target element before clicking so that a clickable point becomes available.
+- The mouse cursor is moved to the clicked screen point as part of the interaction.
 
 ### `send_input_to_window`
 

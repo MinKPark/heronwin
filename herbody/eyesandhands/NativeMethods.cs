@@ -8,7 +8,12 @@ internal static class NativeMethods
     internal delegate bool EnumWindowsProc(nint hWnd, nint lParam);
 
     internal const int SwRestore = 9;
+    internal const uint InputMouse = 0;
     internal const uint InputKeyboard = 1;
+    internal const uint MouseEventFLeftDown = 0x0002;
+    internal const uint MouseEventFLeftUp = 0x0004;
+    internal const uint MouseEventFRightDown = 0x0008;
+    internal const uint MouseEventFRightUp = 0x0010;
     internal const ushort VkA = 0x41;
     internal const ushort VkAlt = 0x12;
     internal const ushort VkApps = 0x5D;
@@ -55,6 +60,10 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool BringWindowToTop(nint hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool SetCursorPos(int X, int Y);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

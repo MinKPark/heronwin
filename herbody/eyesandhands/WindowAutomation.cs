@@ -304,6 +304,32 @@ internal static class WindowAutomation
             focusedTarget.ActionTaken);
     }
 
+    internal static ElementClickResult ClickSelectedWindowElement(
+        WindowSelectionState selectionState,
+        string elementPath,
+        string mouseButton)
+    {
+        var handle = ResolveInteractionWindowHandle(selectionState);
+        FocusWindow(handle);
+        selectionState.SetSelectedHandle(handle);
+
+        var normalizedPath = NormalizeElementPath(elementPath);
+        var normalizedButton = NormalizeMouseButton(mouseButton);
+        var windowElement = AutomationElement.FromHandle(handle);
+        var targetElement = ResolveElementPath(windowElement, normalizedPath);
+        var clickableTarget = ResolveClickableElementOrDescendant(targetElement, normalizedPath);
+
+        ClickAtScreenPoint(clickableTarget.ClickPoint, normalizedButton);
+
+        return new ElementClickResult(
+            BuildWindowDescriptor(handle),
+            BuildElementSnapshot(clickableTarget.Element, clickableTarget.Path, [], includeChildren: false),
+            normalizedButton,
+            clickableTarget.ClickPoint,
+            clickableTarget.PreparationActionTaken,
+            $"{normalizedButton}_clicked");
+    }
+
     internal static KeyboardInputResult SendInputToWindow(
         WindowSelectionState selectionState,
         string? key,
@@ -991,6 +1017,22 @@ internal static class WindowAutomation
         }
 
         return elementPath.Trim().Replace('\\', '/');
+    }
+
+    internal static string NormalizeMouseButton(string mouseButton)
+    {
+        if (string.IsNullOrWhiteSpace(mouseButton))
+        {
+            throw new InvalidOperationException("mouseButton is required.");
+        }
+
+        return mouseButton.Trim().ToLowerInvariant() switch
+        {
+            "left" or "primary" => "left",
+            "right" or "secondary" => "right",
+            _ => throw new InvalidOperationException(
+                $"Unsupported mouseButton '{mouseButton}'. Use left or right."),
+        };
     }
 
     private static (nint Handle, AutomationElement RootElement) GetTaskbarRootElement()
@@ -1783,6 +1825,65 @@ internal static class WindowAutomation
         }
     }
 
+    private static void ClickAtScreenPoint(ScreenPoint clickPoint, string mouseButton)
+    {
+        if (!NativeMethods.SetCursorPos(clickPoint.X, clickPoint.Y))
+        {
+            throw new InvalidOperationException(
+                $"Failed to move the mouse cursor to screen point ({clickPoint.X}, {clickPoint.Y}).");
+        }
+
+        Thread.Sleep(50);
+
+        NativeMethods.INPUT[] inputs = mouseButton switch
+        {
+            "left" =>
+            [
+                CreateMouseInput(NativeMethods.MouseEventFLeftDown),
+                CreateMouseInput(NativeMethods.MouseEventFLeftUp),
+            ],
+            "right" =>
+            [
+                CreateMouseInput(NativeMethods.MouseEventFRightDown),
+                CreateMouseInput(NativeMethods.MouseEventFRightUp),
+            ],
+            _ => throw new InvalidOperationException(
+                $"Unsupported normalized mouseButton '{mouseButton}'."),
+        };
+
+        SendMouseInputs(
+            $"Failed to send a {mouseButton} mouse click to screen point ({clickPoint.X}, {clickPoint.Y}).",
+            inputs);
+    }
+
+    private static NativeMethods.INPUT CreateMouseInput(uint mouseFlags)
+    {
+        return new NativeMethods.INPUT
+        {
+            type = NativeMethods.InputMouse,
+            U = new NativeMethods.InputUnion
+            {
+                mi = new NativeMethods.MOUSEINPUT
+                {
+                    dwFlags = mouseFlags,
+                },
+            },
+        };
+    }
+
+    private static void SendMouseInputs(string errorMessage, params NativeMethods.INPUT[] inputs)
+    {
+        var sent = NativeMethods.SendInput(
+            (uint)inputs.Length,
+            inputs,
+            Marshal.SizeOf<NativeMethods.INPUT>());
+
+        if (sent != (uint)inputs.Length)
+        {
+            throw new InvalidOperationException(errorMessage);
+        }
+    }
+
     private static (AutomationElement Element, string Path, string ActionTaken) FocusAutomationElementOrDescendant(
         AutomationElement element,
         string path)
@@ -1808,6 +1909,102 @@ internal static class WindowAutomation
         }
 
         throw new InvalidOperationException("Target element cannot receive focus.");
+    }
+
+    private static (AutomationElement Element, string Path, string? PreparationActionTaken, ScreenPoint ClickPoint) ResolveClickableElementOrDescendant(
+        AutomationElement element,
+        string path)
+    {
+        var preparationActionTaken = TryPrepareElementForMouseClick(element);
+        if (TryResolveClickableScreenPoint(element, out var clickPoint))
+        {
+            return (element, path, preparationActionTaken, clickPoint);
+        }
+
+        var children = element.FindAll(TreeScope.Children, Condition.TrueCondition);
+        for (var i = 0; i < children.Count; i++)
+        {
+            var childPath = path == "root" ? $"{i}" : $"{path}/{i}";
+            try
+            {
+                return ResolveClickableElementOrDescendant(children[i], childPath);
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+
+        throw new InvalidOperationException(
+            "Target element does not expose clickable screen bounds through UI Automation.");
+    }
+
+    private static string? TryPrepareElementForMouseClick(AutomationElement element)
+    {
+        var selectionApplied = false;
+        var scrollApplied = false;
+        var focusApplied = false;
+
+        if (TryGetPattern<ScrollItemPattern>(element, ScrollItemPattern.Pattern, out var scrollItemPattern))
+        {
+            scrollItemPattern.ScrollIntoView();
+            scrollApplied = true;
+            Thread.Sleep(100);
+        }
+
+        if (TryGetPattern<SelectionItemPattern>(element, SelectionItemPattern.Pattern, out var selectionItemPattern))
+        {
+            selectionItemPattern.Select();
+            selectionApplied = true;
+            Thread.Sleep(100);
+        }
+
+        try
+        {
+            element.SetFocus();
+            focusApplied = true;
+            Thread.Sleep(100);
+        }
+        catch (InvalidOperationException)
+        {
+        }
+
+        if (selectionApplied && focusApplied)
+        {
+            return "selected_and_focused";
+        }
+
+        if (selectionApplied)
+        {
+            return "selected";
+        }
+
+        if (focusApplied)
+        {
+            return scrollApplied ? "scrolled_and_focused" : "focused";
+        }
+
+        if (scrollApplied)
+        {
+            return "scrolled_into_view";
+        }
+
+        return null;
+    }
+
+    private static bool TryResolveClickableScreenPoint(AutomationElement element, out ScreenPoint clickPoint)
+    {
+        clickPoint = default;
+
+        var bounds = GetBoundingRectangle(element);
+        if (bounds is null || bounds.Width <= 1 || bounds.Height <= 1 || GetIsOffscreen(element))
+        {
+            return false;
+        }
+
+        clickPoint = new ScreenPoint(
+            (int)Math.Round(bounds.Left + (bounds.Width / 2d), MidpointRounding.AwayFromZero),
+            (int)Math.Round(bounds.Top + (bounds.Height / 2d), MidpointRounding.AwayFromZero));
+        return true;
     }
 
     private static string? TryFocusElement(AutomationElement element)
@@ -2286,6 +2483,10 @@ internal sealed record ImageDimensions(
     int Width,
     int Height);
 
+internal readonly record struct ScreenPoint(
+    int X,
+    int Y);
+
 internal sealed record UiElementSnapshot(
     string Path,
     string Name,
@@ -2320,6 +2521,14 @@ internal sealed record FocusedElementTreeResult(
 internal sealed record FocusedElementResult(
     WindowDescriptor Window,
     UiElementSnapshot FocusedElement,
+    string ActionTaken);
+
+internal sealed record ElementClickResult(
+    WindowDescriptor Window,
+    UiElementSnapshot ClickedElement,
+    string MouseButton,
+    ScreenPoint ClickPoint,
+    string? PreparationActionTaken,
     string ActionTaken);
 
 internal sealed record KeyboardInputResult(
