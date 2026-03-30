@@ -27,9 +27,14 @@ internal static class WindowAutomation
         "MSTaskSwWClass",
         "MSTaskListWClass",
     ];
+    private const string SearchButtonAutomationId = "SearchButton";
 
     private static readonly TimeSpan MenuSearchTimeout = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan MenuSearchInterval = TimeSpan.FromMilliseconds(150);
+    private static readonly TimeSpan LaunchSelectionTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan LaunchSelectionInterval = TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan TaskbarSearchTimeout = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan TaskbarSearchInterval = TimeSpan.FromMilliseconds(100);
 
     internal static string Serialize(object value) => JsonSerializer.Serialize(value, JsonOptions);
 
@@ -120,6 +125,7 @@ internal static class WindowAutomation
     }
 
     internal static TaskbarAppActivationResult ActivateTaskbarApp(
+        WindowSelectionState selectionState,
         string? elementPath,
         string? titleContains,
         string? automationIdContains)
@@ -148,12 +154,62 @@ internal static class WindowAutomation
 
         var targetElement = ResolveElementPath(taskbarRoot, target.Path);
         var actionTaken = ActivateTaskbarElement(targetElement);
+        var selectedWindow = TrySelectForegroundWindowAfterLaunch(selectionState, [taskbarHandle]);
 
         return new TaskbarAppActivationResult(
             BuildWindowDescriptor(taskbarHandle),
             BuildElementSnapshot(hostElement, hostPath, [], includeChildren: false),
             BuildTaskbarElementSummary(targetElement, target.Path),
-            actionTaken);
+            actionTaken,
+            selectedWindow);
+    }
+
+    internal static TaskbarAppSearchResult SearchTaskbarApp(
+        WindowSelectionState selectionState,
+        string appName)
+    {
+        if (string.IsNullOrWhiteSpace(appName))
+        {
+            throw new InvalidOperationException("appName is required.");
+        }
+
+        var normalizedQuery = appName.Trim();
+        var (taskbarHandle, taskbarRoot) = GetTaskbarRootElement();
+        var (hostElement, hostPath) = FindMainTaskbarHost(taskbarRoot);
+        var visibleElements = EnumerateVisibleTaskbarChildren(hostElement, hostPath);
+        var searchTarget = ResolveTaskbarSearchTarget(visibleElements);
+
+        FocusWindow(taskbarHandle);
+
+        var searchElement = ResolveElementPath(taskbarRoot, searchTarget.Path);
+        var searchActionTaken = OpenTaskbarSearch(searchElement);
+        var inputElement = WaitForSearchInputElement();
+        if (inputElement is null)
+        {
+            PressWindowsSearchShortcut();
+            searchActionTaken = $"{searchActionTaken}_then_pressed_win_s";
+            inputElement = WaitForSearchInputElement()
+                ?? throw new InvalidOperationException(
+                    "Opened Windows Search but could not find a search input element to type into.");
+        }
+
+        var textEntryActionTaken = EnterTextIntoSearchInput(inputElement, normalizedQuery);
+        Thread.Sleep(150);
+        var searchWindowHandle = NativeMethods.GetForegroundWindow();
+        PressEnterKey();
+        Thread.Sleep(150);
+        var selectedWindow = TrySelectForegroundWindowAfterLaunch(selectionState, [taskbarHandle, searchWindowHandle]);
+
+        return new TaskbarAppSearchResult(
+            BuildWindowDescriptor(taskbarHandle),
+            BuildElementSnapshot(hostElement, hostPath, [], includeChildren: false),
+            BuildTaskbarElementSummary(searchElement, searchTarget.Path),
+            BuildElementSnapshot(inputElement, "focused", [], includeChildren: false),
+            normalizedQuery,
+            searchActionTaken,
+            textEntryActionTaken,
+            "pressed_enter",
+            selectedWindow);
     }
 
     internal static WindowTreeResult DescribeActiveWindow(
@@ -661,6 +717,57 @@ internal static class WindowAutomation
                automationId.StartsWith("Appid:", StringComparison.OrdinalIgnoreCase);
     }
 
+    internal static TaskbarElementSummary ResolveTaskbarSearchTarget(
+        IReadOnlyList<TaskbarElementSummary> visibleElements)
+    {
+        var exactMatch = visibleElements.FirstOrDefault(element =>
+            string.Equals(element.AutomationId, SearchButtonAutomationId, StringComparison.Ordinal));
+        if (exactMatch is not null)
+        {
+            return exactMatch;
+        }
+
+        var fallbackMatch = visibleElements.FirstOrDefault(element =>
+            !element.IsAppButton &&
+            NormalizeLabel(element.Name).Contains("search", StringComparison.Ordinal));
+        if (fallbackMatch is not null)
+        {
+            return fallbackMatch;
+        }
+
+        throw new InvalidOperationException(
+            "Could not find a visible Windows Search control on the main taskbar.");
+    }
+
+    internal static bool IsInteractiveSelectionTarget(
+        string title,
+        string className,
+        bool isVisible,
+        bool isExcludedHandle)
+    {
+        if (isExcludedHandle || !isVisible || string.IsNullOrWhiteSpace(title))
+        {
+            return false;
+        }
+
+        if (string.Equals(className, "Shell_TrayWnd", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (string.Equals(title, "Program Manager", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (string.Equals(title, "Windows Input Experience", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
     private static TaskbarElementSummary ResolveTaskbarAppTarget(
         IReadOnlyList<TaskbarElementSummary> visibleApps,
         string? elementPath,
@@ -806,35 +913,299 @@ internal static class WindowAutomation
         }
     }
 
+    private static string OpenTaskbarSearch(AutomationElement element)
+    {
+        if (TryGetPattern<TogglePattern>(element, TogglePattern.Pattern, out var togglePattern))
+        {
+            var state = togglePattern.Current.ToggleState;
+            if (state == ToggleState.Off)
+            {
+                togglePattern.Toggle();
+                Thread.Sleep(250);
+                return "toggled_search_on";
+            }
+
+            var focusAction = TryFocusElement(element);
+            Thread.Sleep(150);
+            return focusAction is null ? "search_already_open" : $"search_already_open_{focusAction}";
+        }
+
+        return ActivateTaskbarElement(element);
+    }
+
+    private static WindowSelectionResult? TrySelectForegroundWindowAfterLaunch(
+        WindowSelectionState selectionState,
+        IReadOnlyCollection<nint> excludedHandles)
+    {
+        var deadline = DateTime.UtcNow + LaunchSelectionTimeout;
+        while (DateTime.UtcNow <= deadline)
+        {
+            if (TryPromoteForegroundWindow(selectionState, excludedHandles, out var selectedWindow))
+            {
+                return selectedWindow;
+            }
+
+            Thread.Sleep(LaunchSelectionInterval);
+        }
+
+        if (TryPromoteForegroundWindow(selectionState, excludedHandles, out var fallbackWindow))
+        {
+            return fallbackWindow;
+        }
+
+        selectionState.Clear();
+        return null;
+    }
+
+    private static bool TryPromoteForegroundWindow(
+        WindowSelectionState selectionState,
+        IReadOnlyCollection<nint> excludedHandles,
+        out WindowSelectionResult selectedWindow)
+    {
+        var handle = NativeMethods.GetForegroundWindow();
+        if (handle == nint.Zero || !NativeMethods.IsWindow(handle))
+        {
+            selectedWindow = null!;
+            return false;
+        }
+
+        var title = NativeMethods.GetWindowText(handle);
+        var className = NativeMethods.GetClassName(handle);
+        var isVisible = NativeMethods.IsWindowVisible(handle);
+        var isExcludedHandle = excludedHandles.Contains(handle);
+
+        if (!IsInteractiveSelectionTarget(title, className, isVisible, isExcludedHandle))
+        {
+            selectedWindow = null!;
+            return false;
+        }
+
+        FocusWindow(handle);
+        selectionState.SetSelectedHandle(handle);
+        selectedWindow = BuildSelectionResult(handle, wasFocused: true);
+        return true;
+    }
+
+    private static AutomationElement? WaitForSearchInputElement()
+    {
+        var deadline = DateTime.UtcNow + TaskbarSearchTimeout;
+        while (DateTime.UtcNow <= deadline)
+        {
+            var candidate = TryFindSearchInputElement();
+            if (candidate is not null)
+            {
+                return candidate;
+            }
+
+            Thread.Sleep(TaskbarSearchInterval);
+        }
+
+        return null;
+    }
+
+    private static AutomationElement? TryFindSearchInputElement()
+    {
+        var focusedElement = AutomationElement.FocusedElement;
+        if (focusedElement is not null && IsSearchInputElement(focusedElement))
+        {
+            return focusedElement;
+        }
+
+        var activeWindowHandle = NativeMethods.GetForegroundWindow();
+        if (activeWindowHandle == nint.Zero || !NativeMethods.IsWindow(activeWindowHandle))
+        {
+            return null;
+        }
+
+        var activeWindow = AutomationElement.FromHandle(activeWindowHandle);
+        if (IsSearchInputElement(activeWindow))
+        {
+            return activeWindow;
+        }
+
+        var descendants = activeWindow.FindAll(TreeScope.Descendants, Condition.TrueCondition);
+        AutomationElement? bestCandidate = null;
+        var bestScore = 0;
+
+        for (var i = 0; i < descendants.Count; i++)
+        {
+            var candidate = descendants[i];
+            var score = ScoreSearchInputCandidate(candidate);
+            if (score <= bestScore)
+            {
+                continue;
+            }
+
+            bestScore = score;
+            bestCandidate = candidate;
+        }
+
+        return bestCandidate;
+    }
+
+    private static bool IsSearchInputElement(AutomationElement element) => ScoreSearchInputCandidate(element) > 0;
+
+    private static int ScoreSearchInputCandidate(AutomationElement element)
+    {
+        if (GetIsOffscreen(element) || !GetIsEnabled(element))
+        {
+            return 0;
+        }
+
+        var score = 0;
+
+        try
+        {
+            if (element.Current.ControlType == ControlType.Edit)
+            {
+                score += 8;
+            }
+        }
+        catch
+        {
+            return 0;
+        }
+
+        if (TryGetPattern<ValuePattern>(element, ValuePattern.Pattern, out _))
+        {
+            score += 6;
+        }
+
+        if (GetIsKeyboardFocusable(element))
+        {
+            score += 4;
+        }
+
+        if (GetHasKeyboardFocus(element))
+        {
+            score += 3;
+        }
+
+        var normalizedName = NormalizeLabel(GetElementName(element));
+        var normalizedAutomationId = NormalizeLabel(GetAutomationId(element));
+        if (normalizedName.Contains("search", StringComparison.Ordinal) ||
+            normalizedAutomationId.Contains("search", StringComparison.Ordinal))
+        {
+            score += 2;
+        }
+
+        return score;
+    }
+
+    private static string EnterTextIntoSearchInput(AutomationElement inputElement, string text)
+    {
+        var focusAction = TryFocusElement(inputElement);
+
+        if (TrySetValue(inputElement, text))
+        {
+            return focusAction is null ? "set_value" : $"{focusAction}_and_set_value";
+        }
+
+        PressSelectAllShortcut();
+        Thread.Sleep(100);
+        SendUnicodeText(text);
+        Thread.Sleep(100);
+
+        return focusAction is null ? "typed_text" : $"{focusAction}_and_typed_text";
+    }
+
+    private static bool TrySetValue(AutomationElement element, string value)
+    {
+        if (!TryGetPattern<ValuePattern>(element, ValuePattern.Pattern, out var valuePattern))
+        {
+            return false;
+        }
+
+        if (valuePattern.Current.IsReadOnly)
+        {
+            return false;
+        }
+
+        valuePattern.SetValue(value);
+        Thread.Sleep(100);
+        return true;
+    }
+
+    private static void PressWindowsSearchShortcut()
+    {
+        PressModifiedKey(NativeMethods.VkLWin, NativeMethods.VkS);
+        Thread.Sleep(250);
+    }
+
+    private static void PressSelectAllShortcut()
+    {
+        PressModifiedKey(NativeMethods.VkControl, NativeMethods.VkA);
+    }
+
+    private static void PressModifiedKey(ushort modifierVirtualKey, ushort keyVirtualKey)
+    {
+        SendKeyboardInputs(
+            $"Failed to send modified key chord 0x{modifierVirtualKey:X2}+0x{keyVirtualKey:X2}.",
+            CreateVirtualKeyInput(modifierVirtualKey),
+            CreateVirtualKeyInput(keyVirtualKey),
+            CreateVirtualKeyInput(keyVirtualKey, keyUp: true),
+            CreateVirtualKeyInput(modifierVirtualKey, keyUp: true));
+    }
+
     private static void PressEnterKey()
     {
-        var inputs = new[]
+        SendKeyboardInputs(
+            "Failed to send Enter to the focused taskbar item.",
+            CreateVirtualKeyInput(NativeMethods.VkReturn),
+            CreateVirtualKeyInput(NativeMethods.VkReturn, keyUp: true));
+    }
+
+    private static void SendUnicodeText(string text)
+    {
+        var inputs = new List<NativeMethods.INPUT>(text.Length * 2);
+        foreach (var character in text)
         {
-            new NativeMethods.INPUT
+            inputs.Add(CreateUnicodeInput(character));
+            inputs.Add(CreateUnicodeInput(character, keyUp: true));
+        }
+
+        if (inputs.Count == 0)
+        {
+            return;
+        }
+
+        SendKeyboardInputs("Failed to send Unicode text to the focused search input.", [.. inputs]);
+    }
+
+    private static NativeMethods.INPUT CreateVirtualKeyInput(ushort virtualKey, bool keyUp = false)
+    {
+        return new NativeMethods.INPUT
+        {
+            type = NativeMethods.InputKeyboard,
+            U = new NativeMethods.InputUnion
             {
-                type = NativeMethods.InputKeyboard,
-                U = new NativeMethods.InputUnion
+                ki = new NativeMethods.KEYBDINPUT
                 {
-                    ki = new NativeMethods.KEYBDINPUT
-                    {
-                        wVk = NativeMethods.VkReturn,
-                    },
-                },
-            },
-            new NativeMethods.INPUT
-            {
-                type = NativeMethods.InputKeyboard,
-                U = new NativeMethods.InputUnion
-                {
-                    ki = new NativeMethods.KEYBDINPUT
-                    {
-                        wVk = NativeMethods.VkReturn,
-                        dwFlags = NativeMethods.KeyEventFKeyUp,
-                    },
+                    wVk = virtualKey,
+                    dwFlags = keyUp ? NativeMethods.KeyEventFKeyUp : 0,
                 },
             },
         };
+    }
 
+    private static NativeMethods.INPUT CreateUnicodeInput(char character, bool keyUp = false)
+    {
+        return new NativeMethods.INPUT
+        {
+            type = NativeMethods.InputKeyboard,
+            U = new NativeMethods.InputUnion
+            {
+                ki = new NativeMethods.KEYBDINPUT
+                {
+                    wScan = character,
+                    dwFlags = NativeMethods.KeyEventFUnicode | (keyUp ? NativeMethods.KeyEventFKeyUp : 0),
+                },
+            },
+        };
+    }
+
+    private static void SendKeyboardInputs(string errorMessage, params NativeMethods.INPUT[] inputs)
+    {
         var sent = NativeMethods.SendInput(
             (uint)inputs.Length,
             inputs,
@@ -842,7 +1213,7 @@ internal static class WindowAutomation
 
         if (sent != (uint)inputs.Length)
         {
-            throw new InvalidOperationException("Failed to send Enter to the focused taskbar item.");
+            throw new InvalidOperationException(errorMessage);
         }
     }
 
@@ -1381,7 +1752,19 @@ internal sealed record TaskbarAppActivationResult(
     WindowDescriptor TaskbarWindow,
     UiElementSnapshot HostElement,
     TaskbarElementSummary ActivatedElement,
-    string ActionTaken);
+    string ActionTaken,
+    WindowSelectionResult? SelectedWindow);
+
+internal sealed record TaskbarAppSearchResult(
+    WindowDescriptor TaskbarWindow,
+    UiElementSnapshot HostElement,
+    TaskbarElementSummary SearchElement,
+    UiElementSnapshot SearchInputElement,
+    string Query,
+    string SearchActionTaken,
+    string TextEntryActionTaken,
+    string LaunchActionTaken,
+    WindowSelectionResult? SelectedWindow);
 
 internal sealed record MenuInvocationResult(
     string Handle,

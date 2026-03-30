@@ -9,8 +9,13 @@ internal static class NativeMethods
 
     internal const int SwRestore = 9;
     internal const uint InputKeyboard = 1;
+    internal const ushort VkA = 0x41;
+    internal const ushort VkControl = 0x11;
+    internal const ushort VkLWin = 0x5B;
     internal const ushort VkReturn = 0x0D;
+    internal const ushort VkS = 0x53;
     internal const uint KeyEventFKeyUp = 0x0002;
+    internal const uint KeyEventFUnicode = 0x0004;
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

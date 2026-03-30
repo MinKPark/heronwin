@@ -34,6 +34,7 @@ public static class EyesAndHandsTools
     [McpServerTool, Description("Select or start an app from the main Windows taskbar by activating one visible app button. Prefer elementPath values returned by list_taskbar_elements.")]
     public static async Task<string> ActivateTaskbarApp(
         UiAutomationExecutor executor,
+        WindowSelectionState selectionState,
         [Description("Full element path returned by list_taskbar_elements, such as 2/0/5. Preferred when available.")]
         string? elementPath = null,
         [Description("Case-insensitive substring match against the visible taskbar app button label. Used only when elementPath is omitted.")]
@@ -43,7 +44,22 @@ public static class EyesAndHandsTools
         CancellationToken cancellationToken = default)
     {
         var result = await executor.RunAsync(
-            () => WindowAutomation.ActivateTaskbarApp(elementPath, titleContains, automationIdContains),
+            () => WindowAutomation.ActivateTaskbarApp(selectionState, elementPath, titleContains, automationIdContains),
+            cancellationToken);
+
+        return WindowAutomation.Serialize(result);
+    }
+
+    [McpServerTool, Description("Open the Windows taskbar Search UI, type an app name into the search box, and press Enter to start the top result.")]
+    public static async Task<string> SearchTaskbarApp(
+        UiAutomationExecutor executor,
+        WindowSelectionState selectionState,
+        [Description("App name or search query to type into the taskbar search box.")]
+        string appName,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await executor.RunAsync(
+            () => WindowAutomation.SearchTaskbarApp(selectionState, appName),
             cancellationToken);
 
         return WindowAutomation.Serialize(result);

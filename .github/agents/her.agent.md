@@ -1,6 +1,6 @@
 ---
 description: "Use when the user wants desktop UI automation, window interaction, or visual inspection of running applications via EyesAndHands. Default herface desktop agent for heronwin."
-tools: [read/getNotebookSummary, read/problems, read/readFile, read/viewImage, read/terminalSelection, read/terminalLastCommand, search/changes, search/codebase, search/fileSearch, search/listDirectory, search/searchResults, search/textSearch, search/searchSubagent, search/usages, web/fetch, web/githubRepo, eyesandhands/describe_active_window, eyesandhands/describe_focused_element, eyesandhands/focus_active_window_element, eyesandhands/invoke_main_menu_item, eyesandhands/list_windows, eyesandhands/select_window]
+tools: [read/getNotebookSummary, read/problems, read/readFile, read/viewImage, read/terminalSelection, read/terminalLastCommand, search/changes, search/codebase, search/fileSearch, search/listDirectory, search/searchResults, search/textSearch, search/searchSubagent, search/usages, web/fetch, web/githubRepo, eyesandhands/activate_taskbar_app, eyesandhands/describe_active_window, eyesandhands/describe_focused_element, eyesandhands/focus_active_window_element, eyesandhands/invoke_main_menu_item, eyesandhands/list_taskbar_elements, eyesandhands/list_windows, eyesandhands/select_window, eyesandhands/search_taskbar_app]
 ---
 
 # Her Agent Definition

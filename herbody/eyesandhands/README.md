@@ -16,6 +16,7 @@ It is designed for "look at the current app, pick the right window, inspect the 
 | `invoke_main_menu_item` | Open or invoke a menu path such as `File > Open` |
 | `list_taskbar_elements` | List visible elements on the main Windows taskbar strip |
 | `activate_taskbar_app` | Activate one visible app button from the main Windows taskbar |
+| `search_taskbar_app` | Open taskbar Search, type an app name, and press Enter |
 
 ## How It Works
 
@@ -93,6 +94,13 @@ For taskbar-driven workflows:
 1. Call `list_taskbar_elements`.
 2. Pick an app button from the returned `elements`.
 3. Call `activate_taskbar_app`, preferably with the returned `path`.
+4. The activated app window becomes the selected window for subsequent eyesandhands actions.
+
+For launching apps that are not pinned to the taskbar:
+
+1. Call `search_taskbar_app` with the app name you want to launch.
+2. The tool opens Windows Search from the taskbar, types the query, and presses `Enter` on the top result.
+3. The launched app window becomes the selected window for subsequent eyesandhands actions.
 
 This sequence matters because `select_window` persists target-window state, and subsequent inspection, focus, and menu operations refocus that saved window before acting.
 
@@ -400,7 +408,14 @@ Response shape:
     "bounds": null,
     "isAppButton": true
   },
-  "actionTaken": "focused_and_pressed_enter"
+  "actionTaken": "focused_and_pressed_enter",
+  "selectedWindow": {
+    "handle": "0x00123456",
+    "title": "File Explorer",
+    "className": "CabinetWClass",
+    "processId": 12345,
+    "wasFocused": true
+  }
 }
 ```
 
@@ -411,6 +426,70 @@ Notes:
 - This tool only targets visible app buttons from the main taskbar strip, not notification-area icons.
 - When a taskbar button exposes `invoke`, `selection`, or `toggle`, the tool uses that UI Automation pattern first.
 - If the button is only keyboard-focusable, the tool focuses it and sends `Enter`, which can start pinned apps that do not expose an invoke pattern.
+- After launch or activation, the tool waits for the foreground app window and stores it as the selected window so follow-up UI actions target that app by default.
+
+### `search_taskbar_app`
+
+Opens the taskbar Search surface, types an app name into the search box, and presses `Enter` to launch the top result.
+
+Parameters:
+
+- `appName`: the app name or search query to type into Windows Search
+
+Response shape:
+
+```json
+{
+  "taskbarWindow": { "...": "same taskbar window descriptor as above" },
+  "hostElement": { "...": "same host snapshot as above" },
+  "searchElement": {
+    "path": "2/0/2",
+    "name": "Search",
+    "controlType": "Button",
+    "automationId": "SearchButton",
+    "className": "ToggleButton",
+    "isEnabled": true,
+    "isOffscreen": false,
+    "hasKeyboardFocus": false,
+    "isKeyboardFocusable": true,
+    "availableActions": ["focus", "scroll_into_view", "toggle"],
+    "bounds": null,
+    "isAppButton": false
+  },
+  "searchInputElement": {
+    "path": "focused",
+    "name": "Search box",
+    "controlType": "Edit",
+    "automationId": "SearchTextBox",
+    "className": "",
+    "isEnabled": true,
+    "isOffscreen": false,
+    "hasKeyboardFocus": true,
+    "isKeyboardFocusable": true,
+    "availableActions": ["focus", "set_value"],
+    "bounds": null,
+    "children": []
+  },
+  "query": "Notepad",
+  "searchActionTaken": "toggled_search_on",
+  "textEntryActionTaken": "focused_and_set_value",
+  "launchActionTaken": "pressed_enter",
+  "selectedWindow": {
+    "handle": "0x00123456",
+    "title": "Untitled - Notepad",
+    "className": "Notepad",
+    "processId": 12345,
+    "wasFocused": true
+  }
+}
+```
+
+Notes:
+
+- The tool prefers the visible `SearchButton` taskbar control when available.
+- If Windows Search opens but the input field is not immediately detected, the tool falls back to the `Win+S` shortcut for the same Search surface and retries.
+- This tool is best for starting apps from the top search result, not for browsing rich search result pages.
+- After pressing `Enter`, the tool waits for the launched app window to become foreground and stores it as the selected window for subsequent eyesandhands interactions.
 
 ## Practical Caveats
 
