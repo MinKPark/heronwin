@@ -71,7 +71,7 @@ npm run mcp:eyesandhands:configured
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LLM_PROVIDER` | `openai-api` | `openai-api`, `chatgpt-web`, or `claude-api` |
-| `AGENT_DEFINITION_PATH` | `.github/agents/her.agent.md` | Markdown file loaded as the default agent definition |
+| `AGENT_DEFINITION_PATH` | `her.agent.md` then `.github/agents/her.agent.md` | Markdown file loaded as the default agent definition |
 | `OPENAI_API_KEY` | | OpenAI API key |
 | `OPENAI_MODEL` | `gpt-5.2-chat-latest` | OpenAI API model name |
 | `ANTHROPIC_API_KEY` | | Anthropic API key |
@@ -124,7 +124,7 @@ The LLM will use available MCP tools automatically when needed, and the tool cal
 
 ## Default Agent Definition
 
-`herface` now loads an agent definition file from `.github/agents/her.agent.md` by default.
+`herface` now loads an agent definition file from `her.agent.md` in the working directory first, then falls back to `.github/agents/her.agent.md`.
 
 - Override the path with `AGENT_DEFINITION_PATH`.
 - If the file is missing, `herface` logs a warning and continues without custom agent instructions.

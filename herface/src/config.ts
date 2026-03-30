@@ -39,10 +39,7 @@ export interface Config {
 
 export function loadConfig(): Config {
   const provider = normalizeProvider(process.env.LLM_PROVIDER ?? "openai-api");
-  const agentDefinitionPath = resolve(
-    process.cwd(),
-    process.env.AGENT_DEFINITION_PATH ?? ".github/agents/her.agent.md",
-  );
+  const agentDefinitionPath = resolveAgentDefinitionPath();
 
   let mcpServers: McpServerConfig[] = [];
   const mcpServersRaw = process.env.MCP_SERVERS;
@@ -77,6 +74,24 @@ export function loadConfig(): Config {
       responseTimeoutMs: parseInt(process.env.CHATGPT_RESPONSE_TIMEOUT_MS ?? "120000", 10),
     },
   };
+}
+
+function resolveAgentDefinitionPath(): string {
+  const cwd = process.cwd();
+  const configuredPath = process.env.AGENT_DEFINITION_PATH?.trim();
+  if (configuredPath) {
+    return resolve(cwd, configuredPath);
+  }
+
+  const candidatePaths = ["her.agent.md", ".github/agents/her.agent.md"];
+  for (const candidatePath of candidatePaths) {
+    const resolvedPath = resolve(cwd, candidatePath);
+    if (existsSync(resolvedPath)) {
+      return resolvedPath;
+    }
+  }
+
+  return resolve(cwd, candidatePaths[0]);
 }
 
 function loadAgentDefinition(agentDefinitionPath: string): string {
