@@ -82,16 +82,18 @@ public static class EyesAndHandsTools
         return WindowAutomation.Serialize(result);
     }
 
-    [McpServerTool, Description("Describe the selected window as a structured UI Automation tree. If a window has been selected, the server focuses it before inspection; otherwise it falls back to the current foreground window. maxDepth includes the root level and must be between 1 and 4.")]
+    [McpServerTool, Description("Describe the selected window as a structured UI Automation tree. If a window has been selected, the server focuses it before inspection; otherwise it falls back to the current foreground window. maxDepth includes the root level and must be between 1 and 4 when fullDepth is false.")]
     public static async Task<string> DescribeActiveWindow(
         UiAutomationExecutor executor,
         WindowSelectionState selectionState,
-        [Description("How many UI tree levels to include, counting the window root as level 1. Must be between 1 and 4.")]
+        [Description("How many UI tree levels to include, counting the window root as level 1. Must be between 1 and 4 when fullDepth is false.")]
         int maxDepth = 2,
+        [Description("When true, return the full available UI Automation tree without a depth cap. This can produce a large payload.")]
+        bool fullDepth = false,
         CancellationToken cancellationToken = default)
     {
         var result = await executor.RunAsync(
-            () => WindowAutomation.DescribeActiveWindow(selectionState, maxDepth),
+            () => WindowAutomation.DescribeActiveWindow(selectionState, maxDepth, fullDepth),
             cancellationToken);
 
         return WindowAutomation.Serialize(result);

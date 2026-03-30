@@ -10,7 +10,7 @@ It is designed for "look at the current app, pick the right window, inspect the 
 |------|-------------|
 | `list_windows` | List visible top-level windows on the current desktop session |
 | `select_window` | Select a window by handle or title substring and bring it to the foreground |
-| `describe_active_window` | Return a bounded UI Automation tree for the selected window, refocusing it first when possible |
+| `describe_active_window` | Return a UI Automation tree for the selected window, either bounded or full depth |
 | `capture_active_window_screenshot` | Capture a PNG screenshot of the selected or foreground window |
 | `focus_active_window_element` | Focus an element from the selected window tree using its path |
 | `describe_focused_element` | Return a bounded UI Automation tree rooted at the currently focused element inside the selected window |
@@ -177,7 +177,8 @@ Returns a UI Automation tree for the selected window. If no window has been sele
 
 Parameters:
 
-- `maxDepth`: required range `1..4`
+- `maxDepth`: required range `1..4` when `fullDepth` is `false`
+- `fullDepth`: optional; when `true`, returns the full available UI Automation tree without a depth cap
 
 Response shape:
 
@@ -196,6 +197,7 @@ Response shape:
     }
   },
   "maxDepth": 2,
+  "fullDepth": false,
   "elementTree": {
     "path": "root",
     "name": "Untitled - Notepad",
@@ -239,6 +241,7 @@ Notes:
 - Child paths use slash-delimited indexes like `0`, `2/1`, or `3/0/4`.
 - The root path is always `root`.
 - `availableActions` is descriptive metadata only. This server currently exposes focus and menu tools, not a general action executor.
+- When `fullDepth` is `true`, `maxDepth` is returned as `null` and the full visible UI Automation subtree is captured. This can produce a large payload.
 
 ### `capture_active_window_screenshot`
 
@@ -653,7 +656,7 @@ Notes:
 ## Troubleshooting
 
 - No windows returned: run from the logged-in desktop session, not a background service or detached shell.
-- `maxDepth` error: use a value from `1` to `4`.
+- `maxDepth` error: use a value from `1` to `4`, or set `fullDepth` to `true`.
 - "No window was supplied and no window is currently selected": call `select_window` first or pass `windowHandle`.
 - Wrong window focused: prefer `windowHandle` over `titleContains` when multiple similar windows are open.
 - Menu item not found: confirm the app exposes a standard menu bar through UI Automation and that the labels match what the accessibility tree reports.

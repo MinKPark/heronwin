@@ -9,7 +9,7 @@ namespace HeronWin.HerBody.EyesAndHands;
 
 internal static class WindowAutomation
 {
-    private const int MaxUiDepth = 4;
+    private const int MaxBoundedUiDepth = 4;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -223,15 +223,17 @@ internal static class WindowAutomation
 
     internal static WindowTreeResult DescribeActiveWindow(
         WindowSelectionState selectionState,
-        int maxDepth)
+        int maxDepth,
+        bool fullDepth)
     {
-        var normalizedDepth = NormalizeDepth(maxDepth);
+        int? normalizedDepth = fullDepth ? null : NormalizeDepth(maxDepth);
         var handle = ResolveInteractionWindowHandle(selectionState);
 
         var windowElement = AutomationElement.FromHandle(handle);
         return new WindowTreeResult(
             BuildWindowDescriptor(handle),
             normalizedDepth,
+            fullDepth,
             CaptureElementTree(windowElement, normalizedDepth, "root"));
     }
 
@@ -470,19 +472,20 @@ internal static class WindowAutomation
 
     private static UiElementSnapshot CaptureElementTree(
         AutomationElement element,
-        int remainingLevels,
+        int? remainingLevels,
         string path)
     {
         var children = new List<UiElementSnapshot>();
-        if (remainingLevels > 1)
+        if (!remainingLevels.HasValue || remainingLevels.Value > 1)
         {
             var childElements = element.FindAll(TreeScope.Children, Condition.TrueCondition);
+            int? nextRemainingLevels = remainingLevels.HasValue ? remainingLevels.Value - 1 : null;
             for (var i = 0; i < childElements.Count; i++)
             {
                 var childPath = path is "root" or "focused"
                     ? $"{i}"
                     : $"{path}/{i}";
-                children.Add(CaptureElementTree(childElements[i], remainingLevels - 1, childPath));
+                children.Add(CaptureElementTree(childElements[i], nextRemainingLevels, childPath));
             }
         }
 
@@ -1665,9 +1668,9 @@ internal static class WindowAutomation
 
     private static int NormalizeDepth(int maxDepth)
     {
-        if (maxDepth < 1 || maxDepth > MaxUiDepth)
+        if (maxDepth < 1 || maxDepth > MaxBoundedUiDepth)
         {
-            throw new InvalidOperationException($"maxDepth must be between 1 and {MaxUiDepth}.");
+            throw new InvalidOperationException($"maxDepth must be between 1 and {MaxBoundedUiDepth}.");
         }
 
         return maxDepth;
@@ -2068,7 +2071,8 @@ internal sealed record UiElementSnapshot(
 
 internal sealed record WindowTreeResult(
     WindowDescriptor Window,
-    int MaxDepth,
+    int? MaxDepth,
+    bool FullDepth,
     UiElementSnapshot ElementTree);
 
 internal sealed record WindowScreenshotResult(
