@@ -25,6 +25,22 @@ internal static class WindowAutomation
     private static readonly Condition MenuItemCondition =
         new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem);
 
+    private static readonly HashSet<string> TransparentBoundedTreeClassNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "BrowserRootView",
+        "BrowserView",
+        "BrowserFrameViewWin",
+        "MultiContentsView",
+        "NonClientView",
+        "RootView",
+        "SidebarContentsSplitView",
+        "TopContainerOverlayView",
+        "TopContainerView",
+        "View",
+        "WebAppFrameToolbarView",
+        "WebAppToolbarButtonContainer",
+    };
+
     private static readonly IReadOnlyDictionary<string, ushort> ModifierVirtualKeys =
         new Dictionary<string, ushort>(StringComparer.OrdinalIgnoreCase)
         {
@@ -588,22 +604,70 @@ internal static class WindowAutomation
         int? remainingLevels,
         string path)
     {
-        var children = new List<UiElementSnapshot>();
-        if (!remainingLevels.HasValue || remainingLevels.Value > 1)
-        {
-            var childElements = element.FindAll(TreeScope.Children, Condition.TrueCondition);
-            int? nextRemainingLevels = remainingLevels.HasValue ? remainingLevels.Value - 1 : null;
-            for (var i = 0; i < childElements.Count; i++)
-            {
-                var childPath = path is "root" or "focused"
-                    ? $"{i}"
-                    : $"{path}/{i}";
-                children.Add(CaptureElementTree(childElements[i], nextRemainingLevels, childPath));
-            }
-        }
+        var children = CaptureChildSnapshots(element, remainingLevels, path);
 
         return BuildElementSnapshot(element, path, children, includeChildren: true);
     }
+
+    private static List<UiElementSnapshot> CaptureChildSnapshots(
+        AutomationElement element,
+        int? remainingLevels,
+        string path)
+    {
+        var children = new List<UiElementSnapshot>();
+        if (remainingLevels.HasValue && remainingLevels.Value <= 1)
+        {
+            return children;
+        }
+
+        var childElements = element.FindAll(TreeScope.Children, Condition.TrueCondition);
+        int? nextRemainingLevels = remainingLevels.HasValue ? remainingLevels.Value - 1 : null;
+        for (var i = 0; i < childElements.Count; i++)
+        {
+            var childPath = BuildChildPath(path, i);
+            if (nextRemainingLevels.HasValue)
+            {
+                AppendBoundedChildSnapshot(children, childElements[i], childPath, nextRemainingLevels.Value);
+                continue;
+            }
+
+            children.Add(CaptureElementTree(childElements[i], remainingLevels: null, childPath));
+        }
+
+        return children;
+    }
+
+    private static void AppendBoundedChildSnapshot(
+        List<UiElementSnapshot> snapshots,
+        AutomationElement element,
+        string path,
+        int remainingLevels)
+    {
+        if (ShouldPromoteChildrenInBoundedTree(element))
+        {
+            var childElements = element.FindAll(TreeScope.Children, Condition.TrueCondition);
+            if (childElements.Count > 0)
+            {
+                for (var i = 0; i < childElements.Count; i++)
+                {
+                    AppendBoundedChildSnapshot(
+                        snapshots,
+                        childElements[i],
+                        BuildChildPath(path, i),
+                        remainingLevels);
+                }
+
+                return;
+            }
+        }
+
+        snapshots.Add(CaptureElementTree(element, remainingLevels, path));
+    }
+
+    private static string BuildChildPath(string path, int childIndex) =>
+        path is "root" or "focused"
+            ? $"{childIndex}"
+            : $"{path}/{childIndex}";
 
     private static UiElementSnapshot BuildElementSnapshot(
         AutomationElement element,
@@ -709,6 +773,64 @@ internal static class WindowAutomation
         }
 
         return actions.ToArray();
+    }
+
+    private static bool ShouldPromoteChildrenInBoundedTree(AutomationElement element)
+    {
+        return ShouldPromoteChildrenInBoundedTree(
+            GetControlTypeName(element),
+            GetAutomationClassName(element),
+            GetElementName(element),
+            GetAutomationId(element),
+            GetAvailableActions(element),
+            GetIsKeyboardFocusable(element),
+            GetHasKeyboardFocus(element));
+    }
+
+    internal static bool ShouldPromoteChildrenInBoundedTree(
+        string controlType,
+        string className,
+        string name,
+        string automationId,
+        IReadOnlyList<string> availableActions,
+        bool isKeyboardFocusable,
+        bool hasKeyboardFocus)
+    {
+        _ = automationId;
+
+        if (hasKeyboardFocus || isKeyboardFocusable)
+        {
+            return false;
+        }
+
+        var isStructuralContainer =
+            controlType.Equals("Pane", StringComparison.OrdinalIgnoreCase) ||
+            controlType.Equals("Group", StringComparison.OrdinalIgnoreCase);
+        if (!isStructuralContainer || !HasOnlyStructuralActions(availableActions))
+        {
+            return false;
+        }
+
+        if (TransparentBoundedTreeClassNames.Contains(className))
+        {
+            return true;
+        }
+
+        return string.IsNullOrWhiteSpace(name);
+    }
+
+    internal static bool HasOnlyStructuralActions(IReadOnlyList<string> availableActions)
+    {
+        foreach (var action in availableActions)
+        {
+            if (!action.Equals("scroll", StringComparison.OrdinalIgnoreCase) &&
+                !action.Equals("scroll_into_view", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static MenuInvocationResult BuildMenuInvocationResult(nint handle, string menuPath, string actionTaken)

@@ -1,5 +1,5 @@
 ---
-description: "Use when the user wants desktop UI automation, window interaction, or visual inspection of running applications via EyesAndHands. Default herface desktop agent for heronwin."
+description: "Use when the user wants to drive or automate Windows user experiences by interacting with running applications through EyesAndHands using UI Automation, keystrokes, mouse clicks, window selection, and visual inspection. Default herface desktop agent for heronwin."
 tools: [read/getNotebookSummary, read/problems, read/readFile, read/viewImage, read/terminalSelection, read/terminalLastCommand, search/changes, search/codebase, search/fileSearch, search/listDirectory, search/searchResults, search/textSearch, search/searchSubagent, search/usages, web/fetch, web/githubRepo, eyesandhands/capture_selected_window_screenshot, eyesandhands/click_selected_window_element, eyesandhands/describe_selected_window, eyesandhands/describe_selected_window_focus, eyesandhands/focus_selected_window_element, eyesandhands/invoke_context_menu_item, eyesandhands/invoke_main_menu_item, eyesandhands/launch_app_via_taskbar_search, eyesandhands/list_context_menu_items, eyesandhands/list_main_menu_items, eyesandhands/list_taskbar_elements, eyesandhands/list_windows, eyesandhands/select_taskbar_app, eyesandhands/select_window, eyesandhands/send_input_to_window]
 ---
 
