@@ -97,6 +97,19 @@ public static class EyesAndHandsTools
         return WindowAutomation.Serialize(result);
     }
 
+    [McpServerTool, Description("Capture a PNG screenshot of the selected window. If no window has been selected, the server falls back to the current foreground window.")]
+    public static async Task<string> CaptureActiveWindowScreenshot(
+        UiAutomationExecutor executor,
+        WindowSelectionState selectionState,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await executor.RunAsync(
+            () => WindowAutomation.CaptureActiveWindowScreenshot(selectionState),
+            cancellationToken);
+
+        return WindowAutomation.Serialize(result);
+    }
+
     [McpServerTool, Description("Focus a specific child element in the selected window using the slash-delimited path returned by describe_active_window, such as 0, 1/3, or 2/0/1. If a window has been selected, the server focuses it before attempting the element focus.")]
     public static async Task<string> FocusActiveWindowElement(
         UiAutomationExecutor executor,
@@ -127,6 +140,21 @@ public static class EyesAndHandsTools
         return WindowAutomation.Serialize(result);
     }
 
+    [McpServerTool, Description("List the selected window's traditional main-menu sections and their immediate visible menu items. If windowHandle is omitted, the currently selected window is used.")]
+    public static async Task<string> ListMainMenuItems(
+        UiAutomationExecutor executor,
+        WindowSelectionState selectionState,
+        [Description("Optional window handle from list_windows. If omitted, the currently selected window is used.")]
+        string? windowHandle = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await executor.RunAsync(
+            () => WindowAutomation.ListMainMenuItems(selectionState, windowHandle),
+            cancellationToken);
+
+        return WindowAutomation.Serialize(result);
+    }
+
     [McpServerTool, Description("Open or invoke an item from the selected window's main menu by following a path like File > Open.")]
     public static async Task<string> InvokeMainMenuItem(
         UiAutomationExecutor executor,
@@ -139,6 +167,34 @@ public static class EyesAndHandsTools
     {
         var result = await executor.RunAsync(
             () => WindowAutomation.InvokeMainMenuItem(selectionState, menuPath, windowHandle),
+            cancellationToken);
+
+        return WindowAutomation.Serialize(result);
+    }
+
+    [McpServerTool, Description("Open the context menu for the currently focused element in the selected window and list the immediate visible menu items.")]
+    public static async Task<string> ListContextMenuItems(
+        UiAutomationExecutor executor,
+        WindowSelectionState selectionState,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await executor.RunAsync(
+            () => WindowAutomation.ListContextMenuItems(selectionState),
+            cancellationToken);
+
+        return WindowAutomation.Serialize(result);
+    }
+
+    [McpServerTool, Description("Open the context menu for the currently focused element in the selected window and invoke a menu path like Rename or Open with > Choose another app.")]
+    public static async Task<string> InvokeContextMenuItem(
+        UiAutomationExecutor executor,
+        WindowSelectionState selectionState,
+        [Description("Menu path using > separators, for example Rename or Open with > Choose another app.")]
+        string menuPath,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await executor.RunAsync(
+            () => WindowAutomation.InvokeContextMenuItem(selectionState, menuPath),
             cancellationToken);
 
         return WindowAutomation.Serialize(result);

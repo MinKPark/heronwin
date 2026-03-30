@@ -11,9 +11,13 @@ It is designed for "look at the current app, pick the right window, inspect the 
 | `list_windows` | List visible top-level windows on the current desktop session |
 | `select_window` | Select a window by handle or title substring and bring it to the foreground |
 | `describe_active_window` | Return a bounded UI Automation tree for the selected window, refocusing it first when possible |
+| `capture_active_window_screenshot` | Capture a PNG screenshot of the selected or foreground window |
 | `focus_active_window_element` | Focus an element from the selected window tree using its path |
 | `describe_focused_element` | Return a bounded UI Automation tree rooted at the currently focused element inside the selected window |
+| `list_main_menu_items` | List traditional main-menu sections and their immediate visible items |
 | `invoke_main_menu_item` | Open or invoke a menu path such as `File > Open` |
+| `list_context_menu_items` | Open the focused element's context menu and list its immediate visible items |
+| `invoke_context_menu_item` | Open the focused element's context menu and invoke a menu path |
 | `list_taskbar_elements` | List visible elements on the main Windows taskbar strip |
 | `activate_taskbar_app` | Activate one visible app button from the main Windows taskbar |
 | `search_taskbar_app` | Open taskbar Search, type an app name, and press Enter |
@@ -24,7 +28,7 @@ It is designed for "look at the current app, pick the right window, inspect the 
 - Taskbar discovery uses the main `Shell_TrayWnd` window plus UI Automation.
 - UI inspection and interaction use `System.Windows.Automation`.
 - All UI Automation work is serialized onto a dedicated STA thread, which is the safest way to interact with many Windows accessibility APIs.
-- The server keeps an in-memory "selected window" handle. That state is used by `list_windows`, the `describe_*` tools, `focus_active_window_element`, and lets `invoke_main_menu_item` omit `windowHandle`.
+- The server keeps an in-memory "selected window" handle. That state is used by `list_windows`, the `describe_*` tools, `focus_active_window_element`, and lets `list_main_menu_items` and `invoke_main_menu_item` omit `windowHandle`.
 
 ## Requirements
 
@@ -85,9 +89,11 @@ Most clients should use the tools in this order:
 1. Call `list_windows`.
 2. Call `select_window` with a specific `windowHandle` when possible.
 3. Call `describe_active_window` to inspect the selected window's control tree.
-4. Use a returned `path` with `focus_active_window_element`.
-5. Optionally call `describe_focused_element` to verify where focus landed.
-6. Use `invoke_main_menu_item` for top-level menu navigation.
+4. If the UI Automation tree is too sparse, call `capture_active_window_screenshot` and inspect the saved image.
+5. Use a returned `path` with `focus_active_window_element`.
+6. Optionally call `describe_focused_element` to verify where focus landed.
+7. Use `list_main_menu_items` to discover traditional menu commands and `invoke_main_menu_item` to run a chosen path.
+8. If the user wants an action on the focused control, use `list_context_menu_items` and then `invoke_context_menu_item`.
 
 For taskbar-driven workflows:
 
@@ -234,6 +240,41 @@ Notes:
 - The root path is always `root`.
 - `availableActions` is descriptive metadata only. This server currently exposes focus and menu tools, not a general action executor.
 
+### `capture_active_window_screenshot`
+
+Captures a PNG screenshot of the selected window. If no window has been selected, the server falls back to the current foreground window.
+
+Response shape:
+
+```json
+{
+  "window": {
+    "handle": "0x00123456",
+    "title": "Untitled - Notepad",
+    "className": "Notepad",
+    "processId": 12345,
+    "bounds": {
+      "left": 100,
+      "top": 100,
+      "width": 900,
+      "height": 700
+    }
+  },
+  "imagePath": "C:\\\\Users\\\\name\\\\AppData\\\\Local\\\\Temp\\\\heronwin\\\\eyesandhands\\\\20260329-120102123-Untitled_-_Notepad-0x00123456.png",
+  "imageFormat": "png",
+  "imageSize": {
+    "width": 900,
+    "height": 700
+  }
+}
+```
+
+Notes:
+
+- The screenshot is saved to a temporary local file and can be passed to an image-reading tool such as `read/viewImage`.
+- If a selected window exists, the server refocuses that window before capture.
+- The capture uses the current visible window bounds, so occlusion or overlapping windows can affect the image.
+
 ### `focus_active_window_element`
 
 Attempts to focus a specific element in the selected window.
@@ -291,6 +332,59 @@ Notes:
 - If a selected window exists, the server focuses that window before inspection.
 - The call fails if the currently focused element does not belong to the selected window.
 
+### `list_main_menu_items`
+
+Lists the selected window's traditional main-menu sections and the immediate visible items under each one.
+
+Parameters:
+
+- `windowHandle`: optional; when omitted, the server uses the current selected window
+
+Response shape:
+
+```json
+{
+  "window": { "...": "same window descriptor as above" },
+  "menuBar": {
+    "path": "menu_bar",
+    "name": "Application",
+    "controlType": "MenuBar",
+    "automationId": "",
+    "className": "",
+    "isEnabled": true,
+    "isOffscreen": false,
+    "hasKeyboardFocus": false,
+    "isKeyboardFocusable": false,
+    "availableActions": [],
+    "bounds": null,
+    "children": []
+  },
+  "menus": [
+    {
+      "label": "File",
+      "menuPath": "File",
+      "items": [
+        {
+          "label": "Open",
+          "menuPath": "File > Open",
+          "controlType": "MenuItem",
+          "isEnabled": true,
+          "hasSubmenu": false,
+          "isSeparator": false,
+          "availableActions": ["invoke"]
+        }
+      ]
+    }
+  ]
+}
+```
+
+Notes:
+
+- The tool opens each top-level menu one at a time and reports the immediate visible items exposed through UI Automation.
+- This is intended for command discovery; use `invoke_main_menu_item` to execute a chosen path.
+- Some apps expose only partial or no menu structure through UI Automation.
+
 ### `invoke_main_menu_item`
 
 Invokes a traditional main-menu path such as `File > Open`.
@@ -318,6 +412,63 @@ Notes:
 - Intermediate menu items are expanded or selected as needed.
 - If no window is supplied and no window has been selected yet, the call fails with guidance to run `list_windows` and `select_window` first.
 - This tool is intended for standard main menus exposed through UI Automation. Ribbon controls, custom toolbars, and owner-drawn menus may not appear.
+
+### `list_context_menu_items`
+
+Opens the context menu for the currently focused element and lists the immediate visible items.
+
+Response shape:
+
+```json
+{
+  "window": { "...": "same window descriptor as above" },
+  "focusedElement": { "...": "same focused element snapshot as above" },
+  "openActionTaken": "pressed_shift_f10",
+  "items": [
+    {
+      "label": "Rename",
+      "menuPath": "Rename",
+      "controlType": "MenuItem",
+      "isEnabled": true,
+      "hasSubmenu": false,
+      "isSeparator": false,
+      "availableActions": ["invoke"]
+    }
+  ]
+}
+```
+
+Notes:
+
+- The tool targets the currently focused element inside the selected window.
+- It tries `Shift+F10` first and falls back to the Apps key if needed.
+- Focus an element first with `focus_active_window_element` when you want the context menu for a specific control.
+
+### `invoke_context_menu_item`
+
+Opens the context menu for the currently focused element and invokes a menu path such as `Rename` or `Open with > Choose another app`.
+
+Parameters:
+
+- `menuPath`: `>`-separated menu labels
+
+Response shape:
+
+```json
+{
+  "handle": "0x00123456",
+  "title": "File Explorer",
+  "processId": 12345,
+  "menuPath": "Rename",
+  "openActionTaken": "pressed_shift_f10",
+  "actionTaken": "invoked"
+}
+```
+
+Notes:
+
+- The tool uses the currently focused element in the selected window as the context-menu target.
+- Like the main-menu tool, matching is tolerant of access-key markers and trailing ellipses.
 
 ### `list_taskbar_elements`
 

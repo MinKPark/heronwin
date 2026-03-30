@@ -2,6 +2,8 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Runtime.InteropServices;
 using System.Windows.Automation;
+using System.Drawing;
+using System.Drawing.Imaging;
 
 namespace HeronWin.HerBody.EyesAndHands;
 
@@ -16,6 +18,9 @@ internal static class WindowAutomation
 
     private static readonly Condition MenuBarCondition =
         new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuBar);
+
+    private static readonly Condition MenuCondition =
+        new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Menu);
 
     private static readonly Condition MenuItemCondition =
         new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem);
@@ -35,6 +40,10 @@ internal static class WindowAutomation
     private static readonly TimeSpan LaunchSelectionInterval = TimeSpan.FromMilliseconds(100);
     private static readonly TimeSpan TaskbarSearchTimeout = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan TaskbarSearchInterval = TimeSpan.FromMilliseconds(100);
+    private static readonly string ScreenshotDirectory = Path.Combine(
+        Path.GetTempPath(),
+        "heronwin",
+        "eyesandhands");
 
     internal static string Serialize(object value) => JsonSerializer.Serialize(value, JsonOptions);
 
@@ -226,6 +235,44 @@ internal static class WindowAutomation
             CaptureElementTree(windowElement, normalizedDepth, "root"));
     }
 
+    internal static WindowScreenshotResult CaptureActiveWindowScreenshot(WindowSelectionState selectionState)
+    {
+        var handle = ResolveInteractionWindowHandle(selectionState);
+        EnsureWindowExists(handle);
+        FocusWindow(handle);
+
+        if (!NativeMethods.GetWindowRect(handle, out var rect))
+        {
+            throw new InvalidOperationException("Could not determine the bounds of the active window.");
+        }
+
+        var width = rect.Right - rect.Left;
+        var height = rect.Bottom - rect.Top;
+        if (width <= 0 || height <= 0)
+        {
+            throw new InvalidOperationException("The active window does not have visible bounds to capture.");
+        }
+
+        Directory.CreateDirectory(ScreenshotDirectory);
+        var filePath = Path.Combine(
+            ScreenshotDirectory,
+            BuildScreenshotFileName(handle, NativeMethods.GetWindowText(handle)));
+
+        using var bitmap = new Bitmap(width, height);
+        using (var graphics = Graphics.FromImage(bitmap))
+        {
+            graphics.CopyFromScreen(rect.Left, rect.Top, 0, 0, new Size(width, height));
+        }
+
+        bitmap.Save(filePath, ImageFormat.Png);
+
+        return new WindowScreenshotResult(
+            BuildWindowDescriptor(handle),
+            filePath,
+            "png",
+            new ImageDimensions(width, height));
+    }
+
     internal static FocusedElementResult FocusActiveWindowElement(
         WindowSelectionState selectionState,
         string elementPath)
@@ -266,6 +313,53 @@ internal static class WindowAutomation
             CaptureElementTree(focusedElement, normalizedDepth, "focused"));
     }
 
+    internal static MainMenuListResult ListMainMenuItems(
+        WindowSelectionState selectionState,
+        string? windowHandle)
+    {
+        var handle = ResolveWindowHandle(windowHandle, null, selectionState);
+        EnsureWindowExists(handle);
+        FocusWindow(handle);
+        selectionState.SetSelectedHandle(handle);
+
+        var windowElement = AutomationElement.FromHandle(handle);
+        var menuBar = FindMainMenuBar(windowElement);
+        var processId = GetProcessId(handle);
+        if (FindVisiblePopupMenu(processId) is not null)
+        {
+            DismissOpenMenus();
+            FocusWindow(handle);
+        }
+
+        var topLevelLabels = GetTopLevelMenuItems(menuBar)
+            .Select(GetElementName)
+            .Where(static label => !string.IsNullOrWhiteSpace(label))
+            .ToArray();
+        var menus = new List<MainMenuSection>(topLevelLabels.Length);
+
+        foreach (var label in topLevelLabels)
+        {
+            var currentTopLevelItem = FindBestMatch(GetTopLevelMenuItems(menuBar), label)
+                ?? throw new InvalidOperationException($"Could not find the top-level menu item '{label}'.");
+
+            ExpandMenu(currentTopLevelItem);
+            var items = GetVisiblePopupMenuItems(processId, label);
+            menus.Add(new MainMenuSection(
+                label,
+                label,
+                items));
+            DismissOpenMenus();
+            FocusWindow(handle);
+        }
+
+        DismissOpenMenus();
+
+        return new MainMenuListResult(
+            BuildWindowDescriptor(handle),
+            BuildElementSnapshot(menuBar, "menu_bar", [], includeChildren: false),
+            menus);
+    }
+
     internal static MenuInvocationResult InvokeMainMenuItem(
         WindowSelectionState selectionState,
         string menuPath,
@@ -281,55 +375,68 @@ internal static class WindowAutomation
         FocusWindow(handle);
         selectionState.SetSelectedHandle(handle);
 
+        var windowElement = AutomationElement.FromHandle(handle);
+        var menuBar = FindMainMenuBar(windowElement);
         var segments = menuPath.Split('>', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
         if (segments.Length == 0)
         {
             throw new InvalidOperationException("menuPath must contain at least one menu item.");
         }
 
-        var windowElement = AutomationElement.FromHandle(handle);
-        var menuBar = windowElement.FindFirst(TreeScope.Descendants, MenuBarCondition);
-        if (menuBar is null)
-        {
-            throw new InvalidOperationException("The selected window does not expose a main menu through UI Automation.");
-        }
-
         var topLevelItem =
-            FindBestMatch(Enumerate(menuBar.FindAll(TreeScope.Children, MenuItemCondition)), segments[0]) ??
-            FindBestMatch(Enumerate(menuBar.FindAll(TreeScope.Descendants, MenuItemCondition)), segments[0]);
+            FindBestMatch(GetTopLevelMenuItems(menuBar), segments[0]);
 
         if (topLevelItem is null)
         {
             throw new InvalidOperationException($"Could not find the top-level menu item '{segments[0]}'.");
         }
 
-        string actionTaken = "none";
         if (segments.Length == 1)
         {
-            actionTaken = InvokeAction(topLevelItem, allowExpandOnly: true);
-            return BuildMenuInvocationResult(handle, menuPath, actionTaken);
+            var topLevelActionTaken = InvokeAction(topLevelItem, allowExpandOnly: true);
+            return BuildMenuInvocationResult(handle, menuPath, topLevelActionTaken);
         }
 
         ExpandMenu(topLevelItem);
-
-        var processId = GetProcessId(handle);
-        for (var i = 1; i < segments.Length; i++)
-        {
-            var nextItem = WaitForMenuItem(processId, segments[i]);
-            if (nextItem is null)
-            {
-                var traversedPath = string.Join(" > ", segments.Take(i));
-                throw new InvalidOperationException(
-                    $"Could not find menu item '{segments[i]}' after opening '{traversedPath}'.");
-            }
-
-            var isLast = i == segments.Length - 1;
-            actionTaken = isLast
-                ? InvokeAction(nextItem, allowExpandOnly: false)
-                : ExpandMenu(nextItem);
-        }
+        var actionTaken = InvokeVisibleMenuPath(handle, string.Join(" > ", segments.Skip(1)));
 
         return BuildMenuInvocationResult(handle, menuPath, actionTaken);
+    }
+
+    internal static ContextMenuListResult ListContextMenuItems(WindowSelectionState selectionState)
+    {
+        var (handle, _, focusedElement) = ResolveFocusedElementForContextMenu(selectionState);
+        var openActionTaken = OpenContextMenu(focusedElement, GetProcessId(handle));
+        var items = GetVisiblePopupMenuItems(GetProcessId(handle), null);
+        DismissOpenMenus();
+
+        return new ContextMenuListResult(
+            BuildWindowDescriptor(handle),
+            BuildElementSnapshot(focusedElement, "focused", [], includeChildren: false),
+            openActionTaken,
+            items);
+    }
+
+    internal static ContextMenuInvocationResult InvokeContextMenuItem(
+        WindowSelectionState selectionState,
+        string menuPath)
+    {
+        if (string.IsNullOrWhiteSpace(menuPath))
+        {
+            throw new InvalidOperationException("menuPath is required.");
+        }
+
+        var (handle, _, focusedElement) = ResolveFocusedElementForContextMenu(selectionState);
+        var openActionTaken = OpenContextMenu(focusedElement, GetProcessId(handle));
+        var actionTaken = InvokeVisibleMenuPath(handle, menuPath);
+
+        return new ContextMenuInvocationResult(
+            BuildSelectionResult(handle, wasFocused: true).Handle,
+            NativeMethods.GetWindowText(handle),
+            GetProcessId(handle),
+            menuPath,
+            openActionTaken,
+            actionTaken);
     }
 
     private static WindowSelectionResult BuildSelectionResult(nint handle, bool wasFocused)
@@ -498,6 +605,205 @@ internal static class WindowAutomation
             selection.ProcessId,
             menuPath,
             actionTaken);
+    }
+
+    private static AutomationElement FindMainMenuBar(AutomationElement windowElement)
+    {
+        return windowElement.FindFirst(TreeScope.Descendants, MenuBarCondition)
+            ?? throw new InvalidOperationException(
+                "The selected window does not expose a main menu through UI Automation.");
+    }
+
+    private static IReadOnlyList<AutomationElement> GetTopLevelMenuItems(AutomationElement menuBar)
+    {
+        var directChildren = Enumerate(menuBar.FindAll(TreeScope.Children, MenuItemCondition))
+            .Where(element => !string.IsNullOrWhiteSpace(GetElementName(element)))
+            .ToArray();
+
+        if (directChildren.Length > 0)
+        {
+            return directChildren;
+        }
+
+        return Enumerate(menuBar.FindAll(TreeScope.Descendants, MenuItemCondition))
+            .Where(element => !string.IsNullOrWhiteSpace(GetElementName(element)))
+            .ToArray();
+    }
+
+    private static (nint Handle, AutomationElement WindowElement, AutomationElement FocusedElement) ResolveFocusedElementForContextMenu(
+        WindowSelectionState selectionState)
+    {
+        var handle = ResolveInteractionWindowHandle(selectionState);
+        FocusWindow(handle);
+        selectionState.SetSelectedHandle(handle);
+
+        var windowElement = AutomationElement.FromHandle(handle);
+        var focusedElement = AutomationElement.FocusedElement
+            ?? throw new InvalidOperationException(
+                "No focused UI element is currently available. Focus an element before opening its context menu.");
+
+        if (!IsSameOrDescendantOf(focusedElement, windowElement))
+        {
+            throw new InvalidOperationException(
+                "The currently focused UI element does not belong to the selected window.");
+        }
+
+        return (handle, windowElement, focusedElement);
+    }
+
+    private static string OpenContextMenu(AutomationElement focusedElement, int processId)
+    {
+        if (FindVisiblePopupMenu(processId) is not null)
+        {
+            DismissOpenMenus();
+            Thread.Sleep(100);
+        }
+
+        var focusAction = TryFocusElement(focusedElement);
+        PressShiftF10();
+        Thread.Sleep(150);
+
+        if (FindVisiblePopupMenu(processId) is not null)
+        {
+            return focusAction is null ? "pressed_shift_f10" : $"{focusAction}_then_pressed_shift_f10";
+        }
+
+        PressAppsKey();
+        Thread.Sleep(150);
+        if (FindVisiblePopupMenu(processId) is not null)
+        {
+            return focusAction is null ? "pressed_apps" : $"{focusAction}_then_pressed_apps";
+        }
+
+        throw new InvalidOperationException(
+            "Tried to open the context menu for the focused element, but no context menu became visible.");
+    }
+
+    private static string InvokeVisibleMenuPath(nint handle, string menuPath)
+    {
+        var segments = menuPath.Split('>', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length == 0)
+        {
+            throw new InvalidOperationException("menuPath must contain at least one menu item.");
+        }
+
+        var processId = GetProcessId(handle);
+        var firstItem = WaitForMenuItem(processId, segments[0]);
+        if (firstItem is null)
+        {
+            throw new InvalidOperationException($"Could not find menu item '{segments[0]}'.");
+        }
+
+        string actionTaken;
+        if (segments.Length == 1)
+        {
+            return InvokeAction(firstItem, allowExpandOnly: false);
+        }
+
+        actionTaken = ExpandMenu(firstItem);
+        for (var i = 1; i < segments.Length; i++)
+        {
+            var nextItem = WaitForMenuItem(processId, segments[i]);
+            if (nextItem is null)
+            {
+                var traversedPath = string.Join(" > ", segments.Take(i));
+                throw new InvalidOperationException(
+                    $"Could not find menu item '{segments[i]}' after opening '{traversedPath}'.");
+            }
+
+            var isLast = i == segments.Length - 1;
+            actionTaken = isLast
+                ? InvokeAction(nextItem, allowExpandOnly: false)
+                : ExpandMenu(nextItem);
+        }
+
+        return actionTaken;
+    }
+
+    private static IReadOnlyList<MenuItemSummary> GetVisiblePopupMenuItems(int processId, string? parentMenuPath)
+    {
+        var popupMenu = WaitForVisiblePopupMenu(processId)
+            ?? throw new InvalidOperationException("Opened a menu, but no visible menu items were exposed through UI Automation.");
+
+        var children = Enumerate(popupMenu.FindAll(TreeScope.Children, MenuItemCondition))
+            .ToArray();
+
+        return children
+            .Select(item => BuildMenuItemSummary(item, parentMenuPath))
+            .ToArray();
+    }
+
+    private static AutomationElement? WaitForVisiblePopupMenu(int processId)
+    {
+        var deadline = DateTime.UtcNow + MenuSearchTimeout;
+        while (DateTime.UtcNow <= deadline)
+        {
+            var match = FindVisiblePopupMenu(processId);
+            if (match is not null)
+            {
+                return match;
+            }
+
+            Thread.Sleep(MenuSearchInterval);
+        }
+
+        return null;
+    }
+
+    private static AutomationElement? FindVisiblePopupMenu(int processId)
+    {
+        var visibleMenuCondition = new AndCondition(
+            MenuCondition,
+            new PropertyCondition(AutomationElement.ProcessIdProperty, processId),
+            new PropertyCondition(AutomationElement.IsOffscreenProperty, false));
+
+        return Enumerate(AutomationElement.RootElement.FindAll(TreeScope.Descendants, visibleMenuCondition))
+            .Select(menu => new
+            {
+                Element = menu,
+                ChildItems = Enumerate(menu.FindAll(TreeScope.Children, MenuItemCondition)).ToArray(),
+            })
+            .Where(candidate => candidate.ChildItems.Length > 0)
+            .OrderByDescending(candidate => candidate.ChildItems.Length)
+            .ThenByDescending(candidate =>
+            {
+                var bounds = GetBoundingRectangle(candidate.Element);
+                return bounds is null ? 0d : bounds.Width * bounds.Height;
+            })
+            .Select(candidate => candidate.Element)
+            .FirstOrDefault();
+    }
+
+    private static MenuItemSummary BuildMenuItemSummary(AutomationElement element, string? parentMenuPath)
+    {
+        var label = GetElementName(element);
+        var isSeparator = string.IsNullOrWhiteSpace(label);
+        var displayLabel = isSeparator ? "(separator)" : label;
+        var menuPath = string.IsNullOrWhiteSpace(parentMenuPath)
+            ? displayLabel
+            : $"{parentMenuPath} > {displayLabel}";
+
+        return new MenuItemSummary(
+            displayLabel,
+            menuPath,
+            GetControlTypeName(element),
+            GetIsEnabled(element),
+            HasSubmenu(element),
+            isSeparator,
+            GetAvailableActions(element));
+    }
+
+    private static bool HasSubmenu(AutomationElement element)
+    {
+        if (!TryGetPattern<ExpandCollapsePattern>(element, ExpandCollapsePattern.Pattern, out var expandCollapsePattern))
+        {
+            return false;
+        }
+
+        return expandCollapsePattern.Current.ExpandCollapseState is
+            ExpandCollapseState.Collapsed or
+            ExpandCollapseState.Expanded or
+            ExpandCollapseState.PartiallyExpanded;
     }
 
     private static nint ResolveWindowHandle(
@@ -766,6 +1072,22 @@ internal static class WindowAutomation
         }
 
         return true;
+    }
+
+    internal static string SanitizeFileNameSegment(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "window";
+        }
+
+        var invalidCharacters = Path.GetInvalidFileNameChars();
+        var sanitized = new string(value
+            .Select(character => invalidCharacters.Contains(character) ? '_' : character)
+            .ToArray());
+
+        sanitized = Regex.Replace(sanitized, "\\s+", "_").Trim('_');
+        return string.IsNullOrWhiteSpace(sanitized) ? "window" : sanitized;
     }
 
     private static TaskbarElementSummary ResolveTaskbarAppTarget(
@@ -1132,6 +1454,27 @@ internal static class WindowAutomation
         Thread.Sleep(250);
     }
 
+    private static void PressShiftF10()
+    {
+        PressModifiedKey(NativeMethods.VkShift, NativeMethods.VkF10);
+    }
+
+    private static void PressAppsKey()
+    {
+        PressKey(NativeMethods.VkApps, "Failed to send the Apps key to the focused element.");
+    }
+
+    private static void PressEscapeKey()
+    {
+        PressKey(NativeMethods.VkEscape, "Failed to send Escape to dismiss the active menu.");
+    }
+
+    private static void DismissOpenMenus()
+    {
+        PressEscapeKey();
+        Thread.Sleep(100);
+    }
+
     private static void PressSelectAllShortcut()
     {
         PressModifiedKey(NativeMethods.VkControl, NativeMethods.VkA);
@@ -1149,10 +1492,15 @@ internal static class WindowAutomation
 
     private static void PressEnterKey()
     {
+        PressKey(NativeMethods.VkReturn, "Failed to send Enter to the focused taskbar item.");
+    }
+
+    private static void PressKey(ushort virtualKey, string errorMessage)
+    {
         SendKeyboardInputs(
-            "Failed to send Enter to the focused taskbar item.",
-            CreateVirtualKeyInput(NativeMethods.VkReturn),
-            CreateVirtualKeyInput(NativeMethods.VkReturn, keyUp: true));
+            errorMessage,
+            CreateVirtualKeyInput(virtualKey),
+            CreateVirtualKeyInput(virtualKey, keyUp: true));
     }
 
     private static void SendUnicodeText(string text)
@@ -1625,6 +1973,13 @@ internal static class WindowAutomation
         return Regex.Replace(withoutAccessKeys, "\\s+", " ").Trim().ToLowerInvariant();
     }
 
+    private static string BuildScreenshotFileName(nint handle, string title)
+    {
+        var timestamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmssfff");
+        var titleSegment = SanitizeFileNameSegment(title);
+        return $"{timestamp}-{titleSegment}-{FormatHandle(handle)}.png";
+    }
+
     private static bool TryGetPattern<TPattern>(
         AutomationElement element,
         AutomationPattern pattern,
@@ -1693,6 +2048,10 @@ internal sealed record WindowDescriptor(
     int ProcessId,
     WindowBounds Bounds);
 
+internal sealed record ImageDimensions(
+    int Width,
+    int Height);
+
 internal sealed record UiElementSnapshot(
     string Path,
     string Name,
@@ -1712,6 +2071,12 @@ internal sealed record WindowTreeResult(
     int MaxDepth,
     UiElementSnapshot ElementTree);
 
+internal sealed record WindowScreenshotResult(
+    WindowDescriptor Window,
+    string ImagePath,
+    string ImageFormat,
+    ImageDimensions ImageSize);
+
 internal sealed record FocusedElementTreeResult(
     WindowDescriptor Window,
     int MaxDepth,
@@ -1721,6 +2086,31 @@ internal sealed record FocusedElementResult(
     WindowDescriptor Window,
     UiElementSnapshot FocusedElement,
     string ActionTaken);
+
+internal sealed record MainMenuListResult(
+    WindowDescriptor Window,
+    UiElementSnapshot MenuBar,
+    IReadOnlyList<MainMenuSection> Menus);
+
+internal sealed record MainMenuSection(
+    string Label,
+    string MenuPath,
+    IReadOnlyList<MenuItemSummary> Items);
+
+internal sealed record ContextMenuListResult(
+    WindowDescriptor Window,
+    UiElementSnapshot FocusedElement,
+    string OpenActionTaken,
+    IReadOnlyList<MenuItemSummary> Items);
+
+internal sealed record MenuItemSummary(
+    string Label,
+    string MenuPath,
+    string ControlType,
+    bool IsEnabled,
+    bool HasSubmenu,
+    bool IsSeparator,
+    IReadOnlyList<string> AvailableActions);
 
 internal sealed record WindowSelectionResult(
     string Handle,
@@ -1771,6 +2161,14 @@ internal sealed record MenuInvocationResult(
     string Title,
     int ProcessId,
     string MenuPath,
+    string ActionTaken);
+
+internal sealed record ContextMenuInvocationResult(
+    string Handle,
+    string Title,
+    int ProcessId,
+    string MenuPath,
+    string OpenActionTaken,
     string ActionTaken);
 
 internal enum TaskbarActivationMode
