@@ -10,18 +10,18 @@ It is designed for "look at the current app, pick the right window, inspect the 
 |------|-------------|
 | `list_windows` | List visible top-level windows on the current desktop session |
 | `select_window` | Select a window by handle or title substring and bring it to the foreground |
-| `describe_active_window` | Return a UI Automation tree for the selected window, either bounded or full depth |
-| `capture_active_window_screenshot` | Capture a PNG screenshot of the selected or foreground window |
-| `focus_active_window_element` | Focus an element from the selected window tree using its path |
-| `send_a_key` | Send a key press, shortcut, or typed text to the selected window |
-| `describe_focused_element` | Return a bounded UI Automation tree rooted at the currently focused element inside the selected window |
+| `describe_selected_window` | Return a UI Automation tree for the selected window, either bounded or full depth |
+| `capture_selected_window_screenshot` | Capture a PNG screenshot of the selected or foreground window |
+| `focus_selected_window_element` | Focus an element from the selected window tree using its path |
+| `send_input_to_window` | Send a key press, shortcut, or typed text to the selected window |
+| `describe_selected_window_focus` | Return a bounded UI Automation tree rooted at the currently focused element inside the selected window |
 | `list_main_menu_items` | List traditional main-menu sections and their immediate visible items |
 | `invoke_main_menu_item` | Open or invoke a menu path such as `File > Open` |
 | `list_context_menu_items` | Open the focused element's context menu and list its immediate visible items |
 | `invoke_context_menu_item` | Open the focused element's context menu and invoke a menu path |
 | `list_taskbar_elements` | List visible elements on the main Windows taskbar strip |
-| `activate_taskbar_app` | Activate one visible app button from the main Windows taskbar |
-| `search_taskbar_app` | Open taskbar Search, type an app name, and press Enter |
+| `select_taskbar_app` | Select or start one visible app button from the main Windows taskbar |
+| `launch_app_via_taskbar_search` | Open taskbar Search, type an app name, and press Enter |
 
 ## How It Works
 
@@ -29,7 +29,7 @@ It is designed for "look at the current app, pick the right window, inspect the 
 - Taskbar discovery uses the main `Shell_TrayWnd` window plus UI Automation.
 - UI inspection and interaction use `System.Windows.Automation`.
 - All UI Automation work is serialized onto a dedicated STA thread, which is the safest way to interact with many Windows accessibility APIs.
-- The server keeps an in-memory "selected window" handle. That state is used by `list_windows`, the `describe_*` tools, `focus_active_window_element`, and lets `list_main_menu_items` and `invoke_main_menu_item` omit `windowHandle`.
+- The server keeps an in-memory "selected window" handle. That state is used by `list_windows`, the `describe_*` tools, `focus_selected_window_element`, and lets `list_main_menu_items` and `invoke_main_menu_item` omit `windowHandle`.
 
 ## Requirements
 
@@ -89,11 +89,11 @@ Most clients should use the tools in this order:
 
 1. Call `list_windows`.
 2. Call `select_window` with a specific `windowHandle` when possible.
-3. Call `describe_active_window` to inspect the selected window's control tree.
-4. If the UI Automation tree is too sparse, call `capture_active_window_screenshot` and inspect the saved image.
-5. Use a returned `path` with `focus_active_window_element`.
-6. Use `send_a_key` when the user wants to press a shortcut or type text into the current app.
-7. Optionally call `describe_focused_element` to verify where focus landed.
+3. Call `describe_selected_window` to inspect the selected window's control tree.
+4. If the UI Automation tree is too sparse, call `capture_selected_window_screenshot` and inspect the saved image.
+5. Use a returned `path` with `focus_selected_window_element`.
+6. Use `send_input_to_window` when the user wants to press a shortcut or type text into the current app.
+7. Optionally call `describe_selected_window_focus` to verify where focus landed.
 8. Use `list_main_menu_items` to discover traditional menu commands and `invoke_main_menu_item` to run a chosen path.
 9. If the user wants an action on the focused control, use `list_context_menu_items` and then `invoke_context_menu_item`.
 
@@ -101,12 +101,12 @@ For taskbar-driven workflows:
 
 1. Call `list_taskbar_elements`.
 2. Pick an app button from the returned `elements`.
-3. Call `activate_taskbar_app`, preferably with the returned `path`.
+3. Call `select_taskbar_app`, preferably with the returned `path`.
 4. The activated app window becomes the selected window for subsequent eyesandhands actions.
 
 For launching apps that are not pinned to the taskbar:
 
-1. Call `search_taskbar_app` with the app name you want to launch.
+1. Call `launch_app_via_taskbar_search` with the app name you want to launch.
 2. The tool opens Windows Search from the taskbar, types the query, and presses `Enter` on the top result.
 3. The launched app window becomes the selected window for subsequent eyesandhands actions.
 
@@ -173,7 +173,7 @@ Notes:
 - If `titleContains` matches multiple windows, the call fails and asks for a specific handle.
 - Minimized windows are restored before focus is attempted.
 
-### `describe_active_window`
+### `describe_selected_window`
 
 Returns a UI Automation tree for the selected window. If no window has been selected yet, the server falls back to the current foreground window.
 
@@ -245,7 +245,7 @@ Notes:
 - `availableActions` is descriptive metadata only. This server currently exposes focus and menu tools, not a general action executor.
 - When `fullDepth` is `true`, `maxDepth` is returned as `null` and the full visible UI Automation subtree is captured. This can produce a large payload.
 
-### `capture_active_window_screenshot`
+### `capture_selected_window_screenshot`
 
 Captures a PNG screenshot of the selected window. If no window has been selected, the server falls back to the current foreground window.
 
@@ -280,13 +280,13 @@ Notes:
 - If a selected window exists, the server refocuses that window before capture.
 - The capture uses the current visible window bounds, so occlusion or overlapping windows can affect the image.
 
-### `focus_active_window_element`
+### `focus_selected_window_element`
 
 Attempts to focus a specific element in the selected window.
 
 Parameters:
 
-- `elementPath`: a path returned by `describe_active_window`, or `root`
+- `elementPath`: a path returned by `describe_selected_window`, or `root`
 
 Response shape:
 
@@ -323,7 +323,7 @@ Notes:
 - `actionTaken` may be `focused`, `selected_and_focused`, or `scrolled_and_focused`.
 - When focus lands on a descendant, the returned `focusedElement.path` may differ from the requested path.
 
-### `send_a_key`
+### `send_input_to_window`
 
 Sends a key press, shortcut, or typed text to the selected window. If no window has been selected, the server falls back to the current foreground window.
 
@@ -356,7 +356,7 @@ Notes:
 - Use `text` for direct typing, including punctuation and multi-character input.
 - Use `key` plus `modifiers` for shortcuts such as `Ctrl+A`, `Alt+F4`, or `Shift+Tab`.
 
-### `describe_focused_element`
+### `describe_selected_window_focus`
 
 Returns a UI Automation tree rooted at the current focused element inside the selected window.
 
@@ -480,7 +480,7 @@ Notes:
 
 - The tool targets the currently focused element inside the selected window.
 - It tries `Shift+F10` first and falls back to the Apps key if needed.
-- Focus an element first with `focus_active_window_element` when you want the context menu for a specific control.
+- Focus an element first with `focus_selected_window_element` when you want the context menu for a specific control.
 
 ### `invoke_context_menu_item`
 
@@ -564,10 +564,10 @@ Response shape:
 Notes:
 
 - `elements` only includes visible direct children of the main taskbar host.
-- `path` values can be passed directly to `activate_taskbar_app`.
+- `path` values can be passed directly to `select_taskbar_app`.
 - `isAppButton` distinguishes pinned/running app buttons from Start/Search-style taskbar controls.
 
-### `activate_taskbar_app`
+### `select_taskbar_app`
 
 Activates one visible taskbar app button. If the app is pinned but not running, this typically starts it. If it is already running, this usually behaves like clicking its taskbar button.
 
@@ -617,7 +617,7 @@ Notes:
 - If the button is only keyboard-focusable, the tool focuses it and sends `Enter`, which can start pinned apps that do not expose an invoke pattern.
 - After launch or activation, the tool waits for the foreground app window and stores it as the selected window so follow-up UI actions target that app by default.
 
-### `search_taskbar_app`
+### `launch_app_via_taskbar_search`
 
 Opens the taskbar Search surface, types an app name into the search box, and presses `Enter` to launch the top result.
 
@@ -683,7 +683,7 @@ Notes:
 ## Practical Caveats
 
 - UI Automation coverage varies by application. Classic Win32 apps often work well; custom-rendered apps may expose little or nothing.
-- Focus is inherently stateful. When a window has been selected, the server refocuses that window before inspection and focus operations. Without a selected window, `describe_active_window` and `describe_focused_element` still reflect the current foreground app.
+- Focus is inherently stateful. When a window has been selected, the server refocuses that window before inspection and focus operations. Without a selected window, `describe_selected_window` and `describe_selected_window_focus` still reflect the current foreground app.
 - `describe_*` responses are intentionally depth-limited to keep MCP payloads bounded.
 - Menu discovery waits briefly for submenu items to appear, but heavily animated or delayed UIs can still time out.
 - The selected window is process-local state. Restarting the server clears it.

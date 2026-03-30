@@ -32,7 +32,7 @@ public static class EyesAndHandsTools
     }
 
     [McpServerTool, Description("Select or start an app from the main Windows taskbar by activating one visible app button. Prefer elementPath values returned by list_taskbar_elements.")]
-    public static async Task<string> ActivateTaskbarApp(
+    public static async Task<string> SelectTaskbarApp(
         UiAutomationExecutor executor,
         WindowSelectionState selectionState,
         [Description("Full element path returned by list_taskbar_elements, such as 2/0/5. Preferred when available.")]
@@ -44,14 +44,14 @@ public static class EyesAndHandsTools
         CancellationToken cancellationToken = default)
     {
         var result = await executor.RunAsync(
-            () => WindowAutomation.ActivateTaskbarApp(selectionState, elementPath, titleContains, automationIdContains),
+            () => WindowAutomation.SelectTaskbarApp(selectionState, elementPath, titleContains, automationIdContains),
             cancellationToken);
 
         return WindowAutomation.Serialize(result);
     }
 
     [McpServerTool, Description("Open the Windows taskbar Search UI, type an app name into the search box, and press Enter to start the top result.")]
-    public static async Task<string> SearchTaskbarApp(
+    public static async Task<string> LaunchAppViaTaskbarSearch(
         UiAutomationExecutor executor,
         WindowSelectionState selectionState,
         [Description("App name or search query to type into the taskbar search box.")]
@@ -59,7 +59,7 @@ public static class EyesAndHandsTools
         CancellationToken cancellationToken = default)
     {
         var result = await executor.RunAsync(
-            () => WindowAutomation.SearchTaskbarApp(selectionState, appName),
+            () => WindowAutomation.LaunchAppViaTaskbarSearch(selectionState, appName),
             cancellationToken);
 
         return WindowAutomation.Serialize(result);
@@ -83,7 +83,7 @@ public static class EyesAndHandsTools
     }
 
     [McpServerTool, Description("Describe the selected window as a structured UI Automation tree. If a window has been selected, the server focuses it before inspection; otherwise it falls back to the current foreground window. maxDepth includes the root level and must be between 1 and 4 when fullDepth is false.")]
-    public static async Task<string> DescribeActiveWindow(
+    public static async Task<string> DescribeSelectedWindow(
         UiAutomationExecutor executor,
         WindowSelectionState selectionState,
         [Description("How many UI tree levels to include, counting the window root as level 1. Must be between 1 and 4 when fullDepth is false.")]
@@ -93,42 +93,42 @@ public static class EyesAndHandsTools
         CancellationToken cancellationToken = default)
     {
         var result = await executor.RunAsync(
-            () => WindowAutomation.DescribeActiveWindow(selectionState, maxDepth, fullDepth),
+            () => WindowAutomation.DescribeSelectedWindow(selectionState, maxDepth, fullDepth),
             cancellationToken);
 
         return WindowAutomation.Serialize(result);
     }
 
     [McpServerTool, Description("Capture a PNG screenshot of the selected window. If no window has been selected, the server falls back to the current foreground window.")]
-    public static async Task<string> CaptureActiveWindowScreenshot(
+    public static async Task<string> CaptureSelectedWindowScreenshot(
         UiAutomationExecutor executor,
         WindowSelectionState selectionState,
         CancellationToken cancellationToken = default)
     {
         var result = await executor.RunAsync(
-            () => WindowAutomation.CaptureActiveWindowScreenshot(selectionState),
+            () => WindowAutomation.CaptureSelectedWindowScreenshot(selectionState),
             cancellationToken);
 
         return WindowAutomation.Serialize(result);
     }
 
-    [McpServerTool, Description("Focus a specific child element in the selected window using the slash-delimited path returned by describe_active_window, such as 0, 1/3, or 2/0/1. If a window has been selected, the server focuses it before attempting the element focus.")]
-    public static async Task<string> FocusActiveWindowElement(
+    [McpServerTool, Description("Focus a specific child element in the selected window using the slash-delimited path returned by describe_selected_window, such as 0, 1/3, or 2/0/1. If a window has been selected, the server focuses it before attempting the element focus.")]
+    public static async Task<string> FocusSelectedWindowElement(
         UiAutomationExecutor executor,
         WindowSelectionState selectionState,
-        [Description("Slash-delimited child path from describe_active_window. Use root to focus the window element itself.")]
+        [Description("Slash-delimited child path from describe_selected_window. Use root to focus the window element itself.")]
         string elementPath,
         CancellationToken cancellationToken = default)
     {
         var result = await executor.RunAsync(
-            () => WindowAutomation.FocusActiveWindowElement(selectionState, elementPath),
+            () => WindowAutomation.FocusSelectedWindowElement(selectionState, elementPath),
             cancellationToken);
 
         return WindowAutomation.Serialize(result);
     }
 
     [McpServerTool, Description("Send a key press, shortcut, or typed text to the selected window. Provide either key or text. The tool brings the selected or foreground window to the front without intentionally changing the focused control inside it.")]
-    public static async Task<string> SendAKey(
+    public static async Task<string> SendInputToWindow(
         UiAutomationExecutor executor,
         WindowSelectionState selectionState,
         [Description("Named key such as Enter, Escape, Tab, Up, Down, F5, A, or 1. Provide either key or text.")]
@@ -142,14 +142,14 @@ public static class EyesAndHandsTools
         CancellationToken cancellationToken = default)
     {
         var result = await executor.RunAsync(
-            () => WindowAutomation.SendAKey(selectionState, key, modifiers, text, repeatCount),
+            () => WindowAutomation.SendInputToWindow(selectionState, key, modifiers, text, repeatCount),
             cancellationToken);
 
         return WindowAutomation.Serialize(result);
     }
 
     [McpServerTool, Description("Describe the currently focused UI element inside the selected window as a structured UI Automation tree. If a window has been selected, the server focuses it before inspection; otherwise it falls back to the current foreground window. maxDepth includes the focused element as level 1 and must be between 1 and 4.")]
-    public static async Task<string> DescribeFocusedElement(
+    public static async Task<string> DescribeSelectedWindowFocus(
         UiAutomationExecutor executor,
         WindowSelectionState selectionState,
         [Description("How many UI tree levels to include, counting the focused element as level 1. Must be between 1 and 4.")]
@@ -157,7 +157,7 @@ public static class EyesAndHandsTools
         CancellationToken cancellationToken = default)
     {
         var result = await executor.RunAsync(
-            () => WindowAutomation.DescribeFocusedElement(selectionState, maxDepth),
+            () => WindowAutomation.DescribeSelectedWindowFocus(selectionState, maxDepth),
             cancellationToken);
 
         return WindowAutomation.Serialize(result);

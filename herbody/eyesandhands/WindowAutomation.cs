@@ -145,7 +145,7 @@ internal static class WindowAutomation
             visibleElements);
     }
 
-    internal static TaskbarAppActivationResult ActivateTaskbarApp(
+    internal static TaskbarAppActivationResult SelectTaskbarApp(
         WindowSelectionState selectionState,
         string? elementPath,
         string? titleContains,
@@ -185,7 +185,7 @@ internal static class WindowAutomation
             selectedWindow);
     }
 
-    internal static TaskbarAppSearchResult SearchTaskbarApp(
+    internal static TaskbarAppSearchResult LaunchAppViaTaskbarSearch(
         WindowSelectionState selectionState,
         string appName)
     {
@@ -233,7 +233,7 @@ internal static class WindowAutomation
             selectedWindow);
     }
 
-    internal static WindowTreeResult DescribeActiveWindow(
+    internal static WindowTreeResult DescribeSelectedWindow(
         WindowSelectionState selectionState,
         int maxDepth,
         bool fullDepth)
@@ -249,7 +249,7 @@ internal static class WindowAutomation
             CaptureElementTree(windowElement, normalizedDepth, "root"));
     }
 
-    internal static WindowScreenshotResult CaptureActiveWindowScreenshot(WindowSelectionState selectionState)
+    internal static WindowScreenshotResult CaptureSelectedWindowScreenshot(WindowSelectionState selectionState)
     {
         var handle = ResolveInteractionWindowHandle(selectionState);
         EnsureWindowExists(handle);
@@ -287,7 +287,7 @@ internal static class WindowAutomation
             new ImageDimensions(width, height));
     }
 
-    internal static FocusedElementResult FocusActiveWindowElement(
+    internal static FocusedElementResult FocusSelectedWindowElement(
         WindowSelectionState selectionState,
         string elementPath)
     {
@@ -304,7 +304,7 @@ internal static class WindowAutomation
             focusedTarget.ActionTaken);
     }
 
-    internal static KeyboardInputResult SendAKey(
+    internal static KeyboardInputResult SendInputToWindow(
         WindowSelectionState selectionState,
         string? key,
         IReadOnlyList<string>? modifiers,
@@ -379,7 +379,7 @@ internal static class WindowAutomation
             modifierVirtualKeys.Count > 0 ? "pressed_modified_key" : "pressed_key");
     }
 
-    internal static FocusedElementTreeResult DescribeFocusedElement(
+    internal static FocusedElementTreeResult DescribeSelectedWindowFocus(
         WindowSelectionState selectionState,
         int maxDepth)
     {
