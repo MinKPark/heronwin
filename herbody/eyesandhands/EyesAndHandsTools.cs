@@ -127,6 +127,27 @@ public static class EyesAndHandsTools
         return WindowAutomation.Serialize(result);
     }
 
+    [McpServerTool, Description("Send a key press, shortcut, or typed text to the selected window. Provide either key or text. The tool brings the selected or foreground window to the front without intentionally changing the focused control inside it.")]
+    public static async Task<string> SendAKey(
+        UiAutomationExecutor executor,
+        WindowSelectionState selectionState,
+        [Description("Named key such as Enter, Escape, Tab, Up, Down, F5, A, or 1. Provide either key or text.")]
+        string? key = null,
+        [Description("Optional modifier keys such as Control, Shift, Alt, or Win. Used only with key.")]
+        string[]? modifiers = null,
+        [Description("Unicode text to type into the currently focused control. Provide either text or key.")]
+        string? text = null,
+        [Description("How many times to repeat the key press or text input. Must be at least 1.")]
+        int repeatCount = 1,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await executor.RunAsync(
+            () => WindowAutomation.SendAKey(selectionState, key, modifiers, text, repeatCount),
+            cancellationToken);
+
+        return WindowAutomation.Serialize(result);
+    }
+
     [McpServerTool, Description("Describe the currently focused UI element inside the selected window as a structured UI Automation tree. If a window has been selected, the server focuses it before inspection; otherwise it falls back to the current foreground window. maxDepth includes the focused element as level 1 and must be between 1 and 4.")]
     public static async Task<string> DescribeFocusedElement(
         UiAutomationExecutor executor,

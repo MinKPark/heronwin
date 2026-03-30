@@ -25,6 +25,18 @@ internal static class WindowAutomation
     private static readonly Condition MenuItemCondition =
         new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.MenuItem);
 
+    private static readonly IReadOnlyDictionary<string, ushort> ModifierVirtualKeys =
+        new Dictionary<string, ushort>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["ctrl"] = NativeMethods.VkControl,
+            ["control"] = NativeMethods.VkControl,
+            ["shift"] = NativeMethods.VkShift,
+            ["alt"] = NativeMethods.VkAlt,
+            ["win"] = NativeMethods.VkLWin,
+            ["windows"] = NativeMethods.VkLWin,
+            ["meta"] = NativeMethods.VkLWin,
+        };
+
     private static readonly string[] TaskbarHostAutomationIds = ["TaskbarFrame"];
     private static readonly string[] TaskbarHostClassNames =
     [
@@ -290,6 +302,81 @@ internal static class WindowAutomation
             BuildWindowDescriptor(handle),
             BuildElementSnapshot(focusedTarget.Element, focusedTarget.Path, [], includeChildren: false),
             focusedTarget.ActionTaken);
+    }
+
+    internal static KeyboardInputResult SendAKey(
+        WindowSelectionState selectionState,
+        string? key,
+        IReadOnlyList<string>? modifiers,
+        string? text,
+        int repeatCount)
+    {
+        if (repeatCount < 1)
+        {
+            throw new InvalidOperationException("repeatCount must be at least 1.");
+        }
+
+        var hasKey = key is not null;
+        var hasText = text is not null;
+        if (hasKey == hasText)
+        {
+            throw new InvalidOperationException("Provide exactly one of key or text.");
+        }
+
+        if (hasKey && string.IsNullOrWhiteSpace(key))
+        {
+            throw new InvalidOperationException("key must not be empty.");
+        }
+
+        if (hasText && text!.Length == 0)
+        {
+            throw new InvalidOperationException("text must not be empty.");
+        }
+
+        var handle = ResolveKeyboardInputWindowHandle(selectionState);
+        ActivateWindow(handle);
+        Thread.Sleep(150);
+        selectionState.SetSelectedHandle(handle);
+
+        if (hasText)
+        {
+            var normalizedText = text!;
+            for (var i = 0; i < repeatCount; i++)
+            {
+                SendUnicodeText(normalizedText, "Failed to send Unicode text to the focused control.");
+            }
+
+            return new KeyboardInputResult(
+                BuildWindowDescriptor(handle),
+                "text",
+                null,
+                [],
+                repeatCount,
+                normalizedText.Length,
+                "typed_text");
+        }
+
+        var normalizedModifiers = NormalizeModifierNames(modifiers);
+        var modifierVirtualKeys = ResolveModifierVirtualKeys(normalizedModifiers);
+        var normalizedKey = key!.Trim();
+        var keyVirtualKey = ResolveVirtualKey(normalizedKey);
+
+        for (var i = 0; i < repeatCount; i++)
+        {
+            PressKeyWithModifiers(
+                keyVirtualKey,
+                modifierVirtualKeys,
+                $"Failed to send key '{normalizedKey}' to the selected window.");
+        }
+
+        return new KeyboardInputResult(
+            BuildWindowDescriptor(handle),
+            "key",
+            normalizedKey,
+            normalizedModifiers,
+            repeatCount,
+            null,
+            modifierVirtualKeys.Count > 0 ? "pressed_modified_key" : "pressed_key");
     }
 
     internal static FocusedElementTreeResult DescribeFocusedElement(
@@ -1093,6 +1180,109 @@ internal static class WindowAutomation
         return string.IsNullOrWhiteSpace(sanitized) ? "window" : sanitized;
     }
 
+    internal static ushort ResolveVirtualKey(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            throw new InvalidOperationException("key is required.");
+        }
+
+        var normalizedKey = key.Trim();
+        if (normalizedKey.Length == 1)
+        {
+            var character = normalizedKey[0];
+            if (character is >= 'a' and <= 'z')
+            {
+                return (ushort)char.ToUpperInvariant(character);
+            }
+
+            if ((character is >= 'A' and <= 'Z') || (character is >= '0' and <= '9'))
+            {
+                return character;
+            }
+        }
+
+        if (normalizedKey.StartsWith("F", StringComparison.OrdinalIgnoreCase) &&
+            int.TryParse(normalizedKey[1..], out var functionKeyNumber) &&
+            functionKeyNumber is >= 1 and <= 24)
+        {
+            return (ushort)(0x70 + functionKeyNumber - 1);
+        }
+
+        return normalizedKey.ToLowerInvariant() switch
+        {
+            "enter" or "return" => NativeMethods.VkReturn,
+            "escape" or "esc" => NativeMethods.VkEscape,
+            "tab" => 0x09,
+            "space" or "spacebar" => 0x20,
+            "backspace" or "bs" => 0x08,
+            "delete" or "del" => 0x2E,
+            "insert" or "ins" => 0x2D,
+            "home" => 0x24,
+            "end" => 0x23,
+            "pageup" or "pgup" => 0x21,
+            "pagedown" or "pgdn" => 0x22,
+            "up" => 0x26,
+            "down" => 0x28,
+            "left" => 0x25,
+            "right" => 0x27,
+            "apps" or "menu" => NativeMethods.VkApps,
+            "win" or "windows" or "meta" => NativeMethods.VkLWin,
+            _ => throw new InvalidOperationException(
+                $"Unsupported key '{key}'. Use a named key like Enter, Tab, Escape, Up, F5, A, or 1, or use text for direct typing."),
+        };
+    }
+
+    internal static IReadOnlyList<string> NormalizeModifierNames(IReadOnlyList<string>? modifiers)
+    {
+        if (modifiers is null || modifiers.Count == 0)
+        {
+            return [];
+        }
+
+        var normalized = new List<string>(modifiers.Count);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var modifier in modifiers)
+        {
+            if (string.IsNullOrWhiteSpace(modifier))
+            {
+                continue;
+            }
+
+            var canonicalName = NormalizeModifierName(modifier);
+            if (seen.Add(canonicalName))
+            {
+                normalized.Add(canonicalName);
+            }
+        }
+
+        return normalized;
+    }
+
+    internal static IReadOnlyList<ushort> ResolveModifierVirtualKeys(IReadOnlyList<string> normalizedModifiers)
+    {
+        return normalizedModifiers
+            .Select(modifier => ModifierVirtualKeys[modifier])
+            .ToArray();
+    }
+
+    private static string NormalizeModifierName(string modifier)
+    {
+        var normalizedModifier = modifier.Trim().ToLowerInvariant();
+        if (!ModifierVirtualKeys.ContainsKey(normalizedModifier))
+        {
+            throw new InvalidOperationException(
+                $"Unsupported modifier '{modifier}'. Supported modifiers are Control, Shift, Alt, and Win.");
+        }
+
+        return normalizedModifier switch
+        {
+            "ctrl" => "control",
+            "windows" or "meta" => "win",
+            _ => normalizedModifier,
+        };
+    }
+
     private static TaskbarElementSummary ResolveTaskbarAppTarget(
         IReadOnlyList<TaskbarElementSummary> visibleApps,
         string? elementPath,
@@ -1485,12 +1675,10 @@ internal static class WindowAutomation
 
     private static void PressModifiedKey(ushort modifierVirtualKey, ushort keyVirtualKey)
     {
-        SendKeyboardInputs(
-            $"Failed to send modified key chord 0x{modifierVirtualKey:X2}+0x{keyVirtualKey:X2}.",
-            CreateVirtualKeyInput(modifierVirtualKey),
-            CreateVirtualKeyInput(keyVirtualKey),
-            CreateVirtualKeyInput(keyVirtualKey, keyUp: true),
-            CreateVirtualKeyInput(modifierVirtualKey, keyUp: true));
+        PressKeyWithModifiers(
+            keyVirtualKey,
+            [modifierVirtualKey],
+            $"Failed to send modified key chord 0x{modifierVirtualKey:X2}+0x{keyVirtualKey:X2}.");
     }
 
     private static void PressEnterKey()
@@ -1508,6 +1696,11 @@ internal static class WindowAutomation
 
     private static void SendUnicodeText(string text)
     {
+        SendUnicodeText(text, "Failed to send Unicode text to the focused search input.");
+    }
+
+    private static void SendUnicodeText(string text, string errorMessage)
+    {
         var inputs = new List<NativeMethods.INPUT>(text.Length * 2);
         foreach (var character in text)
         {
@@ -1520,7 +1713,29 @@ internal static class WindowAutomation
             return;
         }
 
-        SendKeyboardInputs("Failed to send Unicode text to the focused search input.", [.. inputs]);
+        SendKeyboardInputs(errorMessage, [.. inputs]);
+    }
+
+    private static void PressKeyWithModifiers(
+        ushort keyVirtualKey,
+        IReadOnlyList<ushort> modifierVirtualKeys,
+        string errorMessage)
+    {
+        var inputs = new List<NativeMethods.INPUT>((modifierVirtualKeys.Count * 2) + 2);
+        foreach (var modifierVirtualKey in modifierVirtualKeys)
+        {
+            inputs.Add(CreateVirtualKeyInput(modifierVirtualKey));
+        }
+
+        inputs.Add(CreateVirtualKeyInput(keyVirtualKey));
+        inputs.Add(CreateVirtualKeyInput(keyVirtualKey, keyUp: true));
+
+        for (var i = modifierVirtualKeys.Count - 1; i >= 0; i--)
+        {
+            inputs.Add(CreateVirtualKeyInput(modifierVirtualKeys[i], keyUp: true));
+        }
+
+        SendKeyboardInputs(errorMessage, [.. inputs]);
     }
 
     private static NativeMethods.INPUT CreateVirtualKeyInput(ushort virtualKey, bool keyUp = false)
@@ -1687,6 +1902,17 @@ internal static class WindowAutomation
         return handle;
     }
 
+    private static nint ResolveKeyboardInputWindowHandle(WindowSelectionState selectionState)
+    {
+        var handle = InteractionWindowResolver.ResolveWindowForInteraction(
+            selectionState,
+            NativeMethods.IsWindow,
+            ActivateWindow,
+            GetActiveWindowHandle);
+        EnsureWindowExists(handle);
+        return handle;
+    }
+
     private static nint GetActiveWindowHandle()
     {
         var handle = NativeMethods.GetForegroundWindow();
@@ -1706,7 +1932,7 @@ internal static class WindowAutomation
         }
     }
 
-    private static void FocusWindow(nint handle)
+    private static void ActivateWindow(nint handle)
     {
         if (NativeMethods.IsIconic(handle))
         {
@@ -1715,6 +1941,11 @@ internal static class WindowAutomation
 
         _ = NativeMethods.BringWindowToTop(handle);
         _ = NativeMethods.SetForegroundWindow(handle);
+    }
+
+    private static void FocusWindow(nint handle)
+    {
+        ActivateWindow(handle);
 
         try
         {
@@ -2089,6 +2320,15 @@ internal sealed record FocusedElementTreeResult(
 internal sealed record FocusedElementResult(
     WindowDescriptor Window,
     UiElementSnapshot FocusedElement,
+    string ActionTaken);
+
+internal sealed record KeyboardInputResult(
+    WindowDescriptor Window,
+    string InputMode,
+    string? Key,
+    IReadOnlyList<string> Modifiers,
+    int RepeatCount,
+    int? TextLength,
     string ActionTaken);
 
 internal sealed record MainMenuListResult(

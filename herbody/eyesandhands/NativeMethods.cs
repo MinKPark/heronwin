@@ -10,6 +10,7 @@ internal static class NativeMethods
     internal const int SwRestore = 9;
     internal const uint InputKeyboard = 1;
     internal const ushort VkA = 0x41;
+    internal const ushort VkAlt = 0x12;
     internal const ushort VkApps = 0x5D;
     internal const ushort VkControl = 0x11;
     internal const ushort VkEscape = 0x1B;

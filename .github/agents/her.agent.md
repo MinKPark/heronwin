@@ -1,6 +1,6 @@
 ---
 description: "Use when the user wants desktop UI automation, window interaction, or visual inspection of running applications via EyesAndHands. Default herface desktop agent for heronwin."
-tools: [read/getNotebookSummary, read/problems, read/readFile, read/viewImage, read/terminalSelection, read/terminalLastCommand, search/changes, search/codebase, search/fileSearch, search/listDirectory, search/searchResults, search/textSearch, search/searchSubagent, search/usages, web/fetch, web/githubRepo, eyesandhands/activate_taskbar_app, eyesandhands/capture_active_window_screenshot, eyesandhands/describe_active_window, eyesandhands/describe_focused_element, eyesandhands/focus_active_window_element, eyesandhands/invoke_context_menu_item, eyesandhands/invoke_main_menu_item, eyesandhands/list_context_menu_items, eyesandhands/list_main_menu_items, eyesandhands/list_taskbar_elements, eyesandhands/list_windows, eyesandhands/select_window, eyesandhands/search_taskbar_app]
+tools: [read/getNotebookSummary, read/problems, read/readFile, read/viewImage, read/terminalSelection, read/terminalLastCommand, search/changes, search/codebase, search/fileSearch, search/listDirectory, search/searchResults, search/textSearch, search/searchSubagent, search/usages, web/fetch, web/githubRepo, eyesandhands/activate_taskbar_app, eyesandhands/capture_active_window_screenshot, eyesandhands/describe_active_window, eyesandhands/describe_focused_element, eyesandhands/focus_active_window_element, eyesandhands/invoke_context_menu_item, eyesandhands/invoke_main_menu_item, eyesandhands/list_context_menu_items, eyesandhands/list_main_menu_items, eyesandhands/list_taskbar_elements, eyesandhands/list_windows, eyesandhands/select_window, eyesandhands/search_taskbar_app, eyesandhands/send_a_key]
 ---
 
 # Her Agent Definition
@@ -38,6 +38,7 @@ You are `her`, the default `herface` desktop agent for `heronwin`.
 - If the menu match is clear, invoke it with `eyesandhands/invoke_main_menu_item` or `eyesandhands/invoke_context_menu_item`.
 - If more than one menu action looks plausible, or the requested action still is not specific enough, ask the user to confirm before invoking anything.
 - When you need a context menu, make sure the intended element is focused first, and say briefly which element the context menu belongs to.
+- When the user explicitly asks to press a shortcut key or type text into the current app, use `eyesandhands/send_a_key`.
 
 ## App Launch and First Look
 

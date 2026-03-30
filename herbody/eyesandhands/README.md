@@ -13,6 +13,7 @@ It is designed for "look at the current app, pick the right window, inspect the 
 | `describe_active_window` | Return a UI Automation tree for the selected window, either bounded or full depth |
 | `capture_active_window_screenshot` | Capture a PNG screenshot of the selected or foreground window |
 | `focus_active_window_element` | Focus an element from the selected window tree using its path |
+| `send_a_key` | Send a key press, shortcut, or typed text to the selected window |
 | `describe_focused_element` | Return a bounded UI Automation tree rooted at the currently focused element inside the selected window |
 | `list_main_menu_items` | List traditional main-menu sections and their immediate visible items |
 | `invoke_main_menu_item` | Open or invoke a menu path such as `File > Open` |
@@ -91,9 +92,10 @@ Most clients should use the tools in this order:
 3. Call `describe_active_window` to inspect the selected window's control tree.
 4. If the UI Automation tree is too sparse, call `capture_active_window_screenshot` and inspect the saved image.
 5. Use a returned `path` with `focus_active_window_element`.
-6. Optionally call `describe_focused_element` to verify where focus landed.
-7. Use `list_main_menu_items` to discover traditional menu commands and `invoke_main_menu_item` to run a chosen path.
-8. If the user wants an action on the focused control, use `list_context_menu_items` and then `invoke_context_menu_item`.
+6. Use `send_a_key` when the user wants to press a shortcut or type text into the current app.
+7. Optionally call `describe_focused_element` to verify where focus landed.
+8. Use `list_main_menu_items` to discover traditional menu commands and `invoke_main_menu_item` to run a chosen path.
+9. If the user wants an action on the focused control, use `list_context_menu_items` and then `invoke_context_menu_item`.
 
 For taskbar-driven workflows:
 
@@ -320,6 +322,39 @@ Notes:
 - If the requested element cannot take focus directly, the server walks downward and tries focusable descendants.
 - `actionTaken` may be `focused`, `selected_and_focused`, or `scrolled_and_focused`.
 - When focus lands on a descendant, the returned `focusedElement.path` may differ from the requested path.
+
+### `send_a_key`
+
+Sends a key press, shortcut, or typed text to the selected window. If no window has been selected, the server falls back to the current foreground window.
+
+Parameters:
+
+- `key`: named key such as `Enter`, `Escape`, `Tab`, `Up`, `F5`, `A`, or `1`
+- `modifiers`: optional array such as `["Control"]`, `["Shift"]`, or `["Control", "Shift"]`
+- `text`: Unicode text to type into the currently focused control
+- `repeatCount`: optional repeat count, minimum `1`
+
+Provide exactly one of `key` or `text`.
+
+Response shape:
+
+```json
+{
+  "window": { "...": "same window descriptor as above" },
+  "inputMode": "key",
+  "key": "A",
+  "modifiers": ["control"],
+  "repeatCount": 1,
+  "textLength": null,
+  "actionTaken": "pressed_modified_key"
+}
+```
+
+Notes:
+
+- The tool brings the selected or foreground window to the front before sending input, but it avoids intentionally changing the focused child control inside that window.
+- Use `text` for direct typing, including punctuation and multi-character input.
+- Use `key` plus `modifiers` for shortcuts such as `Ctrl+A`, `Alt+F4`, or `Shift+Tab`.
 
 ### `describe_focused_element`
 
