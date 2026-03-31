@@ -78,6 +78,7 @@ var history = new List<AgentMessage>();
 var isActive = false;
 var audioOutputActive = 0;
 var agentWorkActive = 0;
+var queuedTurnCount = 0;
 var userQueue = Channel.CreateUnbounded<string>(new UnboundedChannelOptions
 {
     SingleReader = true,
@@ -88,6 +89,7 @@ var agentTask = Task.Run(async () =>
 {
     await foreach (var queuedText in userQueue.Reader.ReadAllAsync(cancellationSource.Token))
     {
+        Interlocked.Decrement(ref queuedTurnCount);
         Interlocked.Increment(ref agentWorkActive);
         try
         {
@@ -130,9 +132,8 @@ while (!cancellationSource.IsCancellationRequested)
     try
     {
         await WaitForTurnOutputToFinishAsync(cancellationSource.Token);
-        Display.Prompt(isActive ? "\n🎤  Listening... " : $"\n🎤  Waiting for {config.WakeWord}... ");
+        Display.Info(isActive ? "Listening..." : $"Waiting for {config.WakeWord}...");
         recording = await AudioRecorder.RecordAsync(config.MaxRecordMs, maxWaitForSpeechMs, cancellationSource.Token);
-        Console.WriteLine();
 
         if (recording is null)
         {
@@ -224,10 +225,12 @@ while (!cancellationSource.IsCancellationRequested)
 
     try
     {
+        Interlocked.Increment(ref queuedTurnCount);
         await userQueue.Writer.WriteAsync(userText, cancellationSource.Token);
     }
     catch (Exception ex)
     {
+        Interlocked.Decrement(ref queuedTurnCount);
         Display.Error($"Queue error: {ex.Message}");
     }
 }
@@ -335,7 +338,9 @@ async Task PlayAudioOutputAsync(Func<Task> playback)
 
 async Task WaitForTurnOutputToFinishAsync(CancellationToken cancellationToken)
 {
-    while ((Volatile.Read(ref audioOutputActive) > 0 || Volatile.Read(ref agentWorkActive) > 0)
+    while ((Volatile.Read(ref audioOutputActive) > 0
+            || Volatile.Read(ref agentWorkActive) > 0
+            || Volatile.Read(ref queuedTurnCount) > 0)
            && !cancellationToken.IsCancellationRequested)
     {
         await Task.Delay(100, cancellationToken);
