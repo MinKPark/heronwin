@@ -1,0 +1,235 @@
+using System.Text.Json;
+
+namespace HeronWin.HerFace;
+
+internal sealed record McpServerConfig(
+    string Name,
+    string Command,
+    string[]? Args,
+    Dictionary<string, string>? Env
+);
+
+internal enum LlmProviderId
+{
+    OpenAiApi,
+    ClaudeApi,
+    ChatGptWeb
+}
+
+internal sealed record AppConfig(
+    LlmProviderId LlmProvider,
+    string AgentDefinitionPath,
+    string AgentDefinition,
+    bool DebugAudioPlayback,
+    string OpenAiApiKey,
+    string OpenAiModel,
+    string AnthropicApiKey,
+    string AnthropicModel,
+    string WhisperModel,
+    int MaxRecordMs,
+    IReadOnlyList<McpServerConfig> McpServers
+)
+{
+    public static AppConfig Load()
+    {
+        DotEnvLoader.Load();
+
+        var provider = NormalizeProvider(Environment.GetEnvironmentVariable("LLM_PROVIDER") ?? "openai-api");
+        if (provider == LlmProviderId.ChatGptWeb)
+        {
+            throw new InvalidOperationException(
+                "LLM_PROVIDER=chatgpt-web is not supported in herface. Use openai-api or claude-api.");
+        }
+
+        var agentDefinitionPath = ResolveAgentDefinitionPath();
+        return new AppConfig(
+            provider,
+            agentDefinitionPath,
+            LoadAgentDefinition(agentDefinitionPath),
+            ParseBoolean(Environment.GetEnvironmentVariable("DEBUG_AUDIO_PLAYBACK"), fallback: false),
+            Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? string.Empty,
+            Environment.GetEnvironmentVariable("OPENAI_MODEL") ?? "gpt-5.2-chat-latest",
+            Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY") ?? string.Empty,
+            Environment.GetEnvironmentVariable("ANTHROPIC_MODEL") ?? "claude-3-5-sonnet-20241022",
+            Environment.GetEnvironmentVariable("WHISPER_MODEL") ?? "whisper-1",
+            ParseInt(Environment.GetEnvironmentVariable("MAX_RECORD_MS"), 30_000),
+            LoadMcpServers(Environment.GetEnvironmentVariable("MCP_SERVERS"))
+        );
+    }
+
+    private static IReadOnlyList<McpServerConfig> LoadMcpServers(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw) || raw == "[]")
+        {
+            return [];
+        }
+
+        try
+        {
+            var value = JsonSerializer.Deserialize<List<McpServerConfig>>(raw, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+            var envBaseDir = Environment.GetEnvironmentVariable("HERFACE_ENV_DIR")
+                             ?? Directory.GetCurrentDirectory();
+            return (value ?? [])
+                .Select(server => server with
+                {
+                    Command = ResolveMaybeRelativePath(server.Command, envBaseDir),
+                    Args = server.Args?.Select(arg => ResolveMaybeRelativePath(arg, envBaseDir)).ToArray()
+                })
+                .ToList();
+        }
+        catch
+        {
+            Console.WriteLine("Warning: MCP_SERVERS is not valid JSON, ignoring.");
+            return [];
+        }
+    }
+
+    private static string ResolveAgentDefinitionPath()
+    {
+        var cwd = Directory.GetCurrentDirectory();
+        var configuredPath = Environment.GetEnvironmentVariable("AGENT_DEFINITION_PATH")?.Trim();
+        if (!string.IsNullOrWhiteSpace(configuredPath))
+        {
+            return Path.GetFullPath(Path.Combine(cwd, configuredPath));
+        }
+
+        foreach (var candidatePath in new[] { "her.agent.md", ".github/agents/her.agent.md" })
+        {
+            var resolved = Path.GetFullPath(Path.Combine(cwd, candidatePath));
+            if (File.Exists(resolved))
+            {
+                return resolved;
+            }
+        }
+
+        return Path.GetFullPath(Path.Combine(cwd, "her.agent.md"));
+    }
+
+    private static string LoadAgentDefinition(string agentDefinitionPath)
+    {
+        if (!File.Exists(agentDefinitionPath))
+        {
+            Console.WriteLine(
+                $"Warning: agent definition file not found at \"{agentDefinitionPath}\"; continuing without it.");
+            return string.Empty;
+        }
+
+        try
+        {
+            return File.ReadAllText(agentDefinitionPath).Trim();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(
+                $"Warning: failed to read agent definition at \"{agentDefinitionPath}\"; continuing without it. {ex.Message}");
+            return string.Empty;
+        }
+    }
+
+    private static LlmProviderId NormalizeProvider(string value)
+        => value.Trim().ToLowerInvariant() switch
+        {
+            "openai" or "openai-api" => LlmProviderId.OpenAiApi,
+            "claude" or "claude-api" => LlmProviderId.ClaudeApi,
+            "gpt" or "chatgpt" or "chatgpt-web" => LlmProviderId.ChatGptWeb,
+            _ => throw new InvalidOperationException(
+                $"Invalid LLM_PROVIDER \"{value}\". Must be \"openai-api\" or \"claude-api\".")
+        };
+
+    private static bool ParseBoolean(string? value, bool fallback)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return fallback;
+        }
+
+        return value.Trim().ToLowerInvariant() switch
+        {
+            "1" or "true" or "yes" or "on" => true,
+            "0" or "false" or "no" or "off" => false,
+            _ => throw new InvalidOperationException($"Invalid boolean value \"{value}\".")
+        };
+    }
+
+    private static int ParseInt(string? value, int fallback)
+        => int.TryParse(value, out var parsed) ? parsed : fallback;
+
+    private static string ResolveMaybeRelativePath(string value, string baseDir)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+
+        var looksLikeRelativePath = value.StartsWith(".\\", StringComparison.Ordinal)
+                                    || value.StartsWith("./", StringComparison.Ordinal)
+                                    || value.StartsWith("..\\", StringComparison.Ordinal)
+                                    || value.StartsWith("../", StringComparison.Ordinal);
+        if (!looksLikeRelativePath || Path.IsPathRooted(value))
+        {
+            return value;
+        }
+
+        return Path.GetFullPath(Path.Combine(baseDir, value));
+    }
+}
+
+internal static class DotEnvLoader
+{
+    public static void Load()
+    {
+        foreach (var candidate in EnumerateCandidatePaths())
+        {
+            if (!File.Exists(candidate))
+            {
+                continue;
+            }
+
+            foreach (var line in File.ReadAllLines(candidate))
+            {
+                var trimmed = line.Trim();
+                if (trimmed.Length == 0 || trimmed.StartsWith('#'))
+                {
+                    continue;
+                }
+
+                var separatorIndex = trimmed.IndexOf('=');
+                if (separatorIndex <= 0)
+                {
+                    continue;
+                }
+
+                var key = trimmed[..separatorIndex].Trim();
+                var value = trimmed[(separatorIndex + 1)..].Trim();
+                if (value.Length >= 2 && value.StartsWith('"') && value.EndsWith('"'))
+                {
+                    value = value[1..^1];
+                }
+
+                if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(key)))
+                {
+                    Environment.SetEnvironmentVariable(key, value);
+                }
+            }
+
+            Environment.SetEnvironmentVariable("HERFACE_ENV_DIR", Path.GetDirectoryName(candidate));
+
+            return;
+        }
+    }
+
+    private static IEnumerable<string> EnumerateCandidatePaths()
+    {
+        var current = new DirectoryInfo(Directory.GetCurrentDirectory());
+        while (current is not null)
+        {
+            yield return Path.Combine(current.FullName, ".env");
+            yield return Path.Combine(current.FullName, "herface", ".env");
+            current = current.Parent;
+        }
+    }
+
+}

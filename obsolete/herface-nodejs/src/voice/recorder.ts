@@ -5,6 +5,12 @@ import { SpeechRecorder } from "speech-recorder";
 
 export interface RecordingResult {
   filePath: string;
+  startedAt: Date;
+  endedAt: Date;
+  wallClockDurationMs: number;
+  waveDurationMs: number;
+  durationDeltaMs: number;
+  pcmDataBytes: number;
   /** Delete the temporary file once you are done with it. */
   cleanup: () => Promise<void>;
 }
@@ -18,7 +24,7 @@ const MIN_RECORDING_MS = 0;
 const MIN_SPEECH_CAPTURE_MS = 350;
 const CONSECUTIVE_FRAMES_FOR_SPEAKING = 2;
 const CONSECUTIVE_FRAMES_FOR_SILENCE = 10;
-const LEADING_BUFFER_FRAMES = 35;
+const LEADING_BUFFER_FRAMES = 120;
 const WEBRTC_VAD_LEVEL = 2;
 
 export const RECORDING_FORMAT = {
@@ -83,7 +89,8 @@ export function recordAudio(maxDurationMs = 30_000): Promise<RecordingResult> {
   return new Promise((resolve, reject) => {
     const filePath = join(tmpdir(), `herface-${Date.now()}.wav`);
     const pcmChunks: Buffer[] = [];
-    const recordingStartedAt = Date.now();
+    let recordingStartedAt = new Date();
+    let recordingEndedAt: Date | null = null;
     let settled = false;
     let stopRequested = false;
     let speechDetected = false;
@@ -145,9 +152,21 @@ export function recordAudio(maxDurationMs = 30_000): Promise<RecordingResult> {
           );
         }
 
+        const endedAt = recordingEndedAt ?? new Date();
+        const wallClockDurationMs = endedAt.getTime() - recordingStartedAt.getTime();
+        const bytesPerSampleFrame = (CHANNEL_COUNT * BITS_PER_SAMPLE) / 8;
+        const sampleFrameCount = pcmData.length / bytesPerSampleFrame;
+        const waveDurationMs = (sampleFrameCount / SAMPLE_RATE) * 1000;
+
         await writeFile(filePath, createWavBuffer(pcmData));
         resolve({
           filePath,
+          startedAt: recordingStartedAt,
+          endedAt,
+          wallClockDurationMs,
+          waveDurationMs,
+          durationDeltaMs: waveDurationMs - wallClockDurationMs,
+          pcmDataBytes: pcmData.length,
           cleanup: () => unlink(filePath).catch(() => undefined),
         });
       } catch (error) {
@@ -162,6 +181,7 @@ export function recordAudio(maxDurationMs = 30_000): Promise<RecordingResult> {
       }
 
       stopRequested = true;
+      recordingEndedAt = new Date();
       if (silenceTimer) {
         clearTimeout(silenceTimer);
         silenceTimer = null;
@@ -186,8 +206,8 @@ export function recordAudio(maxDurationMs = 30_000): Promise<RecordingResult> {
 
       const now = Date.now();
       const minStopAt = Math.max(
-        recordingStartedAt + MIN_RECORDING_MS,
-        (firstSpeechAt ?? recordingStartedAt) + MIN_SPEECH_CAPTURE_MS,
+        recordingStartedAt.getTime() + MIN_RECORDING_MS,
+        (firstSpeechAt ?? recordingStartedAt.getTime()) + MIN_SPEECH_CAPTURE_MS,
       );
       const delayMs = Math.max(SILENCE_GRACE_MS, minStopAt - now);
 
@@ -211,7 +231,7 @@ export function recordAudio(maxDurationMs = 30_000): Promise<RecordingResult> {
         onAudio: ({ audio, speaking, speech }) => {
           pcmChunks.push(toBuffer(audio));
 
-          const isSpeechFrame = speaking ?? speech ?? false;
+          const isSpeechFrame = speaking === true || speech === true;
           if (isSpeechFrame) {
             speechDetected = true;
             firstSpeechAt ??= Date.now();
@@ -242,6 +262,7 @@ export function recordAudio(maxDurationMs = 30_000): Promise<RecordingResult> {
         },
       });
 
+      recordingStartedAt = new Date();
       recorder.start();
     } catch (error) {
       void fail(error);

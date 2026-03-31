@@ -26,4 +26,4 @@ obj/
 artifacts/
 
 # gpt profile
-herface/.chatgpt-profile/
+obsolete/herface-nodejs/.chatgpt-profile/

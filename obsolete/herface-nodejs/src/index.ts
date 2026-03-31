@@ -4,9 +4,20 @@ import { createAudioTranscriber, createLlmProvider } from "./llm/factory.js";
 import { McpClientManager } from "./mcp/client.js";
 import { describeRecordingFormat, recordAudio } from "./voice/recorder.js";
 import { playWavFile } from "./voice/playback.js";
+import { playRecordingStartCue, playRecordingStopCue } from "./voice/cues.js";
 import { display } from "./ui/display.js";
 import { runAgentTurn } from "./agent.js";
 import type { LLMClient, AgentMessage } from "./llm/types.js";
+
+function formatTimestamp(value: Date): string {
+  return value.toLocaleTimeString([], {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    fractionalSecondDigits: 3,
+  });
+}
 
 async function main(): Promise<void> {
   display.banner();
@@ -100,7 +111,22 @@ async function main(): Promise<void> {
 
         let recording;
         try {
+          await playRecordingStartCue().catch(() => undefined);
           recording = await recordAudio(cfg.maxRecordMs);
+          await playRecordingStopCue().catch(() => undefined);
+          if (cfg.debugAudioPlayback) {
+            display.info(
+              `Debug recording window: ${formatTimestamp(recording.startedAt)} -> ${formatTimestamp(
+                recording.endedAt,
+              )} (${recording.wallClockDurationMs.toFixed(0)} ms wall-clock)`,
+            );
+            const deltaLabel = `${recording.durationDeltaMs >= 0 ? "+" : ""}${recording.durationDeltaMs.toFixed(0)} ms`;
+            const comparisonText =
+              Math.abs(recording.durationDeltaMs) <= 150 ? "matches closely" : "does not match closely";
+            display.info(
+              `Debug WAV span: ${recording.waveDurationMs.toFixed(0)} ms from ${recording.pcmDataBytes} PCM bytes; delta vs wall-clock: ${deltaLabel} (${comparisonText})`,
+            );
+          }
           display.transcribing();
           if (cfg.debugAudioPlayback) {
             display.info("Debug: replaying the captured WAV while it is being sent for transcription.");
