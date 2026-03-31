@@ -55,6 +55,7 @@ internal static class AgentRunner
     public static async Task<AgentReply> RunTurnAsync(
         string userText,
         List<AgentMessage> history,
+        AppConfig config,
         ILlmClient llmClient,
         McpClientManager mcpManager,
         CancellationToken cancellationToken)
@@ -141,7 +142,7 @@ internal static class AgentRunner
                     try
                     {
                         var parsedArgsDictionary = parsedArgs as IReadOnlyDictionary<string, object?> ?? new Dictionary<string, object?>();
-                        await Task.Delay(toolCall.Name == "launch_app_via_taskbar_search" ? 1200 : 300, cancellationToken);
+                        await Task.Delay(GetPostActionDelayMs(toolCall.Name, config), cancellationToken);
 
                         if (toolCall.Name == "launch_app_via_taskbar_search")
                         {
@@ -221,6 +222,14 @@ internal static class AgentRunner
             or "invoke_main_menu_item"
             or "invoke_context_menu_item"
             or "send_input_to_window";
+
+    private static int GetPostActionDelayMs(string toolName, AppConfig config)
+        => toolName switch
+        {
+            "launch_app_via_taskbar_search" => Math.Max(0, config.LaunchAppPostActionDelayMs),
+            "invoke_main_menu_item" or "invoke_context_menu_item" => Math.Max(0, config.InvokePostActionDelayMs),
+            _ => 300
+        };
 
     private static bool NeedsRepair(string rawText, AgentReply reply, bool usedAnyTools, bool performedDesktopAction)
     {

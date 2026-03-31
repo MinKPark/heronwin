@@ -101,7 +101,7 @@ var agentTask = Task.Run(async () =>
                 llmClient,
                 cancellationSource.Token);
 
-            var reply = await AgentRunner.RunTurnAsync(queuedText, history, llmClient, mcpManager, cancellationSource.Token);
+            var reply = await AgentRunner.RunTurnAsync(queuedText, history, config, llmClient, mcpManager, cancellationSource.Token);
             history.Add(new AgentMessage.User(queuedText));
             history.Add(new AgentMessage.Assistant(reply.RawText));
             Display.ContextUsage(
