@@ -116,6 +116,7 @@ internal static class Display
     public static void Prompt(string text) => Console.Write(text);
     public static void Recording() => Console.WriteLine("o  Recording... (stop on silence or timeout)");
     public static void Transcribing() => Console.WriteLine(".. Transcribing speech...");
+    public static void Transcript(string text) => Console.WriteLine($"\n{Label("Heard")} {text}");
 
     public static void UserMessage(string text) => Console.WriteLine($"\n{Label("You")} {text}");
     public static void AssistantMessage(string text) => Console.WriteLine($"\n{Label("Assistant")} {text}");

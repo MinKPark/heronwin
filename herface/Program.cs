@@ -1,4 +1,5 @@
 using HeronWin.HerFace;
+using System.Text.RegularExpressions;
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 Display.Banner();
@@ -16,10 +17,12 @@ await using var mcpManager = new McpClientManager();
 
 ILlmClient llmClient;
 IAudioTranscriber? audioTranscriber;
+ISpeechSynthesizer? speechSynthesizer;
 try
 {
     llmClient = LlmFactory.CreateLlmClient(config, httpClient);
     audioTranscriber = LlmFactory.CreateAudioTranscriber(config, httpClient);
+    speechSynthesizer = LlmFactory.CreateSpeechSynthesizer(config, httpClient);
 }
 catch (Exception ex)
 {
@@ -28,10 +31,21 @@ catch (Exception ex)
 }
 
 Display.Info($"LLM: {llmClient.DisplayName}");
+Display.Info($"Microphone: {AudioDevices.DescribeDefaultMicrophone()}");
+Display.Info($"Speaker: {AudioDevices.DescribeDefaultSpeaker()}");
 Display.Info($"Mic capture: {AudioRecorder.DescribeRecordingFormat()}");
+if (speechSynthesizer is not null)
+{
+    Display.Info($"Voice output: {speechSynthesizer.DisplayName}");
+}
 if (config.DebugAudioPlayback)
 {
     Display.Info("Debug audio playback is enabled; each captured recording will replay during transcription.");
+}
+if (audioTranscriber is null)
+{
+    Display.Error("Voice mode requires OPENAI_API_KEY for Whisper transcription.");
+    return;
 }
 
 if (config.McpServers.Count > 0)
@@ -54,82 +68,111 @@ else
 }
 
 Display.Separator();
-Display.Info("Type your message and press Enter, or just press Enter to use the microphone.");
-Display.Info("Type \"exit\" or press Ctrl+C to quit.");
+Display.Info($"Standby mode is listening for \"{config.WakeWord}\".");
+Display.Info("After the wake phrase is heard, just speak naturally. Say \"bye\" or \"bye-bye\" to exit.");
+Display.Info("If you go quiet for a minute, I will drift back to standby.");
 Display.Separator();
 
 var history = new List<AgentMessage>();
+var isActive = false;
 
 while (!cancellationSource.IsCancellationRequested)
 {
-    Display.Prompt("\n🎤  Press Enter to speak (or type your message): ");
-    var line = Console.ReadLine();
-    if (line is null)
-    {
-        break;
-    }
-
-    var trimmed = line.Trim();
-    if (string.Equals(trimmed, "exit", StringComparison.OrdinalIgnoreCase))
-    {
-        break;
-    }
-
-    var userText = trimmed;
+    var userText = string.Empty;
     RecordingResult? recording = null;
+    int? maxWaitForSpeechMs = isActive ? config.ActiveIdleTimeoutMs : null;
+
+    try
+    {
+        Display.Prompt(isActive ? "\n🎤  Listening... " : $"\n🎤  Waiting for {config.WakeWord}... ");
+        recording = await AudioRecorder.RecordAsync(config.MaxRecordMs, maxWaitForSpeechMs, cancellationSource.Token);
+        Console.WriteLine();
+
+        if (recording is null)
+        {
+            if (isActive)
+            {
+                await AudioPlayback.PlayWindDownCueAsync();
+                isActive = false;
+                Display.Info($"Back to standby. Say \"{config.WakeWord}\" when you want me again.");
+            }
+
+            continue;
+        }
+
+        if (isActive)
+        {
+            await AudioPlayback.PlayRecordingStopCueAsync();
+        }
+
+        if (config.DebugAudioPlayback)
+        {
+            Display.Info(
+                $"Debug recording window: {recording.StartedAt.LocalDateTime:HH:mm:ss.fff} -> {recording.EndedAt.LocalDateTime:HH:mm:ss.fff} ({recording.WallClockDurationMs:F0} ms wall-clock)");
+            var deltaLabel = $"{(recording.DurationDeltaMs >= 0 ? "+" : string.Empty)}{recording.DurationDeltaMs:F0} ms";
+            var comparison = Math.Abs(recording.DurationDeltaMs) <= 150 ? "matches closely" : "does not match closely";
+            Display.Info(
+                $"Debug WAV span: {recording.WaveDurationMs:F0} ms from {recording.PcmDataBytes} PCM bytes; delta vs wall-clock: {deltaLabel} ({comparison})");
+        }
+
+        Display.Transcribing();
+        if (config.DebugAudioPlayback)
+        {
+            Display.Info("Debug: replaying the captured WAV while it is being sent for transcription.");
+        }
+
+        var transcriptionTask = audioTranscriber.TranscribeAudioAsync(recording.FilePath, cancellationSource.Token);
+        Task playbackTask = config.DebugAudioPlayback
+            ? AudioPlayback.PlayWavFileAsync(recording.FilePath)
+            : Task.CompletedTask;
+        await Task.WhenAll(transcriptionTask, playbackTask.ContinueWith(_ => { }, TaskScheduler.Default));
+        userText = await transcriptionTask;
+    }
+    catch (OperationCanceledException)
+    {
+        CleanupRecording(recording);
+        break;
+    }
+    catch (Exception ex)
+    {
+        Display.Error($"Recording/transcription failed: {ex.Message}");
+        CleanupRecording(recording);
+        continue;
+    }
+
+    CleanupRecording(recording);
 
     if (string.IsNullOrWhiteSpace(userText))
     {
-        Display.Recording();
-        if (audioTranscriber is null)
+        continue;
+    }
+
+    Display.Transcript(userText);
+
+    if (ShouldExitApp(userText))
+    {
+        break;
+    }
+
+    if (!isActive)
+    {
+        if (!ContainsWakeWord(userText, config.WakeWord))
         {
-            Display.Warn("Voice transcription requires OPENAI_API_KEY for Whisper. Please type your message instead.");
             continue;
         }
 
+        isActive = true;
+        const string wakeResponse = "what's up?";
+        Display.AssistantMessage(wakeResponse);
         try
         {
-            await AudioPlayback.PlayRecordingStartCueAsync();
-            recording = await AudioRecorder.RecordAsync(config.MaxRecordMs, cancellationSource.Token);
-            await AudioPlayback.PlayRecordingStopCueAsync();
-
-            if (config.DebugAudioPlayback)
-            {
-                Display.Info(
-                    $"Debug recording window: {recording.StartedAt.LocalDateTime:HH:mm:ss.fff} -> {recording.EndedAt.LocalDateTime:HH:mm:ss.fff} ({recording.WallClockDurationMs:F0} ms wall-clock)");
-                var deltaLabel = $"{(recording.DurationDeltaMs >= 0 ? "+" : string.Empty)}{recording.DurationDeltaMs:F0} ms";
-                var comparison = Math.Abs(recording.DurationDeltaMs) <= 150 ? "matches closely" : "does not match closely";
-                Display.Info(
-                    $"Debug WAV span: {recording.WaveDurationMs:F0} ms from {recording.PcmDataBytes} PCM bytes; delta vs wall-clock: {deltaLabel} ({comparison})");
-            }
-
-            Display.Transcribing();
-            if (config.DebugAudioPlayback)
-            {
-                Display.Info("Debug: replaying the captured WAV while it is being sent for transcription.");
-            }
-
-            var transcriptionTask = audioTranscriber.TranscribeAudioAsync(recording.FilePath, cancellationSource.Token);
-            Task playbackTask = config.DebugAudioPlayback
-                ? AudioPlayback.PlayWavFileAsync(recording.FilePath)
-                : Task.CompletedTask;
-            await Task.WhenAll(transcriptionTask, playbackTask.ContinueWith(_ => { }, TaskScheduler.Default));
-            userText = await transcriptionTask;
+            await SpeakAsync(speechSynthesizer, wakeResponse, cancellationSource.Token);
         }
         catch (Exception ex)
         {
-            Display.Error($"Recording/transcription failed: {ex.Message}");
-            CleanupRecording(recording);
-            continue;
+            Display.Warn($"Wake response speech failed: {ex.Message}");
         }
-
-        CleanupRecording(recording);
-
-        if (string.IsNullOrWhiteSpace(userText))
-        {
-            Display.Warn("No speech detected. Please try again.");
-            continue;
-        }
+        continue;
     }
 
     try
@@ -137,6 +180,14 @@ while (!cancellationSource.IsCancellationRequested)
         var reply = await AgentRunner.RunTurnAsync(userText, history, llmClient, mcpManager, cancellationSource.Token);
         history.Add(new AgentMessage.User(userText));
         history.Add(new AgentMessage.Assistant(reply));
+        try
+        {
+            await SpeakAsync(speechSynthesizer, reply, cancellationSource.Token);
+        }
+        catch (Exception ex)
+        {
+            Display.Warn($"Reply speech failed: {ex.Message}");
+        }
     }
     catch (Exception ex)
     {
@@ -161,5 +212,63 @@ static void CleanupRecording(RecordingResult? recording)
     catch
     {
         // Ignore cleanup failures.
+    }
+}
+
+static bool ContainsWakeWord(string text, string wakeWord)
+{
+    if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(wakeWord))
+    {
+        return false;
+    }
+
+    return Regex.IsMatch(text, $@"\b{Regex.Escape(wakeWord)}\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+}
+
+static bool ShouldExitApp(string text)
+{
+    if (string.IsNullOrWhiteSpace(text))
+    {
+        return false;
+    }
+
+    var normalized = Regex.Replace(text, @"[^\p{L}\p{N}\s-]", " ")
+        .ToLowerInvariant()
+        .Trim();
+
+    return normalized == "bye"
+           || normalized == "bye-bye"
+           || normalized == "bye bye"
+           || normalized.EndsWith(" bye", StringComparison.Ordinal)
+           || normalized.EndsWith(" bye-bye", StringComparison.Ordinal)
+           || normalized.EndsWith(" bye bye", StringComparison.Ordinal);
+}
+
+static async Task SpeakAsync(ISpeechSynthesizer? speechSynthesizer, string text, CancellationToken cancellationToken)
+{
+    if (speechSynthesizer is null || string.IsNullOrWhiteSpace(text))
+    {
+        return;
+    }
+
+    string? audioPath = null;
+    try
+    {
+        audioPath = await speechSynthesizer.SynthesizeSpeechAsync(text, cancellationToken);
+        await AudioPlayback.PlayWavFileAsync(audioPath);
+    }
+    finally
+    {
+        if (!string.IsNullOrWhiteSpace(audioPath))
+        {
+            try
+            {
+                File.Delete(audioPath);
+            }
+            catch
+            {
+                // Ignore cleanup failures.
+            }
+        }
     }
 }

@@ -23,10 +23,15 @@ internal sealed record AppConfig(
     bool DebugAudioPlayback,
     string OpenAiApiKey,
     string OpenAiModel,
+    string TtsModel,
+    string TtsVoice,
+    string TtsInstructions,
     string AnthropicApiKey,
     string AnthropicModel,
     string WhisperModel,
     int MaxRecordMs,
+    int ActiveIdleTimeoutMs,
+    string WakeWord,
     IReadOnlyList<McpServerConfig> McpServers
 )
 {
@@ -49,10 +54,16 @@ internal sealed record AppConfig(
             ParseBoolean(Environment.GetEnvironmentVariable("DEBUG_AUDIO_PLAYBACK"), fallback: false),
             Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? string.Empty,
             Environment.GetEnvironmentVariable("OPENAI_MODEL") ?? "gpt-5.2-chat-latest",
+            Environment.GetEnvironmentVariable("TTS_MODEL") ?? "gpt-4o-mini-tts",
+            Environment.GetEnvironmentVariable("TTS_VOICE") ?? "marin",
+            Environment.GetEnvironmentVariable("TTS_INSTRUCTIONS")
+                ?? "Speak warmly, softly, and naturally. Keep a calm, intimate, supportive tone with gentle pacing.",
             Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY") ?? string.Empty,
             Environment.GetEnvironmentVariable("ANTHROPIC_MODEL") ?? "claude-3-5-sonnet-20241022",
             Environment.GetEnvironmentVariable("WHISPER_MODEL") ?? "whisper-1",
             ParseInt(Environment.GetEnvironmentVariable("MAX_RECORD_MS"), 30_000),
+            ParseInt(Environment.GetEnvironmentVariable("ACTIVE_IDLE_TIMEOUT_MS"), 60_000),
+            Environment.GetEnvironmentVariable("WAKE_WORD") ?? "Hello there",
             LoadMcpServers(Environment.GetEnvironmentVariable("MCP_SERVERS"))
         );
     }

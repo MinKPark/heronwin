@@ -25,6 +25,22 @@ internal static class LlmFactory
         => string.IsNullOrWhiteSpace(config.OpenAiApiKey)
             ? null
             : new OpenAiWhisperTranscriber(httpClient, config.OpenAiApiKey, config.WhisperModel);
+
+    public static ISpeechSynthesizer? CreateSpeechSynthesizer(AppConfig config, HttpClient httpClient)
+        => string.IsNullOrWhiteSpace(config.OpenAiApiKey)
+            ? null
+            : new OpenAiSpeechSynthesizer(
+                httpClient,
+                config.OpenAiApiKey,
+                config.TtsModel,
+                config.TtsVoice,
+                config.TtsInstructions);
+}
+
+internal interface ISpeechSynthesizer
+{
+    string DisplayName { get; }
+    Task<string> SynthesizeSpeechAsync(string text, CancellationToken cancellationToken);
 }
 
 internal sealed class OpenAiApiClient(HttpClient httpClient, string apiKey, string model, string agentDefinition) : ILlmClient
@@ -203,6 +219,46 @@ internal sealed class OpenAiWhisperTranscriber(HttpClient httpClient, string api
         return document.RootElement.TryGetProperty("text", out var textElement)
             ? textElement.GetString() ?? string.Empty
             : string.Empty;
+    }
+}
+
+internal sealed class OpenAiSpeechSynthesizer(
+    HttpClient httpClient,
+    string apiKey,
+    string ttsModel,
+    string ttsVoice,
+    string ttsInstructions) : ISpeechSynthesizer
+{
+    public string DisplayName => $"OpenAI TTS ({ttsModel}, {ttsVoice})";
+
+    public async Task<string> SynthesizeSpeechAsync(string text, CancellationToken cancellationToken)
+    {
+        var outputPath = Path.Combine(Path.GetTempPath(), $"herface-tts-{Guid.NewGuid():N}.wav");
+        using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/audio/speech");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+
+        var payload = new JsonObject
+        {
+            ["model"] = ttsModel,
+            ["voice"] = ttsVoice,
+            ["input"] = text,
+            ["instructions"] = ttsInstructions,
+            ["response_format"] = "wav"
+        };
+
+        request.Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var responseText = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new InvalidOperationException(
+                $"Speech synthesis request failed ({(int)response.StatusCode}): {ApiErrorParser.ExtractApiError(responseText)}");
+        }
+
+        await using var fileStream = File.Create(outputPath);
+        await response.Content.CopyToAsync(fileStream, cancellationToken);
+        await fileStream.FlushAsync(cancellationToken);
+        return outputPath;
     }
 }
 
