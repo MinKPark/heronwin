@@ -144,6 +144,35 @@ internal sealed class OpenAiApiClient(
                     });
                     break;
 
+                case AgentMessage.VisualContext visualContext:
+                    var visionContent = new JsonArray
+                    {
+                        new JsonObject
+                        {
+                            ["type"] = "text",
+                            ["text"] = visualContext.Content
+                        }
+                    };
+
+                    foreach (var image in visualContext.Images)
+                    {
+                        visionContent.Add(new JsonObject
+                        {
+                            ["type"] = "image_url",
+                            ["image_url"] = new JsonObject
+                            {
+                                ["url"] = $"data:{image.MimeType};base64,{image.Base64Data}"
+                            }
+                        });
+                    }
+
+                    result.Add(new JsonObject
+                    {
+                        ["role"] = "user",
+                        ["content"] = visionContent
+                    });
+                    break;
+
                 case AgentMessage.Assistant assistant when assistant.ToolCalls is { Count: > 0 }:
                     var toolCalls = new JsonArray();
                     foreach (var toolCall in assistant.ToolCalls)
@@ -366,6 +395,38 @@ internal sealed class ClaudeApiClient(
                     {
                         ["role"] = "user",
                         ["content"] = user.Content
+                    });
+                    index += 1;
+                    break;
+
+                case AgentMessage.VisualContext visualContext:
+                    var visualContent = new JsonArray
+                    {
+                        new JsonObject
+                        {
+                            ["type"] = "text",
+                            ["text"] = visualContext.Content
+                        }
+                    };
+
+                    foreach (var image in visualContext.Images)
+                    {
+                        visualContent.Add(new JsonObject
+                        {
+                            ["type"] = "image",
+                            ["source"] = new JsonObject
+                            {
+                                ["type"] = "base64",
+                                ["media_type"] = image.MimeType,
+                                ["data"] = image.Base64Data
+                            }
+                        });
+                    }
+
+                    result.Add(new JsonObject
+                    {
+                        ["role"] = "user",
+                        ["content"] = visualContent
                     });
                     index += 1;
                     break;

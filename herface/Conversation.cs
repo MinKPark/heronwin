@@ -6,14 +6,26 @@ internal sealed record ToolDefinition(string Name, string Description, JsonEleme
 
 internal sealed record ToolCallRequest(string Id, string Name, string Arguments);
 
+internal sealed record ToolImage(string MimeType, string Base64Data);
+
+internal sealed record ToolCallOutcome(string Text, IReadOnlyList<ToolImage> Images);
+
+internal sealed record AgentReply(string LogText, string SpokenText, string RawText);
+
 internal abstract record AgentMessage(string Role)
 {
     public sealed record User(string Content) : AgentMessage("user");
 
+    public sealed record VisualContext(string Content, IReadOnlyList<ToolImage> Images) : AgentMessage("user_visual");
+
     public sealed record Assistant(string? Content, IReadOnlyList<ToolCallRequest>? ToolCalls = null)
         : AgentMessage("assistant");
 
-    public sealed record ToolResult(string ToolCallId, string ToolName, string Content)
+    public sealed record ToolResult(
+        string ToolCallId,
+        string ToolName,
+        string Content,
+        IReadOnlyList<ToolImage>? Images = null)
         : AgentMessage("tool_result");
 }
 
@@ -37,7 +49,7 @@ internal interface IAudioTranscriber
 
 internal static class AgentRunner
 {
-    public static async Task<string> RunTurnAsync(
+    public static async Task<AgentReply> RunTurnAsync(
         string userText,
         List<AgentMessage> history,
         ILlmClient llmClient,
@@ -53,10 +65,15 @@ internal static class AgentRunner
             var result = await llmClient.ChatAsync(messages, tools, cancellationToken);
             if (result.ToolCalls.Count == 0)
             {
-                var responseText = result.Text ?? "(no response)";
-                Display.AssistantMessage(responseText);
+                var responseText = result.Text ?? """{"say":"","log":"(no response)"}""";
+                var parsedReply = AssistantResponseParser.Parse(responseText);
+                if (!string.IsNullOrWhiteSpace(parsedReply.LogText))
+                {
+                    Display.AssistantMessage(parsedReply.LogText);
+                }
+
                 messages.Add(new AgentMessage.Assistant(responseText));
-                return responseText;
+                return parsedReply with { RawText = responseText };
             }
 
             messages.Add(new AgentMessage.Assistant(result.Text, result.ToolCalls));
@@ -78,18 +95,24 @@ internal static class AgentRunner
 
                 Display.ToolCall(toolCall.Name, toolCall.Arguments);
 
-                string toolOutput;
+                ToolCallOutcome toolOutput;
                 try
                 {
                     toolOutput = await mcpManager.CallToolAsync(toolCall.Name, parsedArgs, cancellationToken);
                 }
                 catch (Exception ex)
                 {
-                    toolOutput = $"Error: {ex.Message}";
+                    toolOutput = new ToolCallOutcome($"Error: {ex.Message}", []);
                 }
 
-                Display.ToolResult(toolCall.Name, toolOutput);
-                messages.Add(new AgentMessage.ToolResult(toolCall.Id, toolCall.Name, toolOutput));
+                Display.ToolResult(toolCall.Name, toolOutput.Text, toolOutput.Images.Count);
+                messages.Add(new AgentMessage.ToolResult(toolCall.Id, toolCall.Name, toolOutput.Text, toolOutput.Images));
+                if (toolOutput.Images.Count > 0)
+                {
+                    messages.Add(new AgentMessage.VisualContext(
+                        $"Supplemental screenshot output from tool \"{toolCall.Name}\". Use these images to disambiguate the visible UI before answering.",
+                        toolOutput.Images));
+                }
             }
         }
     }
@@ -130,11 +153,15 @@ internal static class Display
         }
     }
 
-    public static void ToolResult(string toolName, string result)
+    public static void ToolResult(string toolName, string result, int imageCount = 0)
     {
         var preview = result.Length > 200 ? $"{result[..200]}..." : result;
         Console.WriteLine($"{Label("Tool result")} ({toolName})");
         Console.WriteLine($"{new string(' ', LabelWidth + 3)}{preview}");
+        if (imageCount > 0)
+        {
+            Console.WriteLine($"{new string(' ', LabelWidth + 3)}[{imageCount} screenshot attachment(s)]");
+        }
     }
 
     private static string Label(string text) => $"[{text.PadRight(LabelWidth)}]";
@@ -147,4 +174,70 @@ internal static class JsonSerializerOptionsCache
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = false
     };
+}
+
+internal static class AssistantResponseParser
+{
+    public static AgentReply Parse(string rawText)
+    {
+        if (!string.IsNullOrWhiteSpace(rawText))
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(rawText);
+                if (document.RootElement.ValueKind == JsonValueKind.Object)
+                {
+                    var say = document.RootElement.TryGetProperty("say", out var sayElement)
+                        ? sayElement.GetString() ?? string.Empty
+                        : string.Empty;
+                    var log = document.RootElement.TryGetProperty("log", out var logElement)
+                        ? logElement.GetString() ?? string.Empty
+                        : string.Empty;
+
+                    if (!string.IsNullOrWhiteSpace(say) || !string.IsNullOrWhiteSpace(log))
+                    {
+                        return new AgentReply(
+                            string.IsNullOrWhiteSpace(log) ? say : log,
+                            say,
+                            rawText);
+                    }
+                }
+            }
+            catch
+            {
+                // Fall through to plain-text fallback.
+            }
+        }
+
+        return new AgentReply(rawText, BuildSpeechFallback(rawText), rawText);
+    }
+
+    private static string BuildSpeechFallback(string rawText)
+    {
+        if (string.IsNullOrWhiteSpace(rawText))
+        {
+            return string.Empty;
+        }
+
+        var normalized = rawText
+            .Replace("**", string.Empty)
+            .Replace("`", string.Empty)
+            .Replace("\r", " ")
+            .Replace("\n", " ");
+
+        normalized = System.Text.RegularExpressions.Regex.Replace(normalized, @"\s+", " ").Trim();
+        normalized = System.Text.RegularExpressions.Regex.Replace(normalized, @"^\s*[-*•]+\s*", string.Empty);
+
+        if (normalized.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        var sentenceEnd = normalized.IndexOfAny(['.', '!', '?']);
+        var spoken = sentenceEnd >= 0
+            ? normalized[..(sentenceEnd + 1)]
+            : normalized;
+
+        return spoken.Length > 180 ? $"{spoken[..177].Trim()}..." : spoken.Trim();
+    }
 }

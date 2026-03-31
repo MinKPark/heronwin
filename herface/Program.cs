@@ -77,6 +77,7 @@ Display.Separator();
 var history = new List<AgentMessage>();
 var isActive = false;
 var audioOutputActive = 0;
+var agentWorkActive = 0;
 var userQueue = Channel.CreateUnbounded<string>(new UnboundedChannelOptions
 {
     SingleReader = true,
@@ -87,18 +88,22 @@ var agentTask = Task.Run(async () =>
 {
     await foreach (var queuedText in userQueue.Reader.ReadAllAsync(cancellationSource.Token))
     {
+        Interlocked.Increment(ref agentWorkActive);
         try
         {
             var reply = await AgentRunner.RunTurnAsync(queuedText, history, llmClient, mcpManager, cancellationSource.Token);
             history.Add(new AgentMessage.User(queuedText));
-            history.Add(new AgentMessage.Assistant(reply));
-            try
+            history.Add(new AgentMessage.Assistant(reply.RawText));
+            if (!string.IsNullOrWhiteSpace(reply.SpokenText))
             {
-                await PlayAudioOutputAsync(() => SpeakAsync(speechSynthesizer, reply, cancellationSource.Token));
-            }
-            catch (Exception ex)
-            {
-                Display.Warn($"Reply speech failed: {ex.Message}");
+                try
+                {
+                    await PlayAudioOutputAsync(() => SpeakAsync(speechSynthesizer, reply.SpokenText, cancellationSource.Token));
+                }
+                catch (Exception ex)
+                {
+                    Display.Warn($"Reply speech failed: {ex.Message}");
+                }
             }
         }
         catch (OperationCanceledException)
@@ -108,6 +113,10 @@ var agentTask = Task.Run(async () =>
         catch (Exception ex)
         {
             Display.Error($"Agent error: {ex.Message}");
+        }
+        finally
+        {
+            Interlocked.Decrement(ref agentWorkActive);
         }
     }
 }, cancellationSource.Token);
@@ -120,7 +129,7 @@ while (!cancellationSource.IsCancellationRequested)
 
     try
     {
-        await WaitForAudioOutputToFinishAsync(cancellationSource.Token);
+        await WaitForTurnOutputToFinishAsync(cancellationSource.Token);
         Display.Prompt(isActive ? "\n🎤  Listening... " : $"\n🎤  Waiting for {config.WakeWord}... ");
         recording = await AudioRecorder.RecordAsync(config.MaxRecordMs, maxWaitForSpeechMs, cancellationSource.Token);
         Console.WriteLine();
@@ -324,9 +333,10 @@ async Task PlayAudioOutputAsync(Func<Task> playback)
     }
 }
 
-async Task WaitForAudioOutputToFinishAsync(CancellationToken cancellationToken)
+async Task WaitForTurnOutputToFinishAsync(CancellationToken cancellationToken)
 {
-    while (Volatile.Read(ref audioOutputActive) > 0 && !cancellationToken.IsCancellationRequested)
+    while ((Volatile.Read(ref audioOutputActive) > 0 || Volatile.Read(ref agentWorkActive) > 0)
+           && !cancellationToken.IsCancellationRequested)
     {
         await Task.Delay(100, cancellationToken);
     }

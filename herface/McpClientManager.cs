@@ -61,7 +61,7 @@ internal sealed class McpClientManager : IAsyncDisposable
         return result;
     }
 
-    public async Task<string> CallToolAsync(string toolName, object args, CancellationToken cancellationToken)
+    public async Task<ToolCallOutcome> CallToolAsync(string toolName, object args, CancellationToken cancellationToken)
     {
         var dictionaryArgs = args as IReadOnlyDictionary<string, object?> ??
                              JsonSerializer.Deserialize<Dictionary<string, object?>>(
@@ -79,7 +79,8 @@ internal sealed class McpClientManager : IAsyncDisposable
 
             var result = await client.CallToolAsync(toolName, dictionaryArgs, cancellationToken: cancellationToken);
             var textBlocks = result.Content.OfType<TextContentBlock>().Select(block => block.Text);
-            return string.Join('\n', textBlocks);
+            var images = ExtractImages(result.Content);
+            return new ToolCallOutcome(string.Join('\n', textBlocks), images);
         }
 
         throw new InvalidOperationException($"Tool \"{toolName}\" not found on any connected MCP server.");
@@ -108,6 +109,36 @@ internal sealed class McpClientManager : IAsyncDisposable
 
         using var document = JsonDocument.Parse("""{"type":"object","properties":{}}""");
         return document.RootElement.Clone();
+    }
+
+    private static IReadOnlyList<ToolImage> ExtractImages(IEnumerable<object> contentBlocks)
+    {
+        var images = new List<ToolImage>();
+
+        foreach (var block in contentBlocks)
+        {
+            var type = block.GetType();
+            var mimeType = type.GetProperty("MimeType")?.GetValue(block)?.ToString();
+            var dataValue = type.GetProperty("Data")?.GetValue(block);
+            if (string.IsNullOrWhiteSpace(mimeType) || dataValue is null)
+            {
+                continue;
+            }
+
+            var base64Data = dataValue switch
+            {
+                byte[] bytes => Convert.ToBase64String(bytes),
+                string text => text,
+                _ => string.Empty
+            };
+
+            if (!string.IsNullOrWhiteSpace(base64Data))
+            {
+                images.Add(new ToolImage(mimeType, base64Data));
+            }
+        }
+
+        return images;
     }
 
     private static string ResolveMaybeRelativePath(string value, string baseDir)
