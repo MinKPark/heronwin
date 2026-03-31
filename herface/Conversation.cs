@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text;
 
 namespace HeronWin.HerFace;
 
@@ -15,6 +16,8 @@ internal sealed record AgentReply(string LogText, string SpokenText, string RawT
 internal abstract record AgentMessage(string Role)
 {
     public sealed record User(string Content) : AgentMessage("user");
+
+    public sealed record Summary(string Content) : AgentMessage("summary");
 
     public sealed record VisualContext(string Content, IReadOnlyList<ToolImage> Images) : AgentMessage("user_visual");
 
@@ -86,16 +89,14 @@ internal static class AgentRunner
                     }
                 }
 
-                if (!string.IsNullOrWhiteSpace(parsedReply.LogText))
-                {
-                    Display.AssistantMessage(parsedReply.LogText);
-                }
+                Display.AssistantReply(parsedReply.SpokenText, parsedReply.LogText);
 
                 messages.Add(new AgentMessage.Assistant(responseText));
                 return parsedReply with { RawText = responseText };
             }
 
             messages.Add(new AgentMessage.Assistant(result.Text, result.ToolCalls));
+            var followUpEvidence = new List<AgentMessage>();
 
             foreach (var toolCall in result.ToolCalls)
             {
@@ -129,7 +130,7 @@ internal static class AgentRunner
                 messages.Add(new AgentMessage.ToolResult(toolCall.Id, toolCall.Name, toolOutput.Text, toolOutput.Images));
                 if (toolOutput.Images.Count > 0)
                 {
-                    messages.Add(new AgentMessage.VisualContext(
+                    followUpEvidence.Add(new AgentMessage.VisualContext(
                         $"Supplemental screenshot output from tool \"{toolCall.Name}\". Use these images to disambiguate the visible UI before answering.",
                         toolOutput.Images));
                 }
@@ -139,27 +140,75 @@ internal static class AgentRunner
                     performedDesktopAction = true;
                     try
                     {
+                        var parsedArgsDictionary = parsedArgs as IReadOnlyDictionary<string, object?> ?? new Dictionary<string, object?>();
+                        await Task.Delay(toolCall.Name == "launch_app_via_taskbar_search" ? 1200 : 300, cancellationToken);
+
+                        if (toolCall.Name == "launch_app_via_taskbar_search")
+                        {
+                            var appName = TryGetStringArgument(parsedArgsDictionary, "appName");
+                            if (!string.IsNullOrWhiteSpace(appName))
+                            {
+                                try
+                                {
+                                    var selectResult = await mcpManager.CallToolAsync(
+                                        "select_window",
+                                        new Dictionary<string, object?> { ["titleContains"] = appName },
+                                        cancellationToken);
+                                    Display.ToolResult("select_window", selectResult.Text, selectResult.Images.Count);
+                                    followUpEvidence.Add(new AgentMessage.User(
+                                        $"Internal window re-selection after launching \"{appName}\":\n{selectResult.Text}"));
+                                    if (selectResult.Images.Count > 0)
+                                    {
+                                        followUpEvidence.Add(new AgentMessage.VisualContext(
+                                            "Internal screenshot evidence after re-selecting the launched app window.",
+                                            selectResult.Images));
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    followUpEvidence.Add(new AgentMessage.User(
+                                        $"Attempt to re-select the launched app window by title \"{appName}\" was unavailable: {ex.Message}"));
+                                }
+                            }
+                        }
+
                         var postActionSnapshot = await mcpManager.CallToolAsync(
                             "describe_selected_window",
                             new Dictionary<string, object?> { ["maxDepth"] = 4 },
                             cancellationToken);
                         Display.ToolResult("describe_selected_window", postActionSnapshot.Text, postActionSnapshot.Images.Count);
-                        messages.Add(new AgentMessage.User(
+                        followUpEvidence.Add(new AgentMessage.User(
                             $"Post-action visible UI snapshot after tool \"{toolCall.Name}\":\n{postActionSnapshot.Text}"));
                         if (postActionSnapshot.Images.Count > 0)
                         {
-                            messages.Add(new AgentMessage.VisualContext(
+                            followUpEvidence.Add(new AgentMessage.VisualContext(
                                 "Post-action screenshot snapshot for the current selected window.",
                                 postActionSnapshot.Images));
+                        }
+
+                        var postActionScreenshot = await mcpManager.CallToolAsync(
+                            "capture_selected_window_screenshot",
+                            new Dictionary<string, object?>(),
+                            cancellationToken);
+                        Display.ToolResult("capture_selected_window_screenshot", postActionScreenshot.Text, postActionScreenshot.Images.Count);
+                        followUpEvidence.Add(new AgentMessage.User(
+                            $"Post-action screenshot capture metadata after tool \"{toolCall.Name}\":\n{postActionScreenshot.Text}"));
+                        if (postActionScreenshot.Images.Count > 0)
+                        {
+                            followUpEvidence.Add(new AgentMessage.VisualContext(
+                                "Use this post-action screenshot to describe the current main screen.",
+                                postActionScreenshot.Images));
                         }
                     }
                     catch (Exception ex)
                     {
-                        messages.Add(new AgentMessage.User(
+                        followUpEvidence.Add(new AgentMessage.User(
                             $"Post-action UI snapshot was unavailable after tool \"{toolCall.Name}\": {ex.Message}"));
                     }
                 }
             }
+
+            messages.AddRange(followUpEvidence);
         }
     }
 
@@ -191,8 +240,23 @@ internal static class AgentRunner
 
     private static string BuildRepairInstruction(bool performedDesktopAction)
         => performedDesktopAction
-            ? "Rewrite your previous answer as strict JSON only: {\"say\":\"...\",\"log\":\"...\"}. In say, include the action outcome, the current visible screen state, and 2 or 3 likely next actions. In log, include the fuller evidence-based description."
+            ? "Rewrite your previous answer as strict JSON only: {\"say\":\"...\",\"log\":\"...\"}. Use the post-action UI tree and screenshot. In say, include the action outcome, the current visible screen state, and 2 or 3 likely next actions. In log, include the fuller evidence-based description."
             : "Rewrite your previous answer as strict JSON only: {\"say\":\"...\",\"log\":\"...\"}. Keep say short and spoken-friendly. Put fuller detail in log.";
+
+    private static string? TryGetStringArgument(IReadOnlyDictionary<string, object?> args, string key)
+    {
+        if (!args.TryGetValue(key, out var value) || value is null)
+        {
+            return null;
+        }
+
+        return value switch
+        {
+            string text => text,
+            JsonElement element when element.ValueKind == JsonValueKind.String => element.GetString(),
+            _ => value.ToString()
+        };
+    }
 }
 
 internal static class Display
@@ -220,6 +284,33 @@ internal static class Display
 
     public static void UserMessage(string text) => Console.WriteLine($"\n{Label("You")} {text}");
     public static void AssistantMessage(string text) => Console.WriteLine($"\n{Label("Assistant")} {text}");
+    public static void AssistantReply(string sayText, string logText)
+    {
+        var normalizedSay = string.IsNullOrWhiteSpace(sayText) ? string.Empty : sayText.Trim();
+        var normalizedLog = string.IsNullOrWhiteSpace(logText) ? string.Empty : logText.Trim();
+
+        if (!string.IsNullOrWhiteSpace(normalizedSay))
+        {
+            Console.WriteLine($"\n{Label("Say")} {normalizedSay}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(normalizedLog))
+        {
+            Console.WriteLine($"\n{Label("Log")} {normalizedLog}");
+        }
+    }
+
+    public static void ContextUsage(int currentTokens, int maxTokens)
+    {
+        var ratio = maxTokens <= 0 ? 0 : currentTokens / (double)maxTokens * 100;
+        Console.WriteLine($"i  Context: ~{currentTokens:N0} / {maxTokens:N0} tokens ({ratio:F1}%)");
+    }
+
+    public static void ContextCompressed(int currentTokens, int maxTokens)
+    {
+        var ratio = maxTokens <= 0 ? 0 : currentTokens / (double)maxTokens * 100;
+        Console.WriteLine($"i  Context compressed: ~{currentTokens:N0} / {maxTokens:N0} tokens ({ratio:F1}%)");
+    }
 
     public static void ToolCall(string toolName, string args)
     {
@@ -336,5 +427,128 @@ internal static class AssistantResponseParser
             : normalized;
 
         return spoken.Length > 180 ? $"{spoken[..177].Trim()}..." : spoken.Trim();
+    }
+}
+
+internal static class ContextManager
+{
+    private const double CompressionTriggerRatio = 0.7;
+    private const int KeepRecentMessages = 8;
+
+    public static int EstimateTokens(
+        IReadOnlyList<AgentMessage> history,
+        string agentDefinition,
+        string? pendingUserText = null)
+    {
+        var total = EstimateTextTokens(agentDefinition) + 16;
+        foreach (var message in history)
+        {
+            total += message switch
+            {
+                AgentMessage.User user => EstimateTextTokens(user.Content) + 8,
+                AgentMessage.Summary summary => EstimateTextTokens(summary.Content) + 12,
+                AgentMessage.VisualContext visual => EstimateTextTokens(visual.Content) + (visual.Images.Count * 512) + 16,
+                AgentMessage.Assistant assistant => EstimateTextTokens(assistant.Content ?? string.Empty) + 8,
+                AgentMessage.ToolResult toolResult => EstimateTextTokens(toolResult.Content) + 16,
+                _ => 8
+            };
+        }
+
+        if (!string.IsNullOrWhiteSpace(pendingUserText))
+        {
+            total += EstimateTextTokens(pendingUserText) + 8;
+        }
+
+        return total;
+    }
+
+    public static async Task EnsureCapacityAsync(
+        List<AgentMessage> history,
+        string pendingUserText,
+        string agentDefinition,
+        int maxContextTokens,
+        ILlmClient llmClient,
+        CancellationToken cancellationToken)
+    {
+        var currentTokens = EstimateTokens(history, agentDefinition, pendingUserText);
+        Display.ContextUsage(currentTokens, maxContextTokens);
+
+        if (maxContextTokens <= 0
+            || currentTokens < maxContextTokens * CompressionTriggerRatio
+            || history.Count <= KeepRecentMessages)
+        {
+            return;
+        }
+
+        var splitIndex = Math.Max(1, history.Count - KeepRecentMessages);
+        var messagesToCompress = history.Take(splitIndex).ToList();
+        var summaryText = await SummarizeAsync(messagesToCompress, llmClient, cancellationToken);
+
+        history.RemoveRange(0, splitIndex);
+        history.Insert(0, new AgentMessage.Summary(summaryText));
+
+        var compressedTokens = EstimateTokens(history, agentDefinition, pendingUserText);
+        Display.ContextCompressed(compressedTokens, maxContextTokens);
+    }
+
+    private static async Task<string> SummarizeAsync(
+        IReadOnlyList<AgentMessage> messages,
+        ILlmClient llmClient,
+        CancellationToken cancellationToken)
+    {
+        var transcript = new StringBuilder();
+        foreach (var message in messages)
+        {
+            switch (message)
+            {
+                case AgentMessage.User user:
+                    transcript.AppendLine($"User: {user.Content}");
+                    break;
+                case AgentMessage.Summary summary:
+                    transcript.AppendLine($"Prior summary: {summary.Content}");
+                    break;
+                case AgentMessage.Assistant assistant:
+                    transcript.AppendLine($"Assistant: {assistant.Content}");
+                    break;
+            }
+        }
+
+        var summaryPrompt = """
+Summarize the earlier conversation into a compact factual memory for future turns.
+Keep only durable context:
+- user preferences and instructions
+- unresolved tasks or constraints
+- important UI/app state that may still matter
+- important factual findings from prior turns
+
+Return plain text only, under 250 words, with short lines.
+""";
+
+        var result = await llmClient.ChatAsync(
+            [new AgentMessage.User($"{summaryPrompt}\n\nConversation:\n{transcript}")],
+            [],
+            cancellationToken);
+
+        var summaryText = result.Text ?? string.Empty;
+        if (AssistantResponseParser.IsStructuredJson(summaryText))
+        {
+            var parsed = AssistantResponseParser.Parse(summaryText);
+            summaryText = string.IsNullOrWhiteSpace(parsed.LogText) ? parsed.SpokenText : parsed.LogText;
+        }
+
+        summaryText = summaryText.Trim();
+        return string.IsNullOrWhiteSpace(summaryText)
+            ? "Earlier conversation was compressed, but no durable context was extracted."
+            : summaryText;
+    }
+
+    private static int EstimateTextTokens(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return 0;
+        }
+
+        return Math.Max(1, (text.Length + 3) / 4);
     }
 }

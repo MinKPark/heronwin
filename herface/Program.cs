@@ -93,9 +93,20 @@ var agentTask = Task.Run(async () =>
         Interlocked.Increment(ref agentWorkActive);
         try
         {
+            await ContextManager.EnsureCapacityAsync(
+                history,
+                queuedText,
+                config.AgentDefinition,
+                config.MaxContextTokens,
+                llmClient,
+                cancellationSource.Token);
+
             var reply = await AgentRunner.RunTurnAsync(queuedText, history, llmClient, mcpManager, cancellationSource.Token);
             history.Add(new AgentMessage.User(queuedText));
             history.Add(new AgentMessage.Assistant(reply.RawText));
+            Display.ContextUsage(
+                ContextManager.EstimateTokens(history, config.AgentDefinition),
+                config.MaxContextTokens);
             if (!string.IsNullOrWhiteSpace(reply.SpokenText))
             {
                 try
@@ -211,7 +222,7 @@ while (!cancellationSource.IsCancellationRequested)
 
         isActive = true;
         const string wakeResponse = "what's up?";
-        Display.AssistantMessage(wakeResponse);
+        Display.AssistantReply(wakeResponse, string.Empty);
         try
         {
             await PlayAudioOutputAsync(() => SpeakAsync(speechSynthesizer, wakeResponse, cancellationSource.Token));

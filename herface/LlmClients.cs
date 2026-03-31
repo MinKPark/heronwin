@@ -144,6 +144,14 @@ internal sealed class OpenAiApiClient(
                     });
                     break;
 
+                case AgentMessage.Summary summary:
+                    result.Add(new JsonObject
+                    {
+                        ["role"] = "user",
+                        ["content"] = $"Conversation summary from earlier turns. Treat this as reference context, not a new request.\n{summary.Content}"
+                    });
+                    break;
+
                 case AgentMessage.VisualContext visualContext:
                     var visionContent = new JsonArray
                     {
@@ -395,6 +403,15 @@ internal sealed class ClaudeApiClient(
                     {
                         ["role"] = "user",
                         ["content"] = user.Content
+                    });
+                    index += 1;
+                    break;
+
+                case AgentMessage.Summary summary:
+                    result.Add(new JsonObject
+                    {
+                        ["role"] = "user",
+                        ["content"] = $"Conversation summary from earlier turns. Treat this as reference context, not a new request.\n{summary.Content}"
                     });
                     index += 1;
                     break;
