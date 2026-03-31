@@ -74,9 +74,13 @@ internal sealed class OpenAiApiClient(
         var payload = new JsonObject
         {
             ["model"] = model,
-            ["temperature"] = temperature,
             ["messages"] = ToOpenAiMessages(messages, agentDefinition)
         };
+
+        if (SupportsTemperatureControl(model))
+        {
+            payload["temperature"] = temperature;
+        }
 
         if (tools.Count > 0)
         {
@@ -205,6 +209,9 @@ internal sealed class OpenAiApiClient(
 
         return result;
     }
+
+    private static bool SupportsTemperatureControl(string model)
+        => !model.StartsWith("gpt-5", StringComparison.OrdinalIgnoreCase);
 }
 
 internal sealed class OpenAiWhisperTranscriber(HttpClient httpClient, string apiKey, string whisperModel) : IAudioTranscriber
