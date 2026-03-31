@@ -12,11 +12,13 @@ export interface RecordingResult {
 const SAMPLE_RATE = 16_000;
 const CHANNEL_COUNT = 1;
 const BITS_PER_SAMPLE = 16;
-const SILENCE_GRACE_MS = 1_500;
-const STOP_FLUSH_MS = 250;
+const SILENCE_GRACE_MS = 700;
+const STOP_FLUSH_MS = 200;
+const MIN_RECORDING_MS = 0;
+const MIN_SPEECH_CAPTURE_MS = 350;
 const CONSECUTIVE_FRAMES_FOR_SPEAKING = 2;
-const CONSECUTIVE_FRAMES_FOR_SILENCE = 20;
-const LEADING_BUFFER_FRAMES = 15;
+const CONSECUTIVE_FRAMES_FOR_SILENCE = 10;
+const LEADING_BUFFER_FRAMES = 35;
 const WEBRTC_VAD_LEVEL = 2;
 
 export const RECORDING_FORMAT = {
@@ -81,9 +83,11 @@ export function recordAudio(maxDurationMs = 30_000): Promise<RecordingResult> {
   return new Promise((resolve, reject) => {
     const filePath = join(tmpdir(), `herface-${Date.now()}.wav`);
     const pcmChunks: Buffer[] = [];
+    const recordingStartedAt = Date.now();
     let settled = false;
     let stopRequested = false;
     let speechDetected = false;
+    let firstSpeechAt: number | null = null;
     let silenceTimer: NodeJS.Timeout | null = null;
     let finalizeTimer: NodeJS.Timeout | null = null;
 
@@ -175,6 +179,23 @@ export function recordAudio(maxDurationMs = 30_000): Promise<RecordingResult> {
       }, STOP_FLUSH_MS);
     };
 
+    const scheduleStopAfterSilence = (): void => {
+      if (!speechDetected || silenceTimer || stopRequested || settled) {
+        return;
+      }
+
+      const now = Date.now();
+      const minStopAt = Math.max(
+        recordingStartedAt + MIN_RECORDING_MS,
+        (firstSpeechAt ?? recordingStartedAt) + MIN_SPEECH_CAPTURE_MS,
+      );
+      const delayMs = Math.max(SILENCE_GRACE_MS, minStopAt - now);
+
+      silenceTimer = setTimeout(() => {
+        stopAndFinalize();
+      }, delayMs);
+    };
+
     const timeout = setTimeout(() => {
       stopAndFinalize();
     }, maxDurationMs);
@@ -193,6 +214,7 @@ export function recordAudio(maxDurationMs = 30_000): Promise<RecordingResult> {
           const isSpeechFrame = speaking ?? speech ?? false;
           if (isSpeechFrame) {
             speechDetected = true;
+            firstSpeechAt ??= Date.now();
             if (silenceTimer) {
               clearTimeout(silenceTimer);
               silenceTimer = null;
@@ -200,25 +222,23 @@ export function recordAudio(maxDurationMs = 30_000): Promise<RecordingResult> {
             return;
           }
 
-          if (speechDetected && !silenceTimer) {
-            silenceTimer = setTimeout(() => {
-              stopAndFinalize();
-            }, SILENCE_GRACE_MS);
-          }
+          scheduleStopAfterSilence();
         },
-        onChunkStart: () => {
+        onChunkStart: ({ audio }) => {
+          // speech-recorder provides the buffered pre-roll here; include it so
+          // the first word is not clipped while VAD is arming.
+          if (audio && pcmChunks.length === 0) {
+            pcmChunks.push(toBuffer(audio));
+          }
           speechDetected = true;
+          firstSpeechAt ??= Date.now();
           if (silenceTimer) {
             clearTimeout(silenceTimer);
             silenceTimer = null;
           }
         },
         onChunkEnd: () => {
-          if (speechDetected && !silenceTimer) {
-            silenceTimer = setTimeout(() => {
-              stopAndFinalize();
-            }, SILENCE_GRACE_MS);
-          }
+          scheduleStopAfterSilence();
         },
       });
 
