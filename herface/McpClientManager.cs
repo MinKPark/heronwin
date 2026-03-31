@@ -79,8 +79,9 @@ internal sealed class McpClientManager : IAsyncDisposable
 
             var result = await client.CallToolAsync(toolName, dictionaryArgs, cancellationToken: cancellationToken);
             var textBlocks = result.Content.OfType<TextContentBlock>().Select(block => block.Text);
-            var images = ExtractImages(result.Content);
-            return new ToolCallOutcome(string.Join('\n', textBlocks), images);
+            var text = string.Join('\n', textBlocks);
+            var images = ExtractImages(result.Content, text);
+            return new ToolCallOutcome(text, images);
         }
 
         throw new InvalidOperationException($"Tool \"{toolName}\" not found on any connected MCP server.");
@@ -111,9 +112,10 @@ internal sealed class McpClientManager : IAsyncDisposable
         return document.RootElement.Clone();
     }
 
-    private static IReadOnlyList<ToolImage> ExtractImages(IEnumerable<object> contentBlocks)
+    private static IReadOnlyList<ToolImage> ExtractImages(IEnumerable<object> contentBlocks, string toolText)
     {
         var images = new List<ToolImage>();
+        var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var block in contentBlocks)
         {
@@ -134,11 +136,109 @@ internal sealed class McpClientManager : IAsyncDisposable
 
             if (!string.IsNullOrWhiteSpace(base64Data))
             {
-                images.Add(new ToolImage(mimeType, base64Data));
+                var key = $"{mimeType}:{base64Data.Length}";
+                if (seenKeys.Add(key))
+                {
+                    images.Add(new ToolImage(mimeType, base64Data));
+                }
+            }
+        }
+
+        foreach (var image in ExtractImagesFromJsonText(toolText))
+        {
+            var key = $"{image.MimeType}:{image.Base64Data.Length}";
+            if (seenKeys.Add(key))
+            {
+                images.Add(image);
             }
         }
 
         return images;
+    }
+
+    private static IReadOnlyList<ToolImage> ExtractImagesFromJsonText(string toolText)
+    {
+        if (string.IsNullOrWhiteSpace(toolText))
+        {
+            return [];
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(toolText);
+            var images = new List<ToolImage>();
+            CollectImageFilePaths(document.RootElement, images);
+            return images;
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static void CollectImageFilePaths(JsonElement element, List<ToolImage> images)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                foreach (var property in element.EnumerateObject())
+                {
+                    if (property.Value.ValueKind == JsonValueKind.String
+                        && IsImagePathProperty(property.Name)
+                        && TryLoadImageFile(property.Value.GetString(), out var image))
+                    {
+                        images.Add(image);
+                    }
+                    else
+                    {
+                        CollectImageFilePaths(property.Value, images);
+                    }
+                }
+
+                break;
+
+            case JsonValueKind.Array:
+                foreach (var item in element.EnumerateArray())
+                {
+                    CollectImageFilePaths(item, images);
+                }
+
+                break;
+        }
+    }
+
+    private static bool IsImagePathProperty(string propertyName)
+        => propertyName.Equals("imagePath", StringComparison.OrdinalIgnoreCase)
+           || propertyName.Equals("image_path", StringComparison.OrdinalIgnoreCase)
+           || propertyName.Equals("screenshotPath", StringComparison.OrdinalIgnoreCase)
+           || propertyName.Equals("screenshot_path", StringComparison.OrdinalIgnoreCase);
+
+    private static bool TryLoadImageFile(string? path, out ToolImage image)
+    {
+        image = default!;
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            return false;
+        }
+
+        var mimeType = Path.GetExtension(path).ToLowerInvariant() switch
+        {
+            ".png" => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".gif" => "image/gif",
+            ".bmp" => "image/bmp",
+            ".webp" => "image/webp",
+            _ => string.Empty
+        };
+
+        if (string.IsNullOrWhiteSpace(mimeType))
+        {
+            return false;
+        }
+
+        var bytes = File.ReadAllBytes(path);
+        image = new ToolImage(mimeType, Convert.ToBase64String(bytes));
+        return true;
     }
 
     private static string ResolveMaybeRelativePath(string value, string baseDir)
