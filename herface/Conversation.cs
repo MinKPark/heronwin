@@ -131,7 +131,7 @@ internal static class AgentRunner
                 if (toolOutput.Images.Count > 0)
                 {
                     followUpEvidence.Add(new AgentMessage.VisualContext(
-                        $"Supplemental screenshot output from tool \"{toolCall.Name}\". Use these images to disambiguate the visible UI before answering.",
+                        $"Supplemental screenshot output from tool \"{toolCall.Name}\". Treat these images as the source of truth for what is visibly on screen before answering.",
                         toolOutput.Images));
                 }
 
@@ -160,7 +160,7 @@ internal static class AgentRunner
                                     if (selectResult.Images.Count > 0)
                                     {
                                         followUpEvidence.Add(new AgentMessage.VisualContext(
-                                            "Internal screenshot evidence after re-selecting the launched app window.",
+                                            "Internal screenshot evidence after re-selecting the launched app window. Treat the screenshot as authoritative for the current visible screen.",
                                             selectResult.Images));
                                     }
                                 }
@@ -182,7 +182,7 @@ internal static class AgentRunner
                         if (postActionSnapshot.Images.Count > 0)
                         {
                             followUpEvidence.Add(new AgentMessage.VisualContext(
-                                "Post-action screenshot snapshot for the current selected window.",
+                                "Post-action screenshot snapshot for the current selected window. Use the screenshot to describe the visible screen, and use the UI tree only as secondary structure.",
                                 postActionSnapshot.Images));
                         }
 
@@ -196,7 +196,7 @@ internal static class AgentRunner
                         if (postActionScreenshot.Images.Count > 0)
                         {
                             followUpEvidence.Add(new AgentMessage.VisualContext(
-                                "Use this post-action screenshot to describe the current main screen.",
+                                "Use this post-action screenshot as the source of truth for the current main screen. Describe exactly what is visibly shown, including readable labels and options.",
                                 postActionScreenshot.Images));
                         }
                     }
@@ -240,7 +240,7 @@ internal static class AgentRunner
 
     private static string BuildRepairInstruction(bool performedDesktopAction)
         => performedDesktopAction
-            ? "Rewrite your previous answer as strict JSON only: {\"say\":\"...\",\"log\":\"...\"}. Use the post-action UI tree and screenshot. In say, include the action outcome, the current visible screen state, and 2 or 3 likely next actions. In log, include the fuller evidence-based description."
+            ? "Rewrite your previous answer as strict JSON only: {\"say\":\"...\",\"log\":\"...\"}. Use the post-action screenshot as the source of truth for what is visibly on screen right now, and use the UI tree only as secondary structure. Do not describe a generic app state if the screenshot shows a more specific visible screen. Copy readable labels faithfully. In say, include the action outcome, the current visible screen state, and 2 or 3 likely next actions. In log, include the fuller evidence-based description and mention any uncertainty briefly."
             : "Rewrite your previous answer as strict JSON only: {\"say\":\"...\",\"log\":\"...\"}. Keep say short and spoken-friendly. Put fuller detail in log.";
 
     private static string? TryGetStringArgument(IReadOnlyDictionary<string, object?> args, string key)
