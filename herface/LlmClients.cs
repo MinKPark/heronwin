@@ -13,11 +13,21 @@ internal static class LlmFactory
             LlmProviderId.OpenAiApi when string.IsNullOrWhiteSpace(config.OpenAiApiKey) =>
                 throw new InvalidOperationException(
                     "OPENAI_API_KEY is not set. OpenAI API mode requires an API key."),
-            LlmProviderId.OpenAiApi => new OpenAiApiClient(httpClient, config.OpenAiApiKey, config.OpenAiModel, config.AgentDefinition),
+            LlmProviderId.OpenAiApi => new OpenAiApiClient(
+                httpClient,
+                config.OpenAiApiKey,
+                config.OpenAiModel,
+                config.AgentDefinition,
+                config.LlmTemperature),
             LlmProviderId.ClaudeApi when string.IsNullOrWhiteSpace(config.AnthropicApiKey) =>
                 throw new InvalidOperationException(
                     "ANTHROPIC_API_KEY is not set. Claude API mode requires an API key."),
-            LlmProviderId.ClaudeApi => new ClaudeApiClient(httpClient, config.AnthropicApiKey, config.AnthropicModel, config.AgentDefinition),
+            LlmProviderId.ClaudeApi => new ClaudeApiClient(
+                httpClient,
+                config.AnthropicApiKey,
+                config.AnthropicModel,
+                config.AgentDefinition,
+                config.LlmTemperature),
             _ => throw new InvalidOperationException("Unsupported LLM provider.")
         };
 
@@ -43,7 +53,12 @@ internal interface ISpeechSynthesizer
     Task<string> SynthesizeSpeechAsync(string text, CancellationToken cancellationToken);
 }
 
-internal sealed class OpenAiApiClient(HttpClient httpClient, string apiKey, string model, string agentDefinition) : ILlmClient
+internal sealed class OpenAiApiClient(
+    HttpClient httpClient,
+    string apiKey,
+    string model,
+    string agentDefinition,
+    double temperature) : ILlmClient
 {
     public LlmProviderId ProviderId => LlmProviderId.OpenAiApi;
     public string DisplayName => $"OpenAI API ({model})";
@@ -59,6 +74,7 @@ internal sealed class OpenAiApiClient(HttpClient httpClient, string apiKey, stri
         var payload = new JsonObject
         {
             ["model"] = model,
+            ["temperature"] = temperature,
             ["messages"] = ToOpenAiMessages(messages, agentDefinition)
         };
 
@@ -262,7 +278,12 @@ internal sealed class OpenAiSpeechSynthesizer(
     }
 }
 
-internal sealed class ClaudeApiClient(HttpClient httpClient, string apiKey, string model, string agentDefinition) : ILlmClient
+internal sealed class ClaudeApiClient(
+    HttpClient httpClient,
+    string apiKey,
+    string model,
+    string agentDefinition,
+    double temperature) : ILlmClient
 {
     public LlmProviderId ProviderId => LlmProviderId.ClaudeApi;
     public string DisplayName => $"Claude API ({model})";
@@ -279,6 +300,7 @@ internal sealed class ClaudeApiClient(HttpClient httpClient, string apiKey, stri
         var payload = new JsonObject
         {
             ["model"] = model,
+            ["temperature"] = temperature,
             ["max_tokens"] = 4096,
             ["messages"] = ToAnthropicMessages(messages)
         };

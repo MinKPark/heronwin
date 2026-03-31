@@ -1,5 +1,6 @@
 using HeronWin.HerFace;
 using System.Text.RegularExpressions;
+using System.Threading.Channels;
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 Display.Banner();
@@ -75,6 +76,41 @@ Display.Separator();
 
 var history = new List<AgentMessage>();
 var isActive = false;
+var audioOutputActive = 0;
+var userQueue = Channel.CreateUnbounded<string>(new UnboundedChannelOptions
+{
+    SingleReader = true,
+    SingleWriter = true
+});
+
+var agentTask = Task.Run(async () =>
+{
+    await foreach (var queuedText in userQueue.Reader.ReadAllAsync(cancellationSource.Token))
+    {
+        try
+        {
+            var reply = await AgentRunner.RunTurnAsync(queuedText, history, llmClient, mcpManager, cancellationSource.Token);
+            history.Add(new AgentMessage.User(queuedText));
+            history.Add(new AgentMessage.Assistant(reply));
+            try
+            {
+                await PlayAudioOutputAsync(() => SpeakAsync(speechSynthesizer, reply, cancellationSource.Token));
+            }
+            catch (Exception ex)
+            {
+                Display.Warn($"Reply speech failed: {ex.Message}");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            break;
+        }
+        catch (Exception ex)
+        {
+            Display.Error($"Agent error: {ex.Message}");
+        }
+    }
+}, cancellationSource.Token);
 
 while (!cancellationSource.IsCancellationRequested)
 {
@@ -84,6 +120,7 @@ while (!cancellationSource.IsCancellationRequested)
 
     try
     {
+        await WaitForAudioOutputToFinishAsync(cancellationSource.Token);
         Display.Prompt(isActive ? "\n🎤  Listening... " : $"\n🎤  Waiting for {config.WakeWord}... ");
         recording = await AudioRecorder.RecordAsync(config.MaxRecordMs, maxWaitForSpeechMs, cancellationSource.Token);
         Console.WriteLine();
@@ -92,7 +129,7 @@ while (!cancellationSource.IsCancellationRequested)
         {
             if (isActive)
             {
-                await AudioPlayback.PlayWindDownCueAsync();
+                await PlayAudioOutputAsync(AudioPlayback.PlayWindDownCueAsync);
                 isActive = false;
                 Display.Info($"Back to standby. Say \"{config.WakeWord}\" when you want me again.");
             }
@@ -102,7 +139,7 @@ while (!cancellationSource.IsCancellationRequested)
 
         if (isActive)
         {
-            await AudioPlayback.PlayRecordingStopCueAsync();
+            await PlayAudioOutputAsync(AudioPlayback.PlayRecordingStopCueAsync);
         }
 
         if (config.DebugAudioPlayback)
@@ -151,6 +188,7 @@ while (!cancellationSource.IsCancellationRequested)
 
     if (ShouldExitApp(userText))
     {
+        cancellationSource.Cancel();
         break;
     }
 
@@ -166,7 +204,7 @@ while (!cancellationSource.IsCancellationRequested)
         Display.AssistantMessage(wakeResponse);
         try
         {
-            await SpeakAsync(speechSynthesizer, wakeResponse, cancellationSource.Token);
+            await PlayAudioOutputAsync(() => SpeakAsync(speechSynthesizer, wakeResponse, cancellationSource.Token));
         }
         catch (Exception ex)
         {
@@ -177,22 +215,22 @@ while (!cancellationSource.IsCancellationRequested)
 
     try
     {
-        var reply = await AgentRunner.RunTurnAsync(userText, history, llmClient, mcpManager, cancellationSource.Token);
-        history.Add(new AgentMessage.User(userText));
-        history.Add(new AgentMessage.Assistant(reply));
-        try
-        {
-            await SpeakAsync(speechSynthesizer, reply, cancellationSource.Token);
-        }
-        catch (Exception ex)
-        {
-            Display.Warn($"Reply speech failed: {ex.Message}");
-        }
+        await userQueue.Writer.WriteAsync(userText, cancellationSource.Token);
     }
     catch (Exception ex)
     {
-        Display.Error($"Agent error: {ex.Message}");
+        Display.Error($"Queue error: {ex.Message}");
     }
+}
+
+userQueue.Writer.TryComplete();
+try
+{
+    await agentTask;
+}
+catch (OperationCanceledException)
+{
+    // Normal shutdown.
 }
 
 Display.Info("Shutting down...");
@@ -270,5 +308,26 @@ static async Task SpeakAsync(ISpeechSynthesizer? speechSynthesizer, string text,
                 // Ignore cleanup failures.
             }
         }
+    }
+}
+
+async Task PlayAudioOutputAsync(Func<Task> playback)
+{
+    Interlocked.Increment(ref audioOutputActive);
+    try
+    {
+        await playback();
+    }
+    finally
+    {
+        Interlocked.Decrement(ref audioOutputActive);
+    }
+}
+
+async Task WaitForAudioOutputToFinishAsync(CancellationToken cancellationToken)
+{
+    while (Volatile.Read(ref audioOutputActive) > 0 && !cancellationToken.IsCancellationRequested)
+    {
+        await Task.Delay(100, cancellationToken);
     }
 }

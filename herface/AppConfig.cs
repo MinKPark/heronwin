@@ -23,6 +23,7 @@ internal sealed record AppConfig(
     bool DebugAudioPlayback,
     string OpenAiApiKey,
     string OpenAiModel,
+    double LlmTemperature,
     string TtsModel,
     string TtsVoice,
     string TtsInstructions,
@@ -54,6 +55,7 @@ internal sealed record AppConfig(
             ParseBoolean(Environment.GetEnvironmentVariable("DEBUG_AUDIO_PLAYBACK"), fallback: false),
             Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? string.Empty,
             Environment.GetEnvironmentVariable("OPENAI_MODEL") ?? "gpt-5.2-chat-latest",
+            ParseDouble(Environment.GetEnvironmentVariable("LLM_TEMPERATURE"), 0),
             Environment.GetEnvironmentVariable("TTS_MODEL") ?? "gpt-4o-mini-tts",
             Environment.GetEnvironmentVariable("TTS_VOICE") ?? "marin",
             Environment.GetEnvironmentVariable("TTS_INSTRUCTIONS")
@@ -167,6 +169,9 @@ internal sealed record AppConfig(
 
     private static int ParseInt(string? value, int fallback)
         => int.TryParse(value, out var parsed) ? parsed : fallback;
+
+    private static double ParseDouble(string? value, double fallback)
+        => double.TryParse(value, out var parsed) ? parsed : fallback;
 
     private static string ResolveMaybeRelativePath(string value, string baseDir)
     {
