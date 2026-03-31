@@ -13,6 +13,21 @@ const SAMPLE_RATE = 16_000;
 const CHANNEL_COUNT = 1;
 const BITS_PER_SAMPLE = 16;
 const SILENCE_GRACE_MS = 1_500;
+const STOP_FLUSH_MS = 250;
+const CONSECUTIVE_FRAMES_FOR_SPEAKING = 2;
+const CONSECUTIVE_FRAMES_FOR_SILENCE = 20;
+const LEADING_BUFFER_FRAMES = 15;
+const WEBRTC_VAD_LEVEL = 2;
+
+export const RECORDING_FORMAT = {
+  sampleRateHz: SAMPLE_RATE,
+  channelCount: CHANNEL_COUNT,
+  bitsPerSample: BITS_PER_SAMPLE,
+} as const;
+
+export function describeRecordingFormat(): string {
+  return `${SAMPLE_RATE} Hz, ${CHANNEL_COUNT} channel, ${BITS_PER_SAMPLE}-bit PCM`;
+}
 
 function ensureWindowsSupported(): void {
   if (process.platform !== "win32") {
@@ -70,6 +85,7 @@ export function recordAudio(maxDurationMs = 30_000): Promise<RecordingResult> {
     let stopRequested = false;
     let speechDetected = false;
     let silenceTimer: NodeJS.Timeout | null = null;
+    let finalizeTimer: NodeJS.Timeout | null = null;
 
     let recorder!: SpeechRecorder;
 
@@ -86,6 +102,9 @@ export function recordAudio(maxDurationMs = 30_000): Promise<RecordingResult> {
       clearTimeout(timeout);
       if (silenceTimer) {
         clearTimeout(silenceTimer);
+      }
+      if (finalizeTimer) {
+        clearTimeout(finalizeTimer);
       }
 
       try {
@@ -107,6 +126,9 @@ export function recordAudio(maxDurationMs = 30_000): Promise<RecordingResult> {
       clearTimeout(timeout);
       if (silenceTimer) {
         clearTimeout(silenceTimer);
+      }
+      if (finalizeTimer) {
+        clearTimeout(finalizeTimer);
       }
 
       try {
@@ -148,7 +170,9 @@ export function recordAudio(maxDurationMs = 30_000): Promise<RecordingResult> {
         return;
       }
 
-      void finalize();
+      finalizeTimer = setTimeout(() => {
+        void finalize();
+      }, STOP_FLUSH_MS);
     };
 
     const timeout = setTimeout(() => {
@@ -159,7 +183,10 @@ export function recordAudio(maxDurationMs = 30_000): Promise<RecordingResult> {
       recorder = new SpeechRecorder({
         sampleRate: SAMPLE_RATE,
         device: -1,
-        consecutiveFramesForSilence: 20,
+        consecutiveFramesForSilence: CONSECUTIVE_FRAMES_FOR_SILENCE,
+        consecutiveFramesForSpeaking: CONSECUTIVE_FRAMES_FOR_SPEAKING,
+        leadingBufferFrames: LEADING_BUFFER_FRAMES,
+        webrtcVadLevel: WEBRTC_VAD_LEVEL,
         onAudio: ({ audio, speaking, speech }) => {
           pcmChunks.push(toBuffer(audio));
 
@@ -187,8 +214,10 @@ export function recordAudio(maxDurationMs = 30_000): Promise<RecordingResult> {
           }
         },
         onChunkEnd: () => {
-          if (speechDetected) {
-            stopAndFinalize();
+          if (speechDetected && !silenceTimer) {
+            silenceTimer = setTimeout(() => {
+              stopAndFinalize();
+            }, SILENCE_GRACE_MS);
           }
         },
       });

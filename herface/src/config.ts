@@ -17,6 +17,7 @@ export interface Config {
   llmProvider: LlmProviderId;
   agentDefinitionPath: string;
   agentDefinition: string;
+  debugAudioPlayback: boolean;
   openaiApiKey: string;
   openaiModel: string;
   anthropicApiKey: string;
@@ -55,6 +56,7 @@ export function loadConfig(): Config {
     llmProvider: provider,
     agentDefinitionPath,
     agentDefinition: loadAgentDefinition(agentDefinitionPath),
+    debugAudioPlayback: parseBoolean(process.env.DEBUG_AUDIO_PLAYBACK, false),
     openaiApiKey: process.env.OPENAI_API_KEY ?? "",
     openaiModel: process.env.OPENAI_MODEL ?? "gpt-5.2-chat-latest",
     anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",

@@ -87,6 +87,7 @@ npm run mcp:eyesandhands:configured
 | `CHATGPT_RESPONSE_TIMEOUT_MS` | `120000` | Max wait for ChatGPT browser responses |
 | `WHISPER_MODEL` | `whisper-1` | OpenAI Whisper model for STT |
 | `MAX_RECORD_MS` | `30000` | Max recording duration (ms) |
+| `DEBUG_AUDIO_PLAYBACK` | `false` | Replay each captured WAV locally while it is being transcribed |
 | `MCP_SERVERS` | `[]` | JSON array of MCP server configs |
 
 ### MCP_SERVERS format
@@ -121,6 +122,12 @@ Once running, the agent will prompt you each turn:
 - Type `exit` to quit.
 
 The LLM will use available MCP tools automatically when needed, and the tool calls and results are shown inline in the terminal.
+
+### Audio debug aid
+
+`herface` records microphone audio as `16,000 Hz`, mono, `16-bit PCM` WAV before sending it to Whisper.
+
+If you want to inspect recording quality locally, set `DEBUG_AUDIO_PLAYBACK=true`. In that mode, `herface` will replay the captured WAV through your speakers while the same file is being transcribed.
 
 ## Default Agent Definition
 

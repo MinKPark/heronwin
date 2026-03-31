@@ -2,7 +2,8 @@ import readline from "readline";
 import { loadConfig } from "./config.js";
 import { createAudioTranscriber, createLlmProvider } from "./llm/factory.js";
 import { McpClientManager } from "./mcp/client.js";
-import { recordAudio } from "./voice/recorder.js";
+import { describeRecordingFormat, recordAudio } from "./voice/recorder.js";
+import { playWavFile } from "./voice/playback.js";
 import { display } from "./ui/display.js";
 import { runAgentTurn } from "./agent.js";
 import type { LLMClient, AgentMessage } from "./llm/types.js";
@@ -28,6 +29,10 @@ async function main(): Promise<void> {
     ? "\n🎤  Press Enter to speak (or type your message): "
     : "\n💬  Type your message and press Enter: ";
   display.info(`LLM: ${llmClient.displayName}`);
+  display.info(`Mic capture: ${describeRecordingFormat()}`);
+  if (cfg.debugAudioPlayback) {
+    display.info("Debug audio playback is enabled; each captured recording will replay during transcription.");
+  }
   if (cfg.llmProvider === "chatgpt-web") {
     display.info(
       `ChatGPT browser mode will use ${cfg.chatgptWeb.browserChannel} with profile ${cfg.chatgptWeb.profileDir} (${cfg.chatgptWeb.headless ? "headless" : "visible"})`,
@@ -97,7 +102,30 @@ async function main(): Promise<void> {
         try {
           recording = await recordAudio(cfg.maxRecordMs);
           display.transcribing();
-          userText = await audioTranscriber.transcribeAudio(recording.filePath);
+          if (cfg.debugAudioPlayback) {
+            display.info("Debug: replaying the captured WAV while it is being sent for transcription.");
+          }
+
+          const [transcriptionResult, playbackResult] = await Promise.allSettled([
+            audioTranscriber.transcribeAudio(recording.filePath),
+            cfg.debugAudioPlayback ? playWavFile(recording.filePath) : Promise.resolve(),
+          ]);
+
+          if (playbackResult.status === "rejected") {
+            display.warn(
+              `Debug audio playback failed: ${
+                playbackResult.reason instanceof Error
+                  ? playbackResult.reason.message
+                  : String(playbackResult.reason)
+              }`,
+            );
+          }
+
+          if (transcriptionResult.status === "rejected") {
+            throw transcriptionResult.reason;
+          }
+
+          userText = transcriptionResult.value;
         } catch (err) {
           display.error(
             `Recording/transcription failed: ${err instanceof Error ? err.message : String(err)}`,
