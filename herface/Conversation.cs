@@ -179,26 +179,12 @@ internal static class AgentRunner
                             cancellationToken);
                         Display.ToolResult("describe_selected_window", postActionSnapshot.Text, postActionSnapshot.Images.Count);
                         followUpEvidence.Add(new AgentMessage.User(
-                            $"Post-action visible UI snapshot after tool \"{toolCall.Name}\":\n{postActionSnapshot.Text}"));
+                            $"Post-action visible UI snapshot after tool \"{toolCall.Name}\":\n{postActionSnapshot.Text}\nUse this UI Automation tree first. If it is too sparse or ambiguous to describe the visible screen confidently, call capture_selected_window_screenshot before answering."));
                         if (postActionSnapshot.Images.Count > 0)
                         {
                             followUpEvidence.Add(new AgentMessage.VisualContext(
-                                "Post-action screenshot snapshot for the current selected window. Use the screenshot to describe the visible screen, and use the UI tree only as secondary structure.",
+                                "Post-action visual evidence for the current selected window. Use it only if you actually have image content available.",
                                 postActionSnapshot.Images));
-                        }
-
-                        var postActionScreenshot = await mcpManager.CallToolAsync(
-                            "capture_selected_window_screenshot",
-                            new Dictionary<string, object?>(),
-                            cancellationToken);
-                        Display.ToolResult("capture_selected_window_screenshot", postActionScreenshot.Text, postActionScreenshot.Images.Count);
-                        followUpEvidence.Add(new AgentMessage.User(
-                            $"Post-action screenshot capture metadata after tool \"{toolCall.Name}\":\n{postActionScreenshot.Text}"));
-                        if (postActionScreenshot.Images.Count > 0)
-                        {
-                            followUpEvidence.Add(new AgentMessage.VisualContext(
-                                "Use this post-action screenshot as the source of truth for the current main screen. Describe exactly what is visibly shown, including readable labels and options.",
-                                postActionScreenshot.Images));
                         }
                     }
                     catch (Exception ex)
@@ -249,7 +235,7 @@ internal static class AgentRunner
 
     private static string BuildRepairInstruction(bool performedDesktopAction)
         => performedDesktopAction
-            ? "Rewrite your previous answer as strict JSON only: {\"say\":\"...\",\"log\":\"...\"}. Use the post-action screenshot as the source of truth for what is visibly on screen right now, and use the UI tree only as secondary structure. Do not describe a generic app state if the screenshot shows a more specific visible screen. Copy readable labels faithfully. In say, include the action outcome, the current visible screen state, and 2 or 3 likely next actions. In log, include the fuller evidence-based description and mention any uncertainty briefly."
+            ? "Rewrite your previous answer as strict JSON only: {\"say\":\"...\",\"log\":\"...\"}. Use the post-action UI Automation tree first. If the current evidence is too sparse or ambiguous to describe the visible screen confidently, do not guess. In say, include the action outcome, the current visible screen state if it is supported by evidence, and 2 or 3 likely next actions. In log, include the fuller evidence-based description and briefly note any uncertainty."
             : "Rewrite your previous answer as strict JSON only: {\"say\":\"...\",\"log\":\"...\"}. Keep say short and spoken-friendly. Put fuller detail in log.";
 
     private static string? TryGetStringArgument(IReadOnlyDictionary<string, object?> args, string key)
