@@ -59,6 +59,8 @@ internal static class AgentRunner
         var tools = await mcpManager.ListAllToolsAsync(cancellationToken);
         var messages = history.Concat([new AgentMessage.User(userText)]).ToList();
         Display.UserMessage(userText);
+        var usedAnyTools = false;
+        var performedDesktopAction = false;
 
         while (true)
         {
@@ -67,6 +69,23 @@ internal static class AgentRunner
             {
                 var responseText = result.Text ?? """{"say":"","log":"(no response)"}""";
                 var parsedReply = AssistantResponseParser.Parse(responseText);
+                if (NeedsRepair(responseText, parsedReply, usedAnyTools, performedDesktopAction))
+                {
+                    var repairedReply = await llmClient.ChatAsync(
+                        [
+                            ..messages,
+                            new AgentMessage.Assistant(responseText),
+                            new AgentMessage.User(BuildRepairInstruction(performedDesktopAction))
+                        ],
+                        [],
+                        cancellationToken);
+                    if (repairedReply.ToolCalls.Count == 0 && !string.IsNullOrWhiteSpace(repairedReply.Text))
+                    {
+                        responseText = repairedReply.Text;
+                        parsedReply = AssistantResponseParser.Parse(responseText);
+                    }
+                }
+
                 if (!string.IsNullOrWhiteSpace(parsedReply.LogText))
                 {
                     Display.AssistantMessage(parsedReply.LogText);
@@ -80,6 +99,7 @@ internal static class AgentRunner
 
             foreach (var toolCall in result.ToolCalls)
             {
+                usedAnyTools = true;
                 object parsedArgs = new Dictionary<string, object?>();
                 try
                 {
@@ -113,9 +133,66 @@ internal static class AgentRunner
                         $"Supplemental screenshot output from tool \"{toolCall.Name}\". Use these images to disambiguate the visible UI before answering.",
                         toolOutput.Images));
                 }
+
+                if (IsDesktopActionTool(toolCall.Name))
+                {
+                    performedDesktopAction = true;
+                    try
+                    {
+                        var postActionSnapshot = await mcpManager.CallToolAsync(
+                            "describe_selected_window",
+                            new Dictionary<string, object?> { ["maxDepth"] = 4 },
+                            cancellationToken);
+                        Display.ToolResult("describe_selected_window", postActionSnapshot.Text, postActionSnapshot.Images.Count);
+                        messages.Add(new AgentMessage.User(
+                            $"Post-action visible UI snapshot after tool \"{toolCall.Name}\":\n{postActionSnapshot.Text}"));
+                        if (postActionSnapshot.Images.Count > 0)
+                        {
+                            messages.Add(new AgentMessage.VisualContext(
+                                "Post-action screenshot snapshot for the current selected window.",
+                                postActionSnapshot.Images));
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        messages.Add(new AgentMessage.User(
+                            $"Post-action UI snapshot was unavailable after tool \"{toolCall.Name}\": {ex.Message}"));
+                    }
+                }
             }
         }
     }
+
+    private static bool IsDesktopActionTool(string toolName)
+        => toolName is "launch_app_via_taskbar_search"
+            or "select_taskbar_app"
+            or "select_window"
+            or "click_selected_window_element"
+            or "focus_selected_window_element"
+            or "invoke_main_menu_item"
+            or "invoke_context_menu_item"
+            or "send_input_to_window";
+
+    private static bool NeedsRepair(string rawText, AgentReply reply, bool usedAnyTools, bool performedDesktopAction)
+    {
+        var isStructured = AssistantResponseParser.IsStructuredJson(rawText);
+        if (!isStructured)
+        {
+            return true;
+        }
+
+        if (performedDesktopAction && string.IsNullOrWhiteSpace(reply.SpokenText))
+        {
+            return true;
+        }
+
+        return usedAnyTools && string.IsNullOrWhiteSpace(reply.LogText);
+    }
+
+    private static string BuildRepairInstruction(bool performedDesktopAction)
+        => performedDesktopAction
+            ? "Rewrite your previous answer as strict JSON only: {\"say\":\"...\",\"log\":\"...\"}. In say, include the action outcome, the current visible screen state, and 2 or 3 likely next actions. In log, include the fuller evidence-based description."
+            : "Rewrite your previous answer as strict JSON only: {\"say\":\"...\",\"log\":\"...\"}. Keep say short and spoken-friendly. Put fuller detail in log.";
 }
 
 internal static class Display
@@ -178,6 +255,26 @@ internal static class JsonSerializerOptionsCache
 
 internal static class AssistantResponseParser
 {
+    public static bool IsStructuredJson(string rawText)
+    {
+        if (string.IsNullOrWhiteSpace(rawText))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(rawText);
+            return document.RootElement.ValueKind == JsonValueKind.Object
+                   && (document.RootElement.TryGetProperty("say", out _)
+                       || document.RootElement.TryGetProperty("log", out _));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public static AgentReply Parse(string rawText)
     {
         if (!string.IsNullOrWhiteSpace(rawText))
