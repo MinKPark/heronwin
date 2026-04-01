@@ -53,6 +53,7 @@ internal interface IAudioTranscriber
 internal static class AgentRunner
 {
     public static async Task<AgentReply> RunTurnAsync(
+        long turnId,
         string userText,
         List<AgentMessage> history,
         AppConfig config,
@@ -62,28 +63,47 @@ internal static class AgentRunner
     {
         var tools = await mcpManager.ListAllToolsAsync(cancellationToken);
         var messages = history.Concat([new AgentMessage.User(userText)]).ToList();
+        DebugTrace.WriteEvent(
+            "agent.turn.start",
+            $"turn={turnId}, historyMessages={history.Count}, toolsAvailable={tools.Count}, provider={llmClient.DisplayName}");
         Display.UserMessage(userText);
         var usedAnyTools = false;
         var performedDesktopAction = false;
         var performedConfidenceEvidenceRetry = false;
+        var llmAttempt = 0;
 
         while (true)
         {
+            llmAttempt += 1;
+            DebugTrace.WriteLlmRequest(turnId, llmAttempt, llmClient.DisplayName, messages, tools);
             var result = await llmClient.ChatAsync(messages, tools, cancellationToken);
+            DebugTrace.WriteLlmResponse(turnId, llmAttempt, llmClient.DisplayName, result);
             if (result.ToolCalls.Count == 0)
             {
                 var responseText = result.Text ?? """{"say":"","log":"(no response)"}""";
                 var parsedReply = AssistantResponseParser.Parse(responseText);
                 if (NeedsRepair(responseText, parsedReply, usedAnyTools, performedDesktopAction))
                 {
+                    DebugTrace.WriteEvent(
+                        "agent.reply_repair_requested",
+                        $"turn={turnId}, attempt={llmAttempt}, usedAnyTools={usedAnyTools}, performedDesktopAction={performedDesktopAction}, raw={DebugTrace.Preview(responseText, 600)}");
+                    llmAttempt += 1;
+                    var repairMessages = new List<AgentMessage>(messages)
+                    {
+                        new AgentMessage.Assistant(responseText),
+                        new AgentMessage.User(BuildRepairInstruction(performedDesktopAction))
+                    };
+                    DebugTrace.WriteLlmRequest(
+                        turnId,
+                        llmAttempt,
+                        $"{llmClient.DisplayName} repair",
+                        repairMessages,
+                        Array.Empty<ToolDefinition>());
                     var repairedReply = await llmClient.ChatAsync(
-                        [
-                            ..messages,
-                            new AgentMessage.Assistant(responseText),
-                            new AgentMessage.User(BuildRepairInstruction(performedDesktopAction))
-                        ],
+                        repairMessages,
                         [],
                         cancellationToken);
+                    DebugTrace.WriteLlmResponse(turnId, llmAttempt, $"{llmClient.DisplayName} repair", repairedReply);
                     if (repairedReply.ToolCalls.Count == 0 && !string.IsNullOrWhiteSpace(repairedReply.Text))
                     {
                         responseText = repairedReply.Text;
@@ -96,12 +116,23 @@ internal static class AgentRunner
                     && NeedsAdditionalDesktopEvidence(parsedReply))
                 {
                     performedConfidenceEvidenceRetry = true;
+                    DebugTrace.WriteEvent(
+                        "agent.additional_desktop_evidence_requested",
+                        $"turn={turnId}, reason=assistant_uncertain");
                     messages.Add(new AgentMessage.Assistant(responseText));
                     messages.AddRange(await CollectAdditionalConfidenceEvidenceAsync(mcpManager, cancellationToken));
                     continue;
                 }
 
                 Display.AssistantReply(parsedReply.SpokenText, parsedReply.LogText);
+                DebugTrace.WriteBlock(
+                    "assistant.reply",
+                    [
+                        $"turn={turnId}",
+                        $"say={DebugTrace.Preview(parsedReply.SpokenText, 400)}",
+                        $"log={DebugTrace.Preview(parsedReply.LogText, 900)}",
+                        $"raw={DebugTrace.Preview(responseText, 1200)}"
+                    ]);
 
                 messages.Add(new AgentMessage.Assistant(responseText));
                 return parsedReply with { RawText = responseText };
@@ -113,6 +144,9 @@ internal static class AgentRunner
             foreach (var toolCall in result.ToolCalls)
             {
                 usedAnyTools = true;
+                DebugTrace.WriteEvent(
+                    "agent.tool_call_requested",
+                    $"turn={turnId}, toolCallId={toolCall.Id}, tool={toolCall.Name}, arguments={DebugTrace.Preview(toolCall.Arguments, 600)}");
                 object parsedArgs = new Dictionary<string, object?>();
                 try
                 {
@@ -124,6 +158,9 @@ internal static class AgentRunner
                 catch
                 {
                     // Keep empty object.
+                    DebugTrace.WriteEvent(
+                        "agent.tool_call_argument_parse_fallback",
+                        $"turn={turnId}, toolCallId={toolCall.Id}, tool={toolCall.Name}");
                 }
 
                 Display.ToolCall(toolCall.Name, toolCall.Arguments);
@@ -139,6 +176,9 @@ internal static class AgentRunner
                 }
 
                 Display.ToolResult(toolCall.Name, toolOutput.Text, toolOutput.Images.Count);
+                DebugTrace.WriteEvent(
+                    "agent.tool_call_completed",
+                    $"turn={turnId}, toolCallId={toolCall.Id}, tool={toolCall.Name}, images={toolOutput.Images.Count}, result={DebugTrace.Preview(toolOutput.Text, 900)}");
                 messages.Add(new AgentMessage.ToolResult(toolCall.Id, toolCall.Name, toolOutput.Text, toolOutput.Images));
                 if (toolOutput.Images.Count > 0)
                 {
@@ -150,6 +190,9 @@ internal static class AgentRunner
                 if (IsDesktopActionTool(toolCall.Name))
                 {
                     performedDesktopAction = true;
+                    DebugTrace.WriteEvent(
+                        "agent.desktop_action_tool_detected",
+                        $"turn={turnId}, tool={toolCall.Name}");
                     try
                     {
                         var parsedArgsDictionary = parsedArgs as IReadOnlyDictionary<string, object?> ?? new Dictionary<string, object?>();
@@ -174,11 +217,17 @@ internal static class AgentRunner
                                             "Internal screenshot evidence after re-selecting the launched app window. Treat the screenshot as authoritative for the current visible screen.",
                                             selectResult.Images));
                                     }
+                                    DebugTrace.WriteEvent(
+                                        "agent.desktop_followup_select_window",
+                                        $"turn={turnId}, appName={DebugTrace.SerializeObject(appName)}, result={DebugTrace.Preview(selectResult.Text, 600)}, images={selectResult.Images.Count}");
                                 }
                                 catch (Exception ex)
                                 {
                                     followUpEvidence.Add(new AgentMessage.User(
                                         $"Attempt to re-select the launched app window by title \"{appName}\" was unavailable: {ex.Message}"));
+                                    DebugTrace.WriteEvent(
+                                        "agent.desktop_followup_select_window_failed",
+                                        $"turn={turnId}, appName={DebugTrace.SerializeObject(appName)}, error={DebugTrace.Preview(ex.ToString(), 700)}");
                                 }
                             }
                         }
@@ -196,11 +245,17 @@ internal static class AgentRunner
                                 "Post-action visual evidence for the current selected window. Use it only if you actually have image content available.",
                                 postActionSnapshot.Images));
                         }
+                        DebugTrace.WriteEvent(
+                            "agent.desktop_followup_snapshot",
+                            $"turn={turnId}, tool={toolCall.Name}, result={DebugTrace.Preview(postActionSnapshot.Text, 700)}, images={postActionSnapshot.Images.Count}");
                     }
                     catch (Exception ex)
                     {
                         followUpEvidence.Add(new AgentMessage.User(
                             $"Post-action UI snapshot was unavailable after tool \"{toolCall.Name}\": {ex.Message}"));
+                        DebugTrace.WriteEvent(
+                            "agent.desktop_followup_snapshot_failed",
+                            $"turn={turnId}, tool={toolCall.Name}, error={DebugTrace.Preview(ex.ToString(), 700)}");
                     }
                 }
             }
@@ -263,6 +318,7 @@ internal static class AgentRunner
         CancellationToken cancellationToken)
     {
         Display.Info("The first pass was uncertain; waiting 1 second and collecting another UI snapshot plus screenshot.");
+        DebugTrace.WriteEvent("agent.additional_desktop_evidence", "Collecting second-pass UI Automation snapshot and screenshot.");
 
         var extraEvidence = new List<AgentMessage>
         {
@@ -354,17 +410,66 @@ internal static class Display
         Console.WriteLine();
     }
 
-    public static void Info(string text) => Console.WriteLine($"i  {text}");
-    public static void Warn(string text) => Console.WriteLine($"!  {text}");
-    public static void Error(string text) => Console.Error.WriteLine($"x  {text}");
-    public static void Separator() => Console.WriteLine(new string('─', 60));
-    public static void Prompt(string text) => Console.Write(text);
-    public static void Recording() => Console.WriteLine("o  Recording... (stop on silence or timeout)");
-    public static void Transcribing() => Console.WriteLine(".. Transcribing speech...");
-    public static void Transcript(string text) => Console.WriteLine($"\n{Label("Heard")} {text}");
+    public static void Info(string text)
+    {
+        Console.WriteLine($"i  {text}");
+        DebugTrace.WriteEvent("display.info", text);
+    }
 
-    public static void UserMessage(string text) => Console.WriteLine($"\n{Label("You")} {text}");
-    public static void AssistantMessage(string text) => Console.WriteLine($"\n{Label("Assistant")} {text}");
+    public static void Warn(string text)
+    {
+        Console.WriteLine($"!  {text}");
+        DebugTrace.WriteEvent("display.warn", text);
+    }
+
+    public static void Error(string text)
+    {
+        Console.Error.WriteLine($"x  {text}");
+        DebugTrace.WriteEvent("display.error", text);
+    }
+
+    public static void Separator()
+    {
+        Console.WriteLine(new string('─', 60));
+        DebugTrace.WriteEvent("display.separator", new string('─', 20));
+    }
+
+    public static void Prompt(string text)
+    {
+        Console.Write(text);
+        DebugTrace.WriteEvent("display.prompt", text);
+    }
+
+    public static void Recording()
+    {
+        Console.WriteLine("o  Recording... (stop on silence or timeout)");
+        DebugTrace.WriteEvent("display.recording", "Recording... (stop on silence or timeout)");
+    }
+
+    public static void Transcribing()
+    {
+        Console.WriteLine(".. Transcribing speech...");
+        DebugTrace.WriteEvent("display.transcribing", "Transcribing speech...");
+    }
+
+    public static void Transcript(string text)
+    {
+        Console.WriteLine($"\n{Label("Heard")} {text}");
+        DebugTrace.WriteEvent("display.transcript", DebugTrace.Preview(text, 500));
+    }
+
+    public static void UserMessage(string text)
+    {
+        Console.WriteLine($"\n{Label("You")} {text}");
+        DebugTrace.WriteEvent("display.user_message", DebugTrace.Preview(text, 500));
+    }
+
+    public static void AssistantMessage(string text)
+    {
+        Console.WriteLine($"\n{Label("Assistant")} {text}");
+        DebugTrace.WriteEvent("display.assistant_message", DebugTrace.Preview(text, 500));
+    }
+
     public static void AssistantReply(string sayText, string logText)
     {
         var normalizedSay = string.IsNullOrWhiteSpace(sayText) ? string.Empty : sayText.Trim();
@@ -379,18 +484,31 @@ internal static class Display
         {
             Console.WriteLine($"\n{Label("Log")} {normalizedLog}");
         }
+
+        DebugTrace.WriteBlock(
+            "display.assistant_reply",
+            [
+                $"say={DebugTrace.Preview(normalizedSay, 400)}",
+                $"log={DebugTrace.Preview(normalizedLog, 900)}"
+            ]);
     }
 
     public static void ContextUsage(int currentTokens, int maxTokens)
     {
         var ratio = maxTokens <= 0 ? 0 : currentTokens / (double)maxTokens * 100;
         Console.WriteLine($"i  Context: ~{currentTokens:N0} / {maxTokens:N0} tokens ({ratio:F1}%)");
+        DebugTrace.WriteEvent(
+            "display.context_usage",
+            $"current={currentTokens}, max={maxTokens}, ratio={ratio:F1}%");
     }
 
     public static void ContextCompressed(int currentTokens, int maxTokens)
     {
         var ratio = maxTokens <= 0 ? 0 : currentTokens / (double)maxTokens * 100;
         Console.WriteLine($"i  Context compressed: ~{currentTokens:N0} / {maxTokens:N0} tokens ({ratio:F1}%)");
+        DebugTrace.WriteEvent(
+            "display.context_compressed",
+            $"current={currentTokens}, max={maxTokens}, ratio={ratio:F1}%");
     }
 
     public static void ToolCall(string toolName, string args)
@@ -400,6 +518,13 @@ internal static class Display
         {
             Console.WriteLine($"{new string(' ', LabelWidth + 3)}{args}");
         }
+
+        DebugTrace.WriteBlock(
+            "display.tool_call",
+            [
+                $"tool={toolName}",
+                $"arguments={DebugTrace.Preview(args, 600)}"
+            ]);
     }
 
     public static void ToolResult(string toolName, string result, int imageCount = 0)
@@ -411,6 +536,14 @@ internal static class Display
         {
             Console.WriteLine($"{new string(' ', LabelWidth + 3)}[{imageCount} screenshot attachment(s)]");
         }
+
+        DebugTrace.WriteBlock(
+            "display.tool_result",
+            [
+                $"tool={toolName}",
+                $"images={imageCount}",
+                $"result={DebugTrace.Preview(result, 900)}"
+            ]);
     }
 
     private static string Label(string text) => $"[{text.PadRight(LabelWidth)}]";
@@ -563,6 +696,9 @@ internal static class ContextManager
 
         var splitIndex = Math.Max(1, history.Count - KeepRecentMessages);
         var messagesToCompress = history.Take(splitIndex).ToList();
+        DebugTrace.WriteEvent(
+            "context.compression_requested",
+            $"messagesToCompress={messagesToCompress.Count}, historyMessages={history.Count}, pendingUserText={DebugTrace.Preview(pendingUserText, 300)}");
         var summaryText = await SummarizeAsync(messagesToCompress, llmClient, cancellationToken);
 
         history.RemoveRange(0, splitIndex);
@@ -618,6 +754,7 @@ Return plain text only, under 250 words, with short lines.
         }
 
         summaryText = summaryText.Trim();
+        DebugTrace.WriteEvent("context.summary_created", DebugTrace.Preview(summaryText, 900));
         return string.IsNullOrWhiteSpace(summaryText)
             ? "Earlier conversation was compressed, but no durable context was extracted."
             : summaryText;

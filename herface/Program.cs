@@ -3,7 +3,6 @@ using System.Text.RegularExpressions;
 using System.Threading.Channels;
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
-Display.Banner();
 
 var cancellationSource = new CancellationTokenSource();
 Console.CancelKeyPress += (_, args) =>
@@ -13,8 +12,14 @@ Console.CancelKeyPress += (_, args) =>
 };
 
 var config = AppConfig.Load();
+DebugTrace.Configure(config.DebugAudioPlayback);
+Display.Banner();
 using var httpClient = new HttpClient();
 await using var mcpManager = new McpClientManager();
+
+DebugTrace.WriteEvent(
+    "config.loaded",
+    $"llmProvider={config.LlmProvider}, openAiModel={config.OpenAiModel}, anthropicModel={config.AnthropicModel}, whisperModel={config.WhisperModel}, wakeWord={DebugTrace.SerializeObject(config.WakeWord)}, agentDefinitionPath={config.AgentDefinitionPath}, mcpServers={config.McpServers.Count}, debugAudioPlayback={config.DebugAudioPlayback}");
 
 ILlmClient llmClient;
 IAudioTranscriber? audioTranscriber;
@@ -28,6 +33,7 @@ try
 catch (Exception ex)
 {
     Display.Error(ex.Message);
+    PrintDebugLogPathIfEnabled();
     return;
 }
 
@@ -35,6 +41,10 @@ Display.Info($"LLM: {llmClient.DisplayName}");
 Display.Info($"Microphone: {AudioDevices.DescribeDefaultMicrophone()}");
 Display.Info($"Speaker: {AudioDevices.DescribeDefaultSpeaker()}");
 Display.Info($"Mic capture: {AudioRecorder.DescribeRecordingFormat()}");
+if (DebugTrace.IsEnabled && !string.IsNullOrWhiteSpace(DebugTrace.LogFilePath))
+{
+    Display.Info($"Debug trace: {DebugTrace.LogFilePath}");
+}
 if (speechSynthesizer is not null)
 {
     Display.Info($"Voice output: {speechSynthesizer.DisplayName}");
@@ -46,6 +56,7 @@ if (config.DebugAudioPlayback)
 if (audioTranscriber is null)
 {
     Display.Error("Voice mode requires OPENAI_API_KEY for Whisper transcription.");
+    PrintDebugLogPathIfEnabled();
     return;
 }
 
@@ -79,7 +90,8 @@ var isActive = false;
 var audioOutputActive = 0;
 var agentWorkActive = 0;
 var queuedTurnCount = 0;
-var userQueue = Channel.CreateUnbounded<string>(new UnboundedChannelOptions
+long nextTurnId = 0;
+var userQueue = Channel.CreateUnbounded<(long TurnId, string Text)>(new UnboundedChannelOptions
 {
     SingleReader = true,
     SingleWriter = true
@@ -87,26 +99,40 @@ var userQueue = Channel.CreateUnbounded<string>(new UnboundedChannelOptions
 
 var agentTask = Task.Run(async () =>
 {
-    await foreach (var queuedText in userQueue.Reader.ReadAllAsync(cancellationSource.Token))
+    await foreach (var queuedTurn in userQueue.Reader.ReadAllAsync(cancellationSource.Token))
     {
         Interlocked.Decrement(ref queuedTurnCount);
         Interlocked.Increment(ref agentWorkActive);
         try
         {
+            DebugTrace.WriteEvent(
+                "agent.turn.dequeue",
+                $"turn={queuedTurn.TurnId}, historyMessages={history.Count}, queuedText={DebugTrace.Preview(queuedTurn.Text, 500)}");
+
             await ContextManager.EnsureCapacityAsync(
                 history,
-                queuedText,
+                queuedTurn.Text,
                 config.AgentDefinition,
                 config.MaxContextTokens,
                 llmClient,
                 cancellationSource.Token);
 
-            var reply = await AgentRunner.RunTurnAsync(queuedText, history, config, llmClient, mcpManager, cancellationSource.Token);
-            history.Add(new AgentMessage.User(queuedText));
+            var reply = await AgentRunner.RunTurnAsync(
+                queuedTurn.TurnId,
+                queuedTurn.Text,
+                history,
+                config,
+                llmClient,
+                mcpManager,
+                cancellationSource.Token);
+            history.Add(new AgentMessage.User(queuedTurn.Text));
             history.Add(new AgentMessage.Assistant(reply.RawText));
             Display.ContextUsage(
                 ContextManager.EstimateTokens(history, config.AgentDefinition),
                 config.MaxContextTokens);
+            DebugTrace.WriteEvent(
+                "agent.turn.complete",
+                $"turn={queuedTurn.TurnId}, spoken={DebugTrace.Preview(reply.SpokenText, 300)}, log={DebugTrace.Preview(reply.LogText, 600)}");
             if (!string.IsNullOrWhiteSpace(reply.SpokenText))
             {
                 try
@@ -194,6 +220,7 @@ while (!cancellationSource.IsCancellationRequested)
     catch (Exception ex)
     {
         Display.Error($"Recording/transcription failed: {ex.Message}");
+        DebugTrace.WriteEvent("audio.error", $"stage=record-or-transcribe, error={DebugTrace.Preview(ex.ToString(), 800)}");
         CleanupRecording(recording);
         continue;
     }
@@ -206,9 +233,11 @@ while (!cancellationSource.IsCancellationRequested)
     }
 
     Display.Transcript(userText);
+    DebugTrace.WriteEvent("user.transcript", $"text={DebugTrace.Preview(userText, 500)}");
 
     if (ShouldExitApp(userText))
     {
+        DebugTrace.WriteEvent("session.exit_phrase_detected", $"text={DebugTrace.Preview(userText, 300)}");
         cancellationSource.Cancel();
         break;
     }
@@ -217,10 +246,14 @@ while (!cancellationSource.IsCancellationRequested)
     {
         if (!ContainsWakeWord(userText, config.WakeWord))
         {
+            DebugTrace.WriteEvent(
+                "session.standby_ignored",
+                $"reason=no-wake-word, text={DebugTrace.Preview(userText, 300)}");
             continue;
         }
 
         isActive = true;
+        DebugTrace.WriteEvent("session.wake_activated", $"text={DebugTrace.Preview(userText, 300)}");
         const string wakeResponse = "what's up?";
         Display.AssistantReply(wakeResponse, string.Empty);
         try
@@ -236,13 +269,16 @@ while (!cancellationSource.IsCancellationRequested)
 
     try
     {
+        var turnId = Interlocked.Increment(ref nextTurnId);
         Interlocked.Increment(ref queuedTurnCount);
-        await userQueue.Writer.WriteAsync(userText, cancellationSource.Token);
+        DebugTrace.WriteEvent("agent.turn.queued", $"turn={turnId}, text={DebugTrace.Preview(userText, 500)}");
+        await userQueue.Writer.WriteAsync((turnId, userText), cancellationSource.Token);
     }
     catch (Exception ex)
     {
         Interlocked.Decrement(ref queuedTurnCount);
         Display.Error($"Queue error: {ex.Message}");
+        DebugTrace.WriteEvent("agent.queue_error", $"error={DebugTrace.Preview(ex.ToString(), 800)}");
     }
 }
 
@@ -257,6 +293,8 @@ catch (OperationCanceledException)
 }
 
 Display.Info("Shutting down...");
+DebugTrace.WriteEvent("session.shutdown", "Application shutdown completed.");
+PrintDebugLogPathIfEnabled();
 return;
 
 static void CleanupRecording(RecordingResult? recording)
@@ -355,5 +393,13 @@ async Task WaitForTurnOutputToFinishAsync(CancellationToken cancellationToken)
            && !cancellationToken.IsCancellationRequested)
     {
         await Task.Delay(100, cancellationToken);
+    }
+}
+
+static void PrintDebugLogPathIfEnabled()
+{
+    if (DebugTrace.IsEnabled && !string.IsNullOrWhiteSpace(DebugTrace.LogFilePath))
+    {
+        Display.Info($"Debug log saved to: {DebugTrace.LogFilePath}");
     }
 }

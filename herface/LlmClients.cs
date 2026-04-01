@@ -68,6 +68,9 @@ internal sealed class OpenAiApiClient(
         IReadOnlyList<ToolDefinition> tools,
         CancellationToken cancellationToken)
     {
+        DebugTrace.WriteEvent(
+            "llm.http.start",
+            $"provider=OpenAI, model={model}, messages={messages.Count}, tools={tools.Count}");
         using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/chat/completions");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 
@@ -91,6 +94,9 @@ internal sealed class OpenAiApiClient(
         request.Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
         using var response = await httpClient.SendAsync(request, cancellationToken);
         var responseText = await response.Content.ReadAsStringAsync(cancellationToken);
+        DebugTrace.WriteEvent(
+            "llm.http.complete",
+            $"provider=OpenAI, model={model}, status={(int)response.StatusCode}, response={DebugTrace.Preview(responseText, 1200)}");
         if (!response.IsSuccessStatusCode)
         {
             throw new InvalidOperationException($"Chat request failed ({(int)response.StatusCode}): {ApiErrorParser.ExtractApiError(responseText)}");
@@ -257,6 +263,10 @@ internal sealed class OpenAiWhisperTranscriber(HttpClient httpClient, string api
 
     public async Task<string> TranscribeAudioAsync(string audioFilePath, CancellationToken cancellationToken)
     {
+        var fileInfo = new FileInfo(audioFilePath);
+        DebugTrace.WriteEvent(
+            "audio.transcription.start",
+            $"provider=OpenAI Whisper, model={whisperModel}, path={audioFilePath}, bytes={(fileInfo.Exists ? fileInfo.Length : 0)}");
         using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/audio/transcriptions");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 
@@ -269,6 +279,9 @@ internal sealed class OpenAiWhisperTranscriber(HttpClient httpClient, string api
 
         using var response = await httpClient.SendAsync(request, cancellationToken);
         var responseText = await response.Content.ReadAsStringAsync(cancellationToken);
+        DebugTrace.WriteEvent(
+            "audio.transcription.complete",
+            $"provider=OpenAI Whisper, model={whisperModel}, status={(int)response.StatusCode}, response={DebugTrace.Preview(responseText, 1000)}");
         if (!response.IsSuccessStatusCode)
         {
             throw new InvalidOperationException(
@@ -294,6 +307,9 @@ internal sealed class OpenAiSpeechSynthesizer(
     public async Task<string> SynthesizeSpeechAsync(string text, CancellationToken cancellationToken)
     {
         var outputPath = Path.Combine(Path.GetTempPath(), $"herface-tts-{Guid.NewGuid():N}.wav");
+        DebugTrace.WriteEvent(
+            "audio.tts.start",
+            $"provider=OpenAI TTS, model={ttsModel}, voice={ttsVoice}, text={DebugTrace.Preview(text, 500)}");
         using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/audio/speech");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 
@@ -311,6 +327,9 @@ internal sealed class OpenAiSpeechSynthesizer(
         if (!response.IsSuccessStatusCode)
         {
             var responseText = await response.Content.ReadAsStringAsync(cancellationToken);
+            DebugTrace.WriteEvent(
+                "audio.tts.complete",
+                $"provider=OpenAI TTS, model={ttsModel}, voice={ttsVoice}, status={(int)response.StatusCode}, response={DebugTrace.Preview(responseText, 1000)}");
             throw new InvalidOperationException(
                 $"Speech synthesis request failed ({(int)response.StatusCode}): {ApiErrorParser.ExtractApiError(responseText)}");
         }
@@ -318,6 +337,9 @@ internal sealed class OpenAiSpeechSynthesizer(
         await using var fileStream = File.Create(outputPath);
         await response.Content.CopyToAsync(fileStream, cancellationToken);
         await fileStream.FlushAsync(cancellationToken);
+        DebugTrace.WriteEvent(
+            "audio.tts.complete",
+            $"provider=OpenAI TTS, model={ttsModel}, voice={ttsVoice}, status={(int)response.StatusCode}, outputPath={outputPath}");
         return outputPath;
     }
 }
@@ -337,6 +359,9 @@ internal sealed class ClaudeApiClient(
         IReadOnlyList<ToolDefinition> tools,
         CancellationToken cancellationToken)
     {
+        DebugTrace.WriteEvent(
+            "llm.http.start",
+            $"provider=Claude, model={model}, messages={messages.Count}, tools={tools.Count}");
         using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.anthropic.com/v1/messages");
         request.Headers.Add("x-api-key", apiKey);
         request.Headers.Add("anthropic-version", "2023-06-01");
@@ -362,6 +387,9 @@ internal sealed class ClaudeApiClient(
         request.Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
         using var response = await httpClient.SendAsync(request, cancellationToken);
         var responseText = await response.Content.ReadAsStringAsync(cancellationToken);
+        DebugTrace.WriteEvent(
+            "llm.http.complete",
+            $"provider=Claude, model={model}, status={(int)response.StatusCode}, response={DebugTrace.Preview(responseText, 1200)}");
         if (!response.IsSuccessStatusCode)
         {
             throw new InvalidOperationException($"Claude request failed ({(int)response.StatusCode}): {ApiErrorParser.ExtractApiError(responseText)}");

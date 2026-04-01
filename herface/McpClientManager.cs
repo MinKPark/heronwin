@@ -15,6 +15,14 @@ internal sealed class McpClientManager : IAsyncDisposable
 
         foreach (var server in servers)
         {
+            DebugTrace.WriteBlock(
+                "mcp.connect.start",
+                [
+                    $"server={server.Name}",
+                    $"command={ResolveMaybeRelativePath(server.Command, envBaseDir)}",
+                    $"args={DebugTrace.SerializeObject(server.Args ?? [])}"
+                ]);
+
             var environment = Environment.GetEnvironmentVariables()
                 .Cast<System.Collections.DictionaryEntry>()
                 .ToDictionary(entry => (string)entry.Key, entry => entry.Value?.ToString() ?? string.Empty);
@@ -39,6 +47,7 @@ internal sealed class McpClientManager : IAsyncDisposable
 
             var client = await McpClient.CreateAsync(transport, cancellationToken: cancellationToken);
             _clients[server.Name] = client;
+            DebugTrace.WriteEvent("mcp.connect.complete", $"server={server.Name}");
         }
     }
 
@@ -46,9 +55,12 @@ internal sealed class McpClientManager : IAsyncDisposable
     {
         var result = new List<ToolDefinition>();
 
-        foreach (var client in _clients.Values)
+        foreach (var (serverName, client) in _clients)
         {
             var tools = await client.ListToolsAsync();
+            DebugTrace.WriteEvent(
+                "mcp.tools.listed",
+                $"server={serverName}, tools={string.Join(", ", tools.Select(tool => tool.Name).DefaultIfEmpty("(none)"))}");
             foreach (var tool in tools)
             {
                 result.Add(new ToolDefinition(
@@ -69,7 +81,7 @@ internal sealed class McpClientManager : IAsyncDisposable
                                  JsonSerializerOptionsCache.Default) ??
                              new Dictionary<string, object?>();
 
-        foreach (var client in _clients.Values)
+        foreach (var (serverName, client) in _clients)
         {
             var tools = await client.ListToolsAsync();
             if (!tools.Any(tool => string.Equals(tool.Name, toolName, StringComparison.Ordinal)))
@@ -77,13 +89,29 @@ internal sealed class McpClientManager : IAsyncDisposable
                 continue;
             }
 
+            DebugTrace.WriteBlock(
+                "mcp.call.start",
+                [
+                    $"server={serverName}",
+                    $"tool={toolName}",
+                    $"arguments={DebugTrace.SerializeObject(dictionaryArgs)}"
+                ]);
             var result = await client.CallToolAsync(toolName, dictionaryArgs, cancellationToken: cancellationToken);
             var textBlocks = result.Content.OfType<TextContentBlock>().Select(block => block.Text);
             var text = string.Join('\n', textBlocks);
             var images = ExtractImages(result.Content, text);
+            DebugTrace.WriteBlock(
+                "mcp.call.complete",
+                [
+                    $"server={serverName}",
+                    $"tool={toolName}",
+                    $"images={images.Count}",
+                    $"result={DebugTrace.Preview(text, 1000)}"
+                ]);
             return new ToolCallOutcome(text, images);
         }
 
+        DebugTrace.WriteEvent("mcp.call.missing_tool", $"tool={toolName}");
         throw new InvalidOperationException($"Tool \"{toolName}\" not found on any connected MCP server.");
     }
 

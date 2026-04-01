@@ -1,0 +1,37 @@
+using Xunit;
+
+namespace HeronWin.HerFace.Tests;
+
+public sealed class DebugTraceTests
+{
+    [Fact]
+    public void BuildLogFilePath_UsesExecutableNameBesideExecutable()
+    {
+        var actual = DebugTrace.BuildLogFilePath(
+            @"C:\apps\herface\bin\Debug\net10.0-windows\",
+            @"C:\apps\herface\bin\Debug\net10.0-windows\herface.exe");
+
+        Assert.Equal(
+            @"C:\apps\herface\bin\Debug\net10.0-windows\herface.debug.log",
+            actual);
+    }
+
+    [Fact]
+    public void FormatTimestampedLine_IncludesSequenceNumber()
+    {
+        var actual = DebugTrace.FormatTimestampedLine(
+            "sample",
+            new DateTimeOffset(2026, 3, 31, 21, 15, 30, 123, TimeSpan.FromHours(-7)),
+            sequenceNumber: 42);
+
+        Assert.Equal("[2026-03-31 21:15:30.123 -07:00] #00042 sample", actual);
+    }
+
+    [Fact]
+    public void Preview_FlattensWhitespaceAndTruncates()
+    {
+        var actual = DebugTrace.Preview("first line\r\nsecond line", maxLength: 10);
+
+        Assert.Equal("first line... [22 chars]", actual);
+    }
+}
