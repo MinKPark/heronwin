@@ -42,6 +42,11 @@ internal static class WindowAutomation
         "WebAppToolbarButtonContainer",
     };
 
+    private static readonly HashSet<string> TransparentBoundedTreeAutomationIds = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "appMountPoint",
+    };
+
     private static readonly IReadOnlyDictionary<string, ushort> ModifierVirtualKeys =
         new Dictionary<string, ushort>(StringComparer.OrdinalIgnoreCase)
         {
@@ -734,7 +739,13 @@ internal static class WindowAutomation
             }
         }
 
-        snapshots.Add(CaptureElementTree(element, remainingLevels, path));
+        var snapshot = CaptureElementTree(element, remainingLevels, path);
+        if (ShouldOmitElementInBoundedTree(snapshot))
+        {
+            return;
+        }
+
+        snapshots.Add(snapshot);
     }
 
     private static string BuildChildPath(string path, int childIndex) =>
@@ -876,10 +887,7 @@ internal static class WindowAutomation
             return false;
         }
 
-        var isStructuralContainer =
-            controlType.Equals("Pane", StringComparison.OrdinalIgnoreCase) ||
-            controlType.Equals("Group", StringComparison.OrdinalIgnoreCase);
-        if (!isStructuralContainer || !HasOnlyStructuralActions(availableActions))
+        if (!IsStructuralContainer(controlType))
         {
             return false;
         }
@@ -889,7 +897,78 @@ internal static class WindowAutomation
             return true;
         }
 
-        return string.IsNullOrWhiteSpace(name);
+        if (!HasOnlyIgnorableContainerActions(availableActions))
+        {
+            return false;
+        }
+
+        return !HasUsefulBoundedTreeIdentity(name, automationId);
+    }
+
+    private static bool ShouldOmitElementInBoundedTree(UiElementSnapshot snapshot)
+    {
+        return ShouldOmitElementInBoundedTree(
+            snapshot.ControlType,
+            snapshot.Name,
+            snapshot.AutomationId,
+            snapshot.AvailableActions,
+            snapshot.IsKeyboardFocusable,
+            snapshot.HasKeyboardFocus,
+            snapshot.Children.Count);
+    }
+
+    internal static bool ShouldOmitElementInBoundedTree(
+        string controlType,
+        string name,
+        string automationId,
+        IReadOnlyList<string> availableActions,
+        bool isKeyboardFocusable,
+        bool hasKeyboardFocus,
+        int childCount)
+    {
+        if (childCount > 0 || hasKeyboardFocus || isKeyboardFocusable)
+        {
+            return false;
+        }
+
+        if (!IsStructuralContainer(controlType) || !HasOnlyIgnorableContainerActions(availableActions))
+        {
+            return false;
+        }
+
+        return !HasUsefulBoundedTreeIdentity(name, automationId);
+    }
+
+    private static bool IsStructuralContainer(string controlType)
+    {
+        return controlType.Equals("Pane", StringComparison.OrdinalIgnoreCase) ||
+               controlType.Equals("Group", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HasUsefulBoundedTreeIdentity(string name, string automationId)
+    {
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            return true;
+        }
+
+        return !string.IsNullOrWhiteSpace(automationId) &&
+               !TransparentBoundedTreeAutomationIds.Contains(automationId);
+    }
+
+    internal static bool HasOnlyIgnorableContainerActions(IReadOnlyList<string> availableActions)
+    {
+        foreach (var action in availableActions)
+        {
+            if (!action.Equals("invoke", StringComparison.OrdinalIgnoreCase) &&
+                !action.Equals("scroll", StringComparison.OrdinalIgnoreCase) &&
+                !action.Equals("scroll_into_view", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     internal static bool HasOnlyStructuralActions(IReadOnlyList<string> availableActions)
@@ -3184,7 +3263,10 @@ internal sealed record UiElementSnapshot(
     bool IsKeyboardFocusable,
     IReadOnlyList<string> AvailableActions,
     ElementBounds? Bounds,
-    IReadOnlyList<UiElementSnapshot> Children);
+    IReadOnlyList<UiElementSnapshot> Children)
+{
+    public string UiPath => Path;
+}
 
 internal sealed record WindowTreeResult(
     WindowDescriptor Window,

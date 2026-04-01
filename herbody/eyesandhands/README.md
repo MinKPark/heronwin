@@ -225,6 +225,7 @@ Response shape:
   "fullDepth": false,
   "elementTree": {
     "path": "root",
+    "uiPath": "root",
     "name": "Untitled - Notepad",
     "controlType": "Window",
     "automationId": "",
@@ -243,6 +244,7 @@ Response shape:
     "children": [
       {
         "path": "0",
+        "uiPath": "0",
         "name": "Menu bar",
         "controlType": "MenuBar",
         "automationId": "",
@@ -265,7 +267,8 @@ Notes:
 - When a selected window exists, the server attempts to bring it back to the foreground before capturing the tree.
 - Child paths use slash-delimited indexes like `0`, `2/1`, or `3/0/4`.
 - The root path is always `root`.
-- In bounded mode, the server may elide structural-only wrapper nodes so meaningful descendants from browser or framework UI trees appear sooner. Use each element's explicit `path` value verbatim for follow-up calls, even if the compacted JSON nesting skips some intermediate path segments.
+- Each element also includes `uiPath`, which is the original UI Automation path and currently matches `path`.
+- In bounded mode, the server may elide structural-only wrapper nodes so meaningful descendants from browser or framework UI trees appear sooner. Use each element's explicit `uiPath` or `path` value verbatim for follow-up calls, even if the compacted JSON nesting skips some intermediate path segments.
 - `availableActions` is descriptive metadata only. This server currently exposes focus and menu tools, not a general action executor.
 - When `fullDepth` is `true`, `maxDepth` is returned as `null` and the full visible UI Automation subtree is captured. This can produce a large payload.
 
@@ -529,7 +532,7 @@ Notes:
 - The root path in this response is `focused`.
 - If a selected window exists, the server focuses that window before inspection.
 - The call fails if the currently focused element does not belong to the selected window.
-- As with `describe_selected_window`, bounded focus trees may compact structural-only wrapper nodes while preserving each element's original `path`.
+- As with `describe_selected_window`, bounded focus trees may compact structural-only wrapper nodes while preserving each element's original `uiPath` and `path`.
 
 ### `list_main_menu_items`
 

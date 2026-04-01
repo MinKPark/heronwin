@@ -27,7 +27,7 @@ public sealed class BoundedTreePromotionTests
             string.Empty,
             string.Empty,
             "appMountPoint",
-            ["scroll_into_view"],
+            ["invoke", "scroll_into_view"],
             isKeyboardFocusable: false,
             hasKeyboardFocus: false);
 
@@ -70,5 +70,65 @@ public sealed class BoundedTreePromotionTests
         var result = WindowAutomation.HasOnlyStructuralActions(["scroll_into_view", "invoke"]);
 
         Assert.False(result);
+    }
+
+    [Fact]
+    public void ShouldOmitElementInBoundedTree_OmitsAnonymousLeafContainers()
+    {
+        var result = WindowAutomation.ShouldOmitElementInBoundedTree(
+            "Group",
+            string.Empty,
+            "appMountPoint",
+            ["invoke", "scroll_into_view"],
+            isKeyboardFocusable: false,
+            hasKeyboardFocus: false,
+            childCount: 0);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void ShouldOmitElementInBoundedTree_KeepsNamedLeafContainers()
+    {
+        var result = WindowAutomation.ShouldOmitElementInBoundedTree(
+            "Group",
+            "Play",
+            string.Empty,
+            ["invoke"],
+            isKeyboardFocusable: false,
+            hasKeyboardFocus: false,
+            childCount: 0);
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void HasOnlyIgnorableContainerActions_AllowsInvokeAndScroll()
+    {
+        var result = WindowAutomation.HasOnlyIgnorableContainerActions(["invoke", "scroll_into_view"]);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void UiElementSnapshot_ExposesUiPathAliasForOriginalPath()
+    {
+        var snapshot = new UiElementSnapshot(
+            "1/0/3",
+            "Play",
+            "Button",
+            "PlayButton",
+            "Button",
+            IsEnabled: true,
+            IsOffscreen: false,
+            HasKeyboardFocus: false,
+            IsKeyboardFocusable: true,
+            AvailableActions: ["focus", "invoke"],
+            Bounds: null,
+            Children: []);
+
+        Assert.Equal("1/0/3", snapshot.Path);
+        Assert.Equal("1/0/3", snapshot.UiPath);
+        Assert.Contains("\"UiPath\": \"1/0/3\"", WindowAutomation.Serialize(snapshot));
     }
 }
