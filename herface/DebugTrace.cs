@@ -80,6 +80,36 @@ internal static class DebugTrace
         }
     }
 
+    internal static void WriteTextBlock(string category, IEnumerable<string> headerLines, string text)
+    {
+        if (!_isEnabled)
+        {
+            return;
+        }
+
+        var materializedHeaders = headerLines
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .ToList();
+
+        WriteLineCore($"{category}:");
+        foreach (var line in materializedHeaders)
+        {
+            WriteLineCore($"  {line}");
+        }
+
+        if (string.IsNullOrEmpty(text))
+        {
+            WriteLineCore("  (empty)");
+            return;
+        }
+
+        var normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        foreach (var line in normalized.Split('\n'))
+        {
+            WriteLineCore($"  {line}");
+        }
+    }
+
     internal static void WriteLlmRequest(
         long turnId,
         int attempt,

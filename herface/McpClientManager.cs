@@ -108,6 +108,17 @@ internal sealed class McpClientManager : IAsyncDisposable
                     $"images={images.Count}",
                     $"result={DebugTrace.Preview(text, 1000)}"
                 ]);
+            if (ShouldLogFullToolPayload(toolName, text))
+            {
+                DebugTrace.WriteTextBlock(
+                    "mcp.call.complete.full",
+                    [
+                        $"server={serverName}",
+                        $"tool={toolName}",
+                        $"images={images.Count}"
+                    ],
+                    text);
+            }
             return new ToolCallOutcome(text, images);
         }
 
@@ -182,6 +193,17 @@ internal sealed class McpClientManager : IAsyncDisposable
         }
 
         return images;
+    }
+
+    internal static bool ShouldLogFullToolPayload(string toolName, string toolText)
+    {
+        if (string.IsNullOrWhiteSpace(toolText))
+        {
+            return false;
+        }
+
+        return toolName is "describe_selected_window"
+            or "describe_selected_window_focus";
     }
 
     private static IReadOnlyList<ToolImage> ExtractImagesFromJsonText(string toolText)

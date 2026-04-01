@@ -34,4 +34,18 @@ public sealed class DebugTraceTests
 
         Assert.Equal("first line... [22 chars]", actual);
     }
+
+    [Fact]
+    public void ShouldLogFullToolPayload_ReturnsTrue_ForUiTreeTools()
+    {
+        Assert.True(McpClientManager.ShouldLogFullToolPayload("describe_selected_window", "{ }"));
+        Assert.True(McpClientManager.ShouldLogFullToolPayload("describe_selected_window_focus", "{ }"));
+    }
+
+    [Fact]
+    public void ShouldLogFullToolPayload_ReturnsFalse_ForNonTreeTools()
+    {
+        Assert.False(McpClientManager.ShouldLogFullToolPayload("click_selected_window_element", "{ }"));
+        Assert.False(McpClientManager.ShouldLogFullToolPayload("describe_selected_window", ""));
+    }
 }
