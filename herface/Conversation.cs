@@ -65,6 +65,7 @@ internal static class AgentRunner
         Display.UserMessage(userText);
         var usedAnyTools = false;
         var performedDesktopAction = false;
+        var performedConfidenceEvidenceRetry = false;
 
         while (true)
         {
@@ -88,6 +89,16 @@ internal static class AgentRunner
                         responseText = repairedReply.Text;
                         parsedReply = AssistantResponseParser.Parse(responseText);
                     }
+                }
+
+                if (performedDesktopAction
+                    && !performedConfidenceEvidenceRetry
+                    && NeedsAdditionalDesktopEvidence(parsedReply))
+                {
+                    performedConfidenceEvidenceRetry = true;
+                    messages.Add(new AgentMessage.Assistant(responseText));
+                    messages.AddRange(await CollectAdditionalConfidenceEvidenceAsync(mcpManager, cancellationToken));
+                    continue;
                 }
 
                 Display.AssistantReply(parsedReply.SpokenText, parsedReply.LogText);
@@ -142,7 +153,6 @@ internal static class AgentRunner
                     try
                     {
                         var parsedArgsDictionary = parsedArgs as IReadOnlyDictionary<string, object?> ?? new Dictionary<string, object?>();
-                        await Task.Delay(GetPostActionDelayMs(toolCall.Name, config), cancellationToken);
 
                         if (toolCall.Name == "launch_app_via_taskbar_search")
                         {
@@ -209,14 +219,6 @@ internal static class AgentRunner
             or "invoke_context_menu_item"
             or "send_input_to_window";
 
-    private static int GetPostActionDelayMs(string toolName, AppConfig config)
-        => toolName switch
-        {
-            "launch_app_via_taskbar_search" => Math.Max(0, config.LaunchAppPostActionDelayMs),
-            "invoke_main_menu_item" or "invoke_context_menu_item" => Math.Max(0, config.InvokePostActionDelayMs),
-            _ => 300
-        };
-
     private static bool NeedsRepair(string rawText, AgentReply reply, bool usedAnyTools, bool performedDesktopAction)
     {
         var isStructured = AssistantResponseParser.IsStructuredJson(rawText);
@@ -231,6 +233,90 @@ internal static class AgentRunner
         }
 
         return usedAnyTools && string.IsNullOrWhiteSpace(reply.LogText);
+    }
+
+    internal static bool NeedsAdditionalDesktopEvidence(AgentReply reply)
+    {
+        var combined = $"{reply.SpokenText}\n{reply.LogText}".ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(combined))
+        {
+            return false;
+        }
+
+        return combined.Contains("not confident", StringComparison.Ordinal)
+            || combined.Contains("cannot be described confidently", StringComparison.Ordinal)
+            || combined.Contains("can't be described confidently", StringComparison.Ordinal)
+            || combined.Contains("cannot describe", StringComparison.Ordinal)
+            || combined.Contains("cannot confirm", StringComparison.Ordinal)
+            || combined.Contains("can't confirm", StringComparison.Ordinal)
+            || combined.Contains("uncertain", StringComparison.Ordinal)
+            || combined.Contains("ambigu", StringComparison.Ordinal)
+            || combined.Contains("too sparse", StringComparison.Ordinal)
+            || combined.Contains("not exposed", StringComparison.Ordinal)
+            || combined.Contains("i am not inferring", StringComparison.Ordinal)
+            || combined.Contains("do not infer", StringComparison.Ordinal)
+            || combined.Contains("cannot be inferred", StringComparison.Ordinal);
+    }
+
+    private static async Task<IReadOnlyList<AgentMessage>> CollectAdditionalConfidenceEvidenceAsync(
+        McpClientManager mcpManager,
+        CancellationToken cancellationToken)
+    {
+        Display.Info("The first pass was uncertain; waiting 1 second and collecting another UI snapshot plus screenshot.");
+
+        var extraEvidence = new List<AgentMessage>
+        {
+            new AgentMessage.User(
+                "Your first draft sounded uncertain about the current visible state. Wait 1 more second, then use the new UI Automation snapshot and screenshot below before answering. Prefer the newest screenshot as the source of truth for what is visibly on screen if UI Automation is still sparse.")
+        };
+
+        await Task.Delay(1000, cancellationToken);
+
+        try
+        {
+            var retrySnapshot = await mcpManager.CallToolAsync(
+                "describe_selected_window",
+                new Dictionary<string, object?> { ["maxDepth"] = 4 },
+                cancellationToken);
+            Display.ToolResult("describe_selected_window", retrySnapshot.Text, retrySnapshot.Images.Count);
+            extraEvidence.Add(new AgentMessage.User(
+                $"Second-pass visible UI snapshot after waiting 1 more second:\n{retrySnapshot.Text}"));
+            if (retrySnapshot.Images.Count > 0)
+            {
+                extraEvidence.Add(new AgentMessage.VisualContext(
+                    "Second-pass visual evidence returned with the UI snapshot. Use it if actual image content is present.",
+                    retrySnapshot.Images));
+            }
+        }
+        catch (Exception ex)
+        {
+            extraEvidence.Add(new AgentMessage.User(
+                $"Second-pass UI Automation snapshot after waiting 1 more second was unavailable: {ex.Message}"));
+        }
+
+        try
+        {
+            var screenshot = await mcpManager.CallToolAsync(
+                "capture_selected_window_screenshot",
+                new Dictionary<string, object?>(),
+                cancellationToken);
+            Display.ToolResult("capture_selected_window_screenshot", screenshot.Text, screenshot.Images.Count);
+            extraEvidence.Add(new AgentMessage.User(
+                $"Second-pass screenshot capture after waiting 1 more second:\n{screenshot.Text}"));
+            if (screenshot.Images.Count > 0)
+            {
+                extraEvidence.Add(new AgentMessage.VisualContext(
+                    "Second-pass screenshot evidence after waiting 1 more second. Treat this as the source of truth for the visible screen.",
+                    screenshot.Images));
+            }
+        }
+        catch (Exception ex)
+        {
+            extraEvidence.Add(new AgentMessage.User(
+                $"Second-pass screenshot capture after waiting 1 more second was unavailable: {ex.Message}"));
+        }
+
+        return extraEvidence;
     }
 
     private static string BuildRepairInstruction(bool performedDesktopAction)

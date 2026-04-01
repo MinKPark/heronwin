@@ -48,9 +48,11 @@ From this directory:
 dotnet restore
 dotnet build
 dotnet run --project .\eyesandhands.csproj
+dotnet run --project .\eyesandhands.csproj -- --debug
 ```
 
 The normal startup mode is an MCP stdio server intended to be launched by an MCP client.
+Use `--debug` or set `EYESANDHANDS_DEBUG=1` to emit timestamped diagnostics on stderr, including per-poll UI settle checks.
 
 ### Console Helpers
 
@@ -58,11 +60,13 @@ The normal startup mode is an MCP stdio server intended to be launched by an MCP
 
 ```bash
 dotnet run --project .\eyesandhands.csproj -- --help
+dotnet run --project .\eyesandhands.csproj -- --debug --selftest
 dotnet run --project .\eyesandhands.csproj -- --selftest
 dotnet run --project .\eyesandhands.csproj -- --selftest-json
 ```
 
 - `--help` prints the supported console flags.
+- `--debug` enables timestamped diagnostic output. Human-readable console output is timestamped in this mode; JSON tool payloads remain unmodified.
 - `--selftest` prints a human-readable list of visible titled windows.
 - `--selftest-json` prints the same information as JSON.
 
@@ -166,7 +170,21 @@ Response shape:
   "title": "Untitled - Notepad",
   "className": "Notepad",
   "processId": 12345,
-  "wasFocused": true
+  "wasFocused": true,
+  "uiSettle": {
+    "status": "settled",
+    "completed": true,
+    "windowInteractionState": "ReadyForUserInteraction",
+    "windowInteractionStateChangeCount": 1,
+    "structureChangedEventCount": 0,
+    "asyncContentLoadedEventCount": 0,
+    "elapsedMilliseconds": 2294,
+    "initialDelayMilliseconds": 2000,
+    "traceLines": [
+      "[2026-03-31 09:15:30.123 -07:00] ui-settle begin handle=0x00123456 observerAttached=True initialDelayMs=2000 pollMs=300 timeoutMs=180000",
+      "[2026-03-31 09:15:32.417 -07:00] ui-settle check handle=0x00123456 windowAvailable=True interactionState=ReadyForUserInteraction interactionChanges=1 structureChanges=0 asyncChanges=0 elapsedMs=2294 settled=True timedOut=False"
+    ]
+  }
 }
 ```
 
@@ -174,6 +192,7 @@ Notes:
 
 - If `titleContains` matches multiple windows, the call fails and asks for a specific handle.
 - Minimized windows are restored before focus is attempted.
+- State-changing tools use a 2-second initial settle delay, then poll every 300 ms for up to 3 minutes using UI Automation state.
 
 ### `describe_selected_window`
 
@@ -315,7 +334,16 @@ Response shape:
     },
     "children": []
   },
-  "actionTaken": "focused"
+  "actionTaken": "focused",
+  "uiSettle": {
+    "status": "settled",
+    "completed": true,
+    "windowInteractionState": "ReadyForUserInteraction",
+    "windowInteractionStateChangeCount": 1,
+    "structureChangedEventCount": 0,
+    "asyncContentLoadedEventCount": 0,
+    "elapsedMilliseconds": 1178
+  }
 }
 ```
 
@@ -325,6 +353,9 @@ Notes:
 - If the requested element cannot take focus directly, the server walks downward and tries focusable descendants.
 - `actionTaken` may be `focused`, `selected_and_focused`, or `scrolled_and_focused`.
 - When focus lands on a descendant, the returned `focusedElement.path` may differ from the requested path.
+- Action tools include `uiSettle`, which waits 2 seconds, then polls every 300 ms for up to 3 minutes using `WindowInteractionState`.
+- `uiSettle.status` is typically `settled`, may be `window_unavailable` when the action closes the target window, and is `timed_out` if `WindowInteractionState` never became definite within the polling window.
+- In debug mode, `uiSettle.traceLines` includes timestamped settle checks directly in the tool result JSON.
 
 ### `click_selected_window_element`
 
@@ -365,7 +396,16 @@ Response shape:
     "y": 174
   },
   "preparationActionTaken": "focused",
-  "actionTaken": "left_clicked"
+  "actionTaken": "left_clicked",
+  "uiSettle": {
+    "status": "settled",
+    "completed": true,
+    "windowInteractionState": "ReadyForUserInteraction",
+    "windowInteractionStateChangeCount": 1,
+    "structureChangedEventCount": 2,
+    "asyncContentLoadedEventCount": 0,
+    "elapsedMilliseconds": 1315
+  }
 }
 ```
 
@@ -400,7 +440,16 @@ Response shape:
   "modifiers": ["control"],
   "repeatCount": 1,
   "textLength": null,
-  "actionTaken": "pressed_modified_key"
+  "actionTaken": "pressed_modified_key",
+  "uiSettle": {
+    "status": "settled",
+    "completed": true,
+    "windowInteractionState": "ReadyForUserInteraction",
+    "windowInteractionStateChangeCount": 0,
+    "structureChangedEventCount": 1,
+    "asyncContentLoadedEventCount": 0,
+    "elapsedMilliseconds": 1208
+  }
 }
 ```
 
@@ -495,7 +544,16 @@ Response shape:
   "title": "Untitled - Notepad",
   "processId": 12345,
   "menuPath": "File > Open",
-  "actionTaken": "invoked"
+  "actionTaken": "invoked",
+  "uiSettle": {
+    "status": "settled",
+    "completed": true,
+    "windowInteractionState": "BlockedByModalWindow",
+    "windowInteractionStateChangeCount": 1,
+    "structureChangedEventCount": 1,
+    "asyncContentLoadedEventCount": 0,
+    "elapsedMilliseconds": 1409
+  }
 }
 ```
 
@@ -554,7 +612,16 @@ Response shape:
   "processId": 12345,
   "menuPath": "Rename",
   "openActionTaken": "pressed_shift_f10",
-  "actionTaken": "invoked"
+  "actionTaken": "invoked",
+  "uiSettle": {
+    "status": "settled",
+    "completed": true,
+    "windowInteractionState": "ReadyForUserInteraction",
+    "windowInteractionStateChangeCount": 0,
+    "structureChangedEventCount": 1,
+    "asyncContentLoadedEventCount": 0,
+    "elapsedMilliseconds": 1220
+  }
 }
 ```
 
@@ -659,6 +726,15 @@ Response shape:
     "className": "CabinetWClass",
     "processId": 12345,
     "wasFocused": true
+  },
+  "uiSettle": {
+    "status": "settled",
+    "completed": true,
+    "windowInteractionState": "ReadyForUserInteraction",
+    "windowInteractionStateChangeCount": 1,
+    "structureChangedEventCount": 3,
+    "asyncContentLoadedEventCount": 0,
+    "elapsedMilliseconds": 1682
   }
 }
 ```
@@ -724,6 +800,15 @@ Response shape:
     "className": "Notepad",
     "processId": 12345,
     "wasFocused": true
+  },
+  "uiSettle": {
+    "status": "settled",
+    "completed": true,
+    "windowInteractionState": "ReadyForUserInteraction",
+    "windowInteractionStateChangeCount": 2,
+    "structureChangedEventCount": 4,
+    "asyncContentLoadedEventCount": 1,
+    "elapsedMilliseconds": 1887
   }
 }
 ```

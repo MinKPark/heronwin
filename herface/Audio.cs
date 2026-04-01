@@ -42,12 +42,12 @@ internal static class AudioRecorder
     public const int ChannelCount = 1;
     public const int BitsPerSample = 16;
     private const int BufferMilliseconds = 100;
-    private const int PreRollMilliseconds = 1_200;
-    private const int SilenceGraceMs = 700;
+    private const int PreRollMilliseconds = 2_500;
+    private const int SilenceGraceMs = 1_000;
     private const int MinSpeechCaptureMs = 350;
     private const int ConsecutiveSpeechBuffers = 2;
-    private const double SpeechPeakThreshold = 0.045;
-    private const double SpeechRmsThreshold = 0.012;
+    private const double SpeechPeakThreshold = 0.03;
+    private const double SpeechRmsThreshold = 0.009;
 
     public static string DescribeRecordingFormat()
         => $"{SampleRate} Hz, {ChannelCount} channel, {BitsPerSample}-bit PCM";

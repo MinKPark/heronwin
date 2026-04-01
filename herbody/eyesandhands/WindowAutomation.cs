@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Runtime.InteropServices;
 using System.Windows.Automation;
+using System.Windows.Forms;
 using System.Drawing;
 using System.Drawing.Imaging;
 
@@ -68,6 +69,10 @@ internal static class WindowAutomation
     private static readonly TimeSpan LaunchSelectionInterval = TimeSpan.FromMilliseconds(100);
     private static readonly TimeSpan TaskbarSearchTimeout = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan TaskbarSearchInterval = TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan UiSettleInitialDelay = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan UiSettlePollInterval = TimeSpan.FromMilliseconds(300);
+    private static readonly TimeSpan UiSettleTimeout = TimeSpan.FromMinutes(3);
+    private static readonly TimeSpan UiSettleWaitSlice = TimeSpan.FromMilliseconds(50);
     private static readonly string ScreenshotDirectory = Path.Combine(
         Path.GetTempPath(),
         "heronwin",
@@ -143,10 +148,12 @@ internal static class WindowAutomation
     {
         var handle = ResolveWindowHandle(windowHandle, titleContains);
         EnsureWindowExists(handle);
+        using var settleObserver = UiSettleObserver.TryCreate(handle);
         FocusWindow(handle);
         selectionState.SetSelectedHandle(handle);
+        var uiSettle = WaitForUiToSettle(handle, settleObserver);
 
-        return BuildSelectionResult(handle, wasFocused: true);
+        return BuildSelectionResult(handle, wasFocused: true, uiSettle);
     }
 
     internal static TaskbarElementListResult ListTaskbarElements()
@@ -192,13 +199,16 @@ internal static class WindowAutomation
         var targetElement = ResolveElementPath(taskbarRoot, target.Path);
         var actionTaken = ActivateTaskbarElement(targetElement);
         var selectedWindow = TrySelectForegroundWindowAfterLaunch(selectionState, [taskbarHandle]);
+        var uiSettleHandle = selectedWindow is null ? taskbarHandle : ParseHandle(selectedWindow.Handle);
+        var uiSettle = WaitForUiToSettle(uiSettleHandle);
 
         return new TaskbarAppActivationResult(
             BuildWindowDescriptor(taskbarHandle),
             BuildElementSnapshot(hostElement, hostPath, [], includeChildren: false),
             BuildTaskbarElementSummary(targetElement, target.Path),
             actionTaken,
-            selectedWindow);
+            selectedWindow,
+            uiSettle);
     }
 
     internal static TaskbarAppSearchResult LaunchAppViaTaskbarSearch(
@@ -236,6 +246,8 @@ internal static class WindowAutomation
         PressEnterKey();
         Thread.Sleep(150);
         var selectedWindow = TrySelectForegroundWindowAfterLaunch(selectionState, [taskbarHandle, searchWindowHandle]);
+        var uiSettleHandle = selectedWindow is null ? taskbarHandle : ParseHandle(selectedWindow.Handle);
+        var uiSettle = WaitForUiToSettle(uiSettleHandle);
 
         return new TaskbarAppSearchResult(
             BuildWindowDescriptor(taskbarHandle),
@@ -246,7 +258,8 @@ internal static class WindowAutomation
             searchActionTaken,
             textEntryActionTaken,
             "pressed_enter",
-            selectedWindow);
+            selectedWindow,
+            uiSettle);
     }
 
     internal static WindowTreeResult DescribeSelectedWindow(
@@ -308,16 +321,19 @@ internal static class WindowAutomation
         string elementPath)
     {
         var handle = ResolveInteractionWindowHandle(selectionState);
+        using var settleObserver = UiSettleObserver.TryCreate(handle);
 
         var normalizedPath = NormalizeElementPath(elementPath);
         var windowElement = AutomationElement.FromHandle(handle);
         var targetElement = ResolveElementPath(windowElement, normalizedPath);
         var focusedTarget = FocusAutomationElementOrDescendant(targetElement, normalizedPath);
+        var uiSettle = WaitForUiToSettle(handle, settleObserver);
 
         return new FocusedElementResult(
             BuildWindowDescriptor(handle),
             BuildElementSnapshot(focusedTarget.Element, focusedTarget.Path, [], includeChildren: false),
-            focusedTarget.ActionTaken);
+            focusedTarget.ActionTaken,
+            uiSettle);
     }
 
     internal static ElementClickResult ClickSelectedWindowElement(
@@ -326,6 +342,7 @@ internal static class WindowAutomation
         string mouseButton)
     {
         var handle = ResolveInteractionWindowHandle(selectionState);
+        using var settleObserver = UiSettleObserver.TryCreate(handle);
         FocusWindow(handle);
         selectionState.SetSelectedHandle(handle);
 
@@ -336,6 +353,7 @@ internal static class WindowAutomation
         var clickableTarget = ResolveClickableElementOrDescendant(targetElement, normalizedPath);
 
         ClickAtScreenPoint(clickableTarget.ClickPoint, normalizedButton);
+        var uiSettle = WaitForUiToSettle(handle, settleObserver);
 
         return new ElementClickResult(
             BuildWindowDescriptor(handle),
@@ -343,7 +361,8 @@ internal static class WindowAutomation
             normalizedButton,
             clickableTarget.ClickPoint,
             clickableTarget.PreparationActionTaken,
-            $"{normalizedButton}_clicked");
+            $"{normalizedButton}_clicked",
+            uiSettle);
     }
 
     internal static KeyboardInputResult SendInputToWindow(
@@ -376,6 +395,7 @@ internal static class WindowAutomation
         }
 
         var handle = ResolveKeyboardInputWindowHandle(selectionState);
+        using var settleObserver = UiSettleObserver.TryCreate(handle);
         ActivateWindow(handle);
         Thread.Sleep(150);
         selectionState.SetSelectedHandle(handle);
@@ -388,6 +408,8 @@ internal static class WindowAutomation
                 SendUnicodeText(normalizedText, "Failed to send Unicode text to the focused control.");
             }
 
+            var uiSettle = WaitForUiToSettle(handle, settleObserver);
+
             return new KeyboardInputResult(
                 BuildWindowDescriptor(handle),
                 "text",
@@ -395,7 +417,8 @@ internal static class WindowAutomation
                 [],
                 repeatCount,
                 normalizedText.Length,
-                "typed_text");
+                "typed_text",
+                uiSettle);
         }
 
         var normalizedModifiers = NormalizeModifierNames(modifiers);
@@ -411,6 +434,8 @@ internal static class WindowAutomation
                 $"Failed to send key '{normalizedKey}' to the selected window.");
         }
 
+        var settledUi = WaitForUiToSettle(handle, settleObserver);
+
         return new KeyboardInputResult(
             BuildWindowDescriptor(handle),
             "key",
@@ -418,7 +443,8 @@ internal static class WindowAutomation
             normalizedModifiers,
             repeatCount,
             null,
-            modifierVirtualKeys.Count > 0 ? "pressed_modified_key" : "pressed_key");
+            modifierVirtualKeys.Count > 0 ? "pressed_modified_key" : "pressed_key",
+            settledUi);
     }
 
     internal static FocusedElementTreeResult DescribeSelectedWindowFocus(
@@ -505,6 +531,7 @@ internal static class WindowAutomation
         EnsureWindowExists(handle);
         FocusWindow(handle);
         selectionState.SetSelectedHandle(handle);
+        using var settleObserver = UiSettleObserver.TryCreate(handle);
 
         var windowElement = AutomationElement.FromHandle(handle);
         var menuBar = FindMainMenuBar(windowElement);
@@ -525,13 +552,15 @@ internal static class WindowAutomation
         if (segments.Length == 1)
         {
             var topLevelActionTaken = InvokeAction(topLevelItem, allowExpandOnly: true);
-            return BuildMenuInvocationResult(handle, menuPath, topLevelActionTaken);
+            var uiSettle = WaitForUiToSettle(handle, settleObserver);
+            return BuildMenuInvocationResult(handle, menuPath, topLevelActionTaken, uiSettle);
         }
 
         ExpandMenu(topLevelItem);
         var actionTaken = InvokeVisibleMenuPath(handle, string.Join(" > ", segments.Skip(1)));
+        var settledUi = WaitForUiToSettle(handle, settleObserver);
 
-        return BuildMenuInvocationResult(handle, menuPath, actionTaken);
+        return BuildMenuInvocationResult(handle, menuPath, actionTaken, settledUi);
     }
 
     internal static ContextMenuListResult ListContextMenuItems(WindowSelectionState selectionState)
@@ -558,8 +587,10 @@ internal static class WindowAutomation
         }
 
         var (handle, _, focusedElement) = ResolveFocusedElementForContextMenu(selectionState);
+        using var settleObserver = UiSettleObserver.TryCreate(handle);
         var openActionTaken = OpenContextMenu(focusedElement, GetProcessId(handle));
         var actionTaken = InvokeVisibleMenuPath(handle, menuPath);
+        var uiSettle = WaitForUiToSettle(handle, settleObserver);
 
         return new ContextMenuInvocationResult(
             BuildSelectionResult(handle, wasFocused: true).Handle,
@@ -567,10 +598,14 @@ internal static class WindowAutomation
             GetProcessId(handle),
             menuPath,
             openActionTaken,
-            actionTaken);
+            actionTaken,
+            uiSettle);
     }
 
-    private static WindowSelectionResult BuildSelectionResult(nint handle, bool wasFocused)
+    private static WindowSelectionResult BuildSelectionResult(
+        nint handle,
+        bool wasFocused,
+        UiSettleResult? uiSettle = null)
     {
         _ = NativeMethods.GetWindowThreadProcessId(handle, out var processId);
 
@@ -579,7 +614,8 @@ internal static class WindowAutomation
             NativeMethods.GetWindowText(handle),
             NativeMethods.GetClassName(handle),
             unchecked((int)processId),
-            wasFocused);
+            wasFocused,
+            uiSettle);
     }
 
     private static WindowDescriptor BuildWindowDescriptor(nint handle)
@@ -833,7 +869,11 @@ internal static class WindowAutomation
         return true;
     }
 
-    private static MenuInvocationResult BuildMenuInvocationResult(nint handle, string menuPath, string actionTaken)
+    private static MenuInvocationResult BuildMenuInvocationResult(
+        nint handle,
+        string menuPath,
+        string actionTaken,
+        UiSettleResult uiSettle)
     {
         var selection = BuildSelectionResult(handle, wasFocused: true);
 
@@ -842,7 +882,23 @@ internal static class WindowAutomation
             selection.Title,
             selection.ProcessId,
             menuPath,
-            actionTaken);
+            actionTaken,
+            uiSettle);
+    }
+
+    internal static bool IsUiChangeSettled(
+        bool windowAvailable,
+        WindowInteractionState? interactionState,
+        DateTime utcNow,
+        DateTime? lastObservedChangeUtc,
+        TimeSpan quietPeriod)
+    {
+        if (!windowAvailable)
+        {
+            return true;
+        }
+
+        return IsSettledInteractionState(interactionState);
     }
 
     private static AutomationElement FindMainMenuBar(AutomationElement windowElement)
@@ -2278,6 +2334,174 @@ internal static class WindowAutomation
         Thread.Sleep(150);
     }
 
+    private static UiSettleResult WaitForUiToSettle(
+        nint handle,
+        UiSettleObserver? observer = null,
+        TimeSpan? initialDelay = null)
+    {
+        var effectiveInitialDelay = initialDelay ?? UiSettleInitialDelay;
+        var startUtc = DateTime.UtcNow;
+        var createdObserver = observer is null ? UiSettleObserver.TryCreate(handle) : null;
+        var activeObserver = observer ?? createdObserver;
+        var traceLines = DebugTrace.IsEnabled ? new List<string>() : null;
+        AppendUiSettleTrace(
+            traceLines,
+            $"ui-settle begin handle={FormatHandle(handle)} observerAttached={activeObserver is not null} initialDelayMs={(int)effectiveInitialDelay.TotalMilliseconds} pollMs={(int)UiSettlePollInterval.TotalMilliseconds} timeoutMs={(int)UiSettleTimeout.TotalMilliseconds}");
+
+        try
+        {
+            WaitWithMessagePump(effectiveInitialDelay);
+
+            var deadlineUtc = DateTime.UtcNow + UiSettleTimeout;
+            while (true)
+            {
+                var nowUtc = DateTime.UtcNow;
+                var snapshot = CaptureUiSettleSnapshot(handle, activeObserver);
+                if (IsUiChangeSettled(
+                    snapshot.WindowAvailable,
+                    snapshot.WindowInteractionState,
+                    nowUtc,
+                    snapshot.LastObservedChangeUtc,
+                    UiSettlePollInterval))
+                {
+                    AppendUiSettleTrace(
+                        traceLines,
+                        DescribeUiSettleCheck(handle, nowUtc, snapshot, settled: true, timedOut: false, startUtc));
+                    return BuildUiSettleResult(snapshot, nowUtc - startUtc, effectiveInitialDelay, timedOut: false, traceLines);
+                }
+
+                if (nowUtc >= deadlineUtc)
+                {
+                    AppendUiSettleTrace(
+                        traceLines,
+                        DescribeUiSettleCheck(handle, nowUtc, snapshot, settled: false, timedOut: true, startUtc));
+                    return BuildUiSettleResult(snapshot, nowUtc - startUtc, effectiveInitialDelay, timedOut: true, traceLines);
+                }
+
+                AppendUiSettleTrace(
+                    traceLines,
+                    DescribeUiSettleCheck(handle, nowUtc, snapshot, settled: false, timedOut: false, startUtc));
+                WaitWithMessagePump(UiSettlePollInterval);
+            }
+        }
+        finally
+        {
+            createdObserver?.Dispose();
+        }
+    }
+
+    private static void AppendUiSettleTrace(List<string>? traceLines, string message)
+    {
+        DebugTrace.WriteLine(message);
+        if (traceLines is null)
+        {
+            return;
+        }
+
+        traceLines.Add(DebugTrace.FormatTimestampedLine(message, DateTimeOffset.Now));
+    }
+
+    private static UiSettleSnapshot CaptureUiSettleSnapshot(nint handle, UiSettleObserver? observer)
+    {
+        var windowAvailable = handle != nint.Zero && NativeMethods.IsWindow(handle);
+        var interactionState = windowAvailable ? TryGetWindowInteractionState(handle) : null;
+        var observerSnapshot = observer?.GetSnapshot() ?? UiSettleObserverSnapshot.Empty;
+
+        return new UiSettleSnapshot(
+            windowAvailable,
+            interactionState,
+            observerSnapshot.WindowInteractionStateChangeCount,
+            observerSnapshot.StructureChangedEventCount,
+            observerSnapshot.AsyncContentLoadedEventCount,
+            observerSnapshot.LastObservedChangeUtc);
+    }
+
+    private static string DescribeUiSettleCheck(
+        nint handle,
+        DateTime nowUtc,
+        UiSettleSnapshot snapshot,
+        bool settled,
+        bool timedOut,
+        DateTime startUtc)
+    {
+        var elapsedMilliseconds = (int)Math.Round((nowUtc - startUtc).TotalMilliseconds, MidpointRounding.AwayFromZero);
+
+        return
+            $"ui-settle check handle={FormatHandle(handle)} windowAvailable={snapshot.WindowAvailable} interactionState={snapshot.WindowInteractionState?.ToString() ?? "null"} interactionChanges={snapshot.WindowInteractionStateChangeCount} structureChanges={snapshot.StructureChangedEventCount} asyncChanges={snapshot.AsyncContentLoadedEventCount} elapsedMs={elapsedMilliseconds} settled={settled} timedOut={timedOut}";
+    }
+
+    private static UiSettleResult BuildUiSettleResult(
+        UiSettleSnapshot snapshot,
+        TimeSpan elapsed,
+        TimeSpan initialDelay,
+        bool timedOut,
+        List<string>? traceLines)
+    {
+        var status = !snapshot.WindowAvailable
+            ? "window_unavailable"
+            : timedOut
+                ? "timed_out"
+                : "settled";
+
+        return new UiSettleResult(
+            status,
+            !timedOut || !snapshot.WindowAvailable,
+            snapshot.WindowInteractionState?.ToString(),
+            snapshot.WindowInteractionStateChangeCount,
+            snapshot.StructureChangedEventCount,
+            snapshot.AsyncContentLoadedEventCount,
+            (int)Math.Round(elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
+            (int)Math.Round(initialDelay.TotalMilliseconds, MidpointRounding.AwayFromZero),
+            traceLines ?? []);
+    }
+
+    private static bool IsSettledInteractionState(WindowInteractionState? interactionState)
+    {
+        return interactionState is
+            WindowInteractionState.ReadyForUserInteraction or
+            WindowInteractionState.BlockedByModalWindow;
+    }
+
+    private static WindowInteractionState? TryGetWindowInteractionState(nint handle)
+    {
+        try
+        {
+            var windowElement = AutomationElement.FromHandle(handle);
+            return TryGetPattern<WindowPattern>(windowElement, WindowPattern.Pattern, out var windowPattern)
+                ? windowPattern.Current.WindowInteractionState
+                : null;
+        }
+        catch (ElementNotAvailableException)
+        {
+            return null;
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    private static void WaitWithMessagePump(TimeSpan duration)
+    {
+        if (duration <= TimeSpan.Zero)
+        {
+            return;
+        }
+
+        var deadlineUtc = DateTime.UtcNow + duration;
+        while (true)
+        {
+            var remaining = deadlineUtc - DateTime.UtcNow;
+            if (remaining <= TimeSpan.Zero)
+            {
+                return;
+            }
+
+            Thread.Sleep(remaining < UiSettleWaitSlice ? remaining : UiSettleWaitSlice);
+            Application.DoEvents();
+        }
+    }
+
     private static int GetProcessId(nint handle)
     {
         _ = NativeMethods.GetWindowThreadProcessId(handle, out var processId);
@@ -2643,7 +2867,8 @@ internal sealed record FocusedElementTreeResult(
 internal sealed record FocusedElementResult(
     WindowDescriptor Window,
     UiElementSnapshot FocusedElement,
-    string ActionTaken);
+    string ActionTaken,
+    UiSettleResult UiSettle);
 
 internal sealed record ElementClickResult(
     WindowDescriptor Window,
@@ -2651,7 +2876,8 @@ internal sealed record ElementClickResult(
     string MouseButton,
     ScreenPoint ClickPoint,
     string? PreparationActionTaken,
-    string ActionTaken);
+    string ActionTaken,
+    UiSettleResult UiSettle);
 
 internal sealed record KeyboardInputResult(
     WindowDescriptor Window,
@@ -2660,7 +2886,8 @@ internal sealed record KeyboardInputResult(
     IReadOnlyList<string> Modifiers,
     int RepeatCount,
     int? TextLength,
-    string ActionTaken);
+    string ActionTaken,
+    UiSettleResult UiSettle);
 
 internal sealed record MainMenuListResult(
     WindowDescriptor Window,
@@ -2692,7 +2919,8 @@ internal sealed record WindowSelectionResult(
     string Title,
     string ClassName,
     int ProcessId,
-    bool WasFocused);
+    bool WasFocused,
+    UiSettleResult? UiSettle);
 
 internal sealed record TaskbarElementListResult(
     WindowDescriptor TaskbarWindow,
@@ -2718,7 +2946,8 @@ internal sealed record TaskbarAppActivationResult(
     UiElementSnapshot HostElement,
     TaskbarElementSummary ActivatedElement,
     string ActionTaken,
-    WindowSelectionResult? SelectedWindow);
+    WindowSelectionResult? SelectedWindow,
+    UiSettleResult UiSettle);
 
 internal sealed record TaskbarAppSearchResult(
     WindowDescriptor TaskbarWindow,
@@ -2729,14 +2958,16 @@ internal sealed record TaskbarAppSearchResult(
     string SearchActionTaken,
     string TextEntryActionTaken,
     string LaunchActionTaken,
-    WindowSelectionResult? SelectedWindow);
+    WindowSelectionResult? SelectedWindow,
+    UiSettleResult UiSettle);
 
 internal sealed record MenuInvocationResult(
     string Handle,
     string Title,
     int ProcessId,
     string MenuPath,
-    string ActionTaken);
+    string ActionTaken,
+    UiSettleResult UiSettle);
 
 internal sealed record ContextMenuInvocationResult(
     string Handle,
@@ -2744,7 +2975,224 @@ internal sealed record ContextMenuInvocationResult(
     int ProcessId,
     string MenuPath,
     string OpenActionTaken,
-    string ActionTaken);
+    string ActionTaken,
+    UiSettleResult UiSettle);
+
+internal sealed record UiSettleResult(
+    string Status,
+    bool Completed,
+    string? WindowInteractionState,
+    int WindowInteractionStateChangeCount,
+    int StructureChangedEventCount,
+    int AsyncContentLoadedEventCount,
+    int ElapsedMilliseconds,
+    int InitialDelayMilliseconds,
+    IReadOnlyList<string> TraceLines);
+
+internal readonly record struct UiSettleSnapshot(
+    bool WindowAvailable,
+    WindowInteractionState? WindowInteractionState,
+    int WindowInteractionStateChangeCount,
+    int StructureChangedEventCount,
+    int AsyncContentLoadedEventCount,
+    DateTime? LastObservedChangeUtc);
+
+internal readonly record struct UiSettleObserverSnapshot(
+    int WindowInteractionStateChangeCount,
+    int StructureChangedEventCount,
+    int AsyncContentLoadedEventCount,
+    DateTime? LastObservedChangeUtc)
+{
+    internal static UiSettleObserverSnapshot Empty => new(0, 0, 0, null);
+}
+
+internal sealed class UiSettleObserver : IDisposable
+{
+    private readonly nint _handle;
+    private readonly AutomationElement _windowElement;
+    private readonly AutomationPropertyChangedEventHandler _propertyChangedHandler;
+    private readonly StructureChangedEventHandler _structureChangedHandler;
+    private readonly AutomationEventHandler _asyncContentLoadedHandler;
+    private readonly bool _propertyHandlerRegistered;
+    private readonly bool _structureHandlerRegistered;
+    private readonly bool _asyncContentLoadedHandlerRegistered;
+    private int _disposed;
+    private int _windowInteractionStateChangeCount;
+    private int _structureChangedEventCount;
+    private int _asyncContentLoadedEventCount;
+    private long _lastObservedChangeUtcTicks;
+
+    private UiSettleObserver(nint handle, AutomationElement windowElement)
+    {
+        _handle = handle;
+        _windowElement = windowElement;
+        _propertyChangedHandler = OnPropertyChanged;
+        _structureChangedHandler = OnStructureChanged;
+        _asyncContentLoadedHandler = OnAsyncContentLoaded;
+
+        try
+        {
+            Automation.AddAutomationPropertyChangedEventHandler(
+                _windowElement,
+                TreeScope.Element,
+                _propertyChangedHandler,
+                WindowPattern.WindowInteractionStateProperty);
+            _propertyHandlerRegistered = true;
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            Automation.AddStructureChangedEventHandler(
+                _windowElement,
+                TreeScope.Subtree,
+                _structureChangedHandler);
+            _structureHandlerRegistered = true;
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            Automation.AddAutomationEventHandler(
+                AutomationElement.AsyncContentLoadedEvent,
+                _windowElement,
+                TreeScope.Subtree,
+                _asyncContentLoadedHandler);
+            _asyncContentLoadedHandlerRegistered = true;
+        }
+        catch
+        {
+        }
+    }
+
+    public static UiSettleObserver? TryCreate(nint handle)
+    {
+        if (handle == nint.Zero || !NativeMethods.IsWindow(handle))
+        {
+            return null;
+        }
+
+        try
+        {
+            return new UiSettleObserver(handle, AutomationElement.FromHandle(handle));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public UiSettleObserverSnapshot GetSnapshot()
+    {
+        var ticks = Interlocked.Read(ref _lastObservedChangeUtcTicks);
+        DateTime? lastObservedChangeUtc = ticks == 0 ? null : new DateTime(ticks, DateTimeKind.Utc);
+
+        return new UiSettleObserverSnapshot(
+            Volatile.Read(ref _windowInteractionStateChangeCount),
+            Volatile.Read(ref _structureChangedEventCount),
+            Volatile.Read(ref _asyncContentLoadedEventCount),
+            lastObservedChangeUtc);
+    }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        if (_propertyHandlerRegistered)
+        {
+            try
+            {
+                Automation.RemoveAutomationPropertyChangedEventHandler(_windowElement, _propertyChangedHandler);
+            }
+            catch
+            {
+            }
+        }
+
+        if (_structureHandlerRegistered)
+        {
+            try
+            {
+                Automation.RemoveStructureChangedEventHandler(_windowElement, _structureChangedHandler);
+            }
+            catch
+            {
+            }
+        }
+
+        if (_asyncContentLoadedHandlerRegistered)
+        {
+            try
+            {
+                Automation.RemoveAutomationEventHandler(
+                    AutomationElement.AsyncContentLoadedEvent,
+                    _windowElement,
+                    _asyncContentLoadedHandler);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    private void OnPropertyChanged(object sender, AutomationPropertyChangedEventArgs e)
+    {
+        if (e.Property != WindowPattern.WindowInteractionStateProperty)
+        {
+            return;
+        }
+
+        var count = Interlocked.Increment(ref _windowInteractionStateChangeCount);
+        NoteObservedChange();
+        DebugTrace.WriteLine(
+            $"ui-settle event handle={FormatHandle(_handle)} type=window_interaction_state count={count} currentState={TryGetCurrentWindowInteractionStateDescription(_windowElement)}");
+    }
+
+    private void OnStructureChanged(object sender, StructureChangedEventArgs e)
+    {
+        var count = Interlocked.Increment(ref _structureChangedEventCount);
+        NoteObservedChange();
+        DebugTrace.WriteLine(
+            $"ui-settle event handle={FormatHandle(_handle)} type=structure_changed count={count} changeType={e.StructureChangeType}");
+    }
+
+    private void OnAsyncContentLoaded(object sender, AutomationEventArgs e)
+    {
+        var count = Interlocked.Increment(ref _asyncContentLoadedEventCount);
+        NoteObservedChange();
+        DebugTrace.WriteLine(
+            $"ui-settle event handle={FormatHandle(_handle)} type=async_content_loaded count={count}");
+    }
+
+    private void NoteObservedChange()
+    {
+        Interlocked.Exchange(ref _lastObservedChangeUtcTicks, DateTime.UtcNow.Ticks);
+    }
+
+    private static string TryGetCurrentWindowInteractionStateDescription(AutomationElement element)
+    {
+        try
+        {
+            return element.TryGetCurrentPattern(WindowPattern.Pattern, out var patternObject) &&
+                   patternObject is WindowPattern windowPattern
+                ? windowPattern.Current.WindowInteractionState.ToString()
+                : "null";
+        }
+        catch
+        {
+            return "unavailable";
+        }
+    }
+
+    private static string FormatHandle(nint handle) => $"0x{handle.ToInt64():X8}";
+}
 
 internal enum TaskbarActivationMode
 {

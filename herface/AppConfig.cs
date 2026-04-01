@@ -34,8 +34,6 @@ internal sealed record AppConfig(
     int ActiveIdleTimeoutMs,
     int MaxContextTokens,
     string WakeWord,
-    int LaunchAppPostActionDelayMs,
-    int InvokePostActionDelayMs,
     IReadOnlyList<McpServerConfig> McpServers
 )
 {
@@ -70,8 +68,6 @@ internal sealed record AppConfig(
             ParseInt(Environment.GetEnvironmentVariable("ACTIVE_IDLE_TIMEOUT_MS"), 60_000),
             ParseInt(Environment.GetEnvironmentVariable("MAX_CONTEXT_TOKENS"), 128_000),
             Environment.GetEnvironmentVariable("WAKE_WORD") ?? "Hello there",
-            ParseInt(Environment.GetEnvironmentVariable("LAUNCH_APP_POST_ACTION_DELAY_MS"), 2_000),
-            ParseInt(Environment.GetEnvironmentVariable("INVOKE_POST_ACTION_DELAY_MS"), 200),
             LoadMcpServers(Environment.GetEnvironmentVariable("MCP_SERVERS"))
         );
     }

@@ -4,17 +4,27 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 
+DebugTrace.Configure(args);
+
 if (await ConsoleMode.TryRunAsync(args))
 {
     return;
 }
 
-var builder = Host.CreateApplicationBuilder(args);
+var filteredArgs = args
+    .Where(arg => !string.Equals(arg, "--debug", StringComparison.OrdinalIgnoreCase))
+    .ToArray();
+
+var builder = Host.CreateApplicationBuilder(filteredArgs);
 
 builder.Logging.ClearProviders();
-builder.Logging.AddConsole(options =>
+builder.Logging.AddSimpleConsole(options =>
 {
-    options.LogToStandardErrorThreshold = LogLevel.Trace;
+    options.SingleLine = true;
+    if (DebugTrace.IsEnabled)
+    {
+        options.TimestampFormat = "yyyy-MM-dd HH:mm:ss.fff zzz ";
+    }
 });
 
 builder.Services.AddSingleton<WindowSelectionState>();

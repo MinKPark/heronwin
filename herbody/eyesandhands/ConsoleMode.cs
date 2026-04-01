@@ -32,26 +32,26 @@ internal static class ConsoleMode
             return true;
         }
 
-        Console.WriteLine("eyesandhands self-test");
-        Console.WriteLine($"Visible windows: {result.Windows.Count}");
+        DebugTrace.WriteConsoleLine("eyesandhands self-test");
+        DebugTrace.WriteConsoleLine($"Visible windows: {result.Windows.Count}");
 
         if (!string.IsNullOrWhiteSpace(result.SelectedWindowHandle))
         {
-            Console.WriteLine($"Selected window: {result.SelectedWindowHandle}");
+            DebugTrace.WriteConsoleLine($"Selected window: {result.SelectedWindowHandle}");
         }
 
         if (result.Windows.Count == 0)
         {
-            Console.WriteLine("No visible titled windows were detected from this session.");
-            Console.WriteLine("If you are running from a non-interactive shell, launch this from your desktop session.");
+            DebugTrace.WriteConsoleLine("No visible titled windows were detected from this session.");
+            DebugTrace.WriteConsoleLine("If you are running from a non-interactive shell, launch this from your desktop session.");
             return true;
         }
 
-        Console.WriteLine();
+        DebugTrace.WriteConsoleLine(string.Empty);
         foreach (var window in result.Windows)
         {
             var selectedMarker = window.IsSelected ? "*" : " ";
-            Console.WriteLine(
+            DebugTrace.WriteConsoleLine(
                 $"{selectedMarker} {window.Handle}  pid={window.ProcessId}  class={window.ClassName}  title={window.Title}");
         }
 
@@ -60,10 +60,11 @@ internal static class ConsoleMode
 
     private static void PrintHelp()
     {
-        Console.WriteLine("eyesandhands");
-        Console.WriteLine("Usage:");
-        Console.WriteLine("  eyesandhands.exe                  Start the MCP stdio server");
-        Console.WriteLine("  eyesandhands.exe --selftest       Print a human-readable visible window list");
-        Console.WriteLine("  eyesandhands.exe --selftest-json  Print the same result as JSON");
+        DebugTrace.WriteConsoleLine("eyesandhands");
+        DebugTrace.WriteConsoleLine("Usage:");
+        DebugTrace.WriteConsoleLine("  eyesandhands.exe                  Start the MCP stdio server");
+        DebugTrace.WriteConsoleLine("  eyesandhands.exe --debug          Enable timestamped diagnostic output on stderr");
+        DebugTrace.WriteConsoleLine("  eyesandhands.exe --selftest       Print a human-readable visible window list");
+        DebugTrace.WriteConsoleLine("  eyesandhands.exe --selftest-json  Print the same result as JSON");
     }
 }
