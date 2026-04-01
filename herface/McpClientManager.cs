@@ -7,6 +7,7 @@ namespace HeronWin.HerFace;
 internal sealed class McpClientManager : IAsyncDisposable
 {
     private readonly Dictionary<string, McpClient> _clients = new();
+    private readonly Dictionary<string, HashSet<string>> _toolNamesByServer = new(StringComparer.Ordinal);
 
     public async Task ConnectAsync(IReadOnlyList<McpServerConfig> servers, CancellationToken cancellationToken)
     {
@@ -47,6 +48,7 @@ internal sealed class McpClientManager : IAsyncDisposable
 
             var client = await McpClient.CreateAsync(transport, cancellationToken: cancellationToken);
             _clients[server.Name] = client;
+            _toolNamesByServer[server.Name] = new HashSet<string>(StringComparer.Ordinal);
             DebugTrace.WriteEvent("mcp.connect.complete", $"server={server.Name}");
         }
     }
@@ -58,6 +60,8 @@ internal sealed class McpClientManager : IAsyncDisposable
         foreach (var (serverName, client) in _clients)
         {
             var tools = await client.ListToolsAsync();
+            var toolNames = new HashSet<string>(tools.Select(tool => tool.Name), StringComparer.Ordinal);
+            _toolNamesByServer[serverName] = toolNames;
             DebugTrace.WriteEvent(
                 "mcp.tools.listed",
                 $"server={serverName}, tools={string.Join(", ", tools.Select(tool => tool.Name).DefaultIfEmpty("(none)"))}");
@@ -83,8 +87,8 @@ internal sealed class McpClientManager : IAsyncDisposable
 
         foreach (var (serverName, client) in _clients)
         {
-            var tools = await client.ListToolsAsync();
-            if (!tools.Any(tool => string.Equals(tool.Name, toolName, StringComparison.Ordinal)))
+            if (!_toolNamesByServer.TryGetValue(serverName, out var toolNames) ||
+                !toolNames.Contains(toolName))
             {
                 continue;
             }
@@ -134,6 +138,7 @@ internal sealed class McpClientManager : IAsyncDisposable
         }
 
         _clients.Clear();
+        _toolNamesByServer.Clear();
     }
 
     private static JsonElement ExtractParameters(object tool)
