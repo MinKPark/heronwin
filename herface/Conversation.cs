@@ -8,7 +8,7 @@ internal sealed record ToolDefinition(string Name, string Description, JsonEleme
 
 internal sealed record ToolCallRequest(string Id, string Name, string Arguments);
 
-internal sealed record ToolImage(string MimeType, string Base64Data);
+internal sealed record ToolImage(string MimeType, string Base64Data, string Detail = "low");
 
 internal sealed record ToolCallOutcome(string Text, IReadOnlyList<ToolImage> Images);
 

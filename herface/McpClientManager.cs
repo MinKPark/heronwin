@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Drawing;
+using System.Drawing.Imaging;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 
@@ -6,6 +8,9 @@ namespace HeronWin.HerFace;
 
 internal sealed class McpClientManager : IAsyncDisposable
 {
+    private const int MaxVisionImageDimension = 1280;
+    private const long VisionJpegQuality = 75L;
+
     private readonly Dictionary<string, McpClient> _clients = new();
     private readonly Dictionary<string, HashSet<string>> _toolNamesByServer = new(StringComparer.Ordinal);
 
@@ -191,7 +196,7 @@ internal sealed class McpClientManager : IAsyncDisposable
                 var key = $"{mimeType}:{base64Data.Length}";
                 if (seenKeys.Add(key))
                 {
-                    images.Add(new ToolImage(mimeType, base64Data));
+                    images.Add(OptimizeToolImageForVision(new ToolImage(mimeType, base64Data)));
                 }
             }
         }
@@ -330,9 +335,74 @@ internal sealed class McpClientManager : IAsyncDisposable
         }
 
         var bytes = File.ReadAllBytes(path);
-        image = new ToolImage(mimeType, Convert.ToBase64String(bytes));
+        image = OptimizeToolImageForVision(new ToolImage(mimeType, Convert.ToBase64String(bytes)));
         return true;
     }
+
+    internal static ToolImage OptimizeToolImageForVision(ToolImage image)
+    {
+        if (!IsResizableRasterMimeType(image.MimeType))
+        {
+            return image;
+        }
+
+        byte[] originalBytes;
+        try
+        {
+            originalBytes = Convert.FromBase64String(image.Base64Data);
+        }
+        catch
+        {
+            return image;
+        }
+
+        try
+        {
+            using var inputStream = new MemoryStream(originalBytes, writable: false);
+            using var bitmap = new Bitmap(inputStream);
+            var longestSide = Math.Max(bitmap.Width, bitmap.Height);
+            if (longestSide <= MaxVisionImageDimension)
+            {
+                return image;
+            }
+
+            var scale = (double)MaxVisionImageDimension / longestSide;
+            var resizedWidth = Math.Max(1, (int)Math.Round(bitmap.Width * scale, MidpointRounding.AwayFromZero));
+            var resizedHeight = Math.Max(1, (int)Math.Round(bitmap.Height * scale, MidpointRounding.AwayFromZero));
+
+            using var resizedBitmap = new Bitmap(resizedWidth, resizedHeight);
+            using (var graphics = Graphics.FromImage(resizedBitmap))
+            {
+                graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+                graphics.DrawImage(bitmap, 0, 0, resizedWidth, resizedHeight);
+            }
+
+            using var outputStream = new MemoryStream();
+            var jpegEncoder = ImageCodecInfo.GetImageEncoders()
+                .FirstOrDefault(codec => codec.FormatID == ImageFormat.Jpeg.Guid);
+            if (jpegEncoder is null)
+            {
+                return image;
+            }
+
+            using var encoderParameters = new EncoderParameters(1);
+            encoderParameters.Param[0] = new EncoderParameter(Encoder.Quality, VisionJpegQuality);
+            resizedBitmap.Save(outputStream, jpegEncoder, encoderParameters);
+
+            return new ToolImage("image/jpeg", Convert.ToBase64String(outputStream.ToArray()), image.Detail);
+        }
+        catch
+        {
+            return image;
+        }
+    }
+
+    private static bool IsResizableRasterMimeType(string mimeType)
+        => mimeType.Equals("image/png", StringComparison.OrdinalIgnoreCase)
+           || mimeType.Equals("image/jpeg", StringComparison.OrdinalIgnoreCase)
+           || mimeType.Equals("image/bmp", StringComparison.OrdinalIgnoreCase);
 
     private static string ResolveMaybeRelativePath(string value, string baseDir)
     {

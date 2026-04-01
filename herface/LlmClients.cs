@@ -126,7 +126,7 @@ internal sealed class OpenAiApiClient(
         return new ChatResult(text, toolCalls);
     }
 
-    private static JsonArray ToOpenAiMessages(IReadOnlyList<AgentMessage> messages, string agentDefinition)
+    internal static JsonArray ToOpenAiMessages(IReadOnlyList<AgentMessage> messages, string agentDefinition)
     {
         var result = new JsonArray();
         if (!string.IsNullOrWhiteSpace(agentDefinition))
@@ -175,7 +175,8 @@ internal sealed class OpenAiApiClient(
                             ["type"] = "image_url",
                             ["image_url"] = new JsonObject
                             {
-                                ["url"] = $"data:{image.MimeType};base64,{image.Base64Data}"
+                                ["url"] = $"data:{image.MimeType};base64,{image.Base64Data}",
+                                ["detail"] = string.IsNullOrWhiteSpace(image.Detail) ? "low" : image.Detail
                             }
                         });
                     }
