@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Runtime.InteropServices;
 using System.Windows.Automation;
@@ -15,6 +16,7 @@ internal static class WindowAutomation
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
+        Converters = { new UiElementSnapshotJsonConverter() },
     };
 
     private static readonly Condition MenuBarCondition =
@@ -3381,6 +3383,70 @@ internal sealed record UiElementSnapshot(
     IReadOnlyList<string> AvailableActions,
     ElementBounds? Bounds,
     IReadOnlyList<UiElementSnapshot> Children);
+
+internal sealed class UiElementSnapshotJsonConverter : JsonConverter<UiElementSnapshot>
+{
+    public override UiElementSnapshot Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        throw new NotSupportedException("UiElementSnapshot deserialization is not supported.");
+
+    public override void Write(Utf8JsonWriter writer, UiElementSnapshot value, JsonSerializerOptions options)
+    {
+        writer.WriteStartObject();
+
+        writer.WriteString("Path", value.Path);
+        writer.WriteString("UiPath", value.UiPath);
+        WriteStringIfMeaningful(writer, "Name", value.Name);
+        writer.WriteString("ControlType", value.ControlType);
+        WriteStringIfMeaningful(writer, "AutomationId", value.AutomationId);
+        WriteStringIfMeaningful(writer, "ClassName", value.ClassName);
+        WriteBooleanIfTrue(writer, "IsEnabled", value.IsEnabled);
+        WriteBooleanIfTrue(writer, "IsOffscreen", value.IsOffscreen);
+        WriteBooleanIfTrue(writer, "HasKeyboardFocus", value.HasKeyboardFocus);
+        WriteBooleanIfTrue(writer, "IsKeyboardFocusable", value.IsKeyboardFocusable);
+        WriteArrayIfNotEmpty(writer, "AvailableActions", value.AvailableActions, options);
+
+        if (value.Bounds is not null)
+        {
+            writer.WritePropertyName("Bounds");
+            JsonSerializer.Serialize(writer, value.Bounds, options);
+        }
+
+        WriteArrayIfNotEmpty(writer, "Children", value.Children, options);
+
+        writer.WriteEndObject();
+    }
+
+    private static void WriteStringIfMeaningful(Utf8JsonWriter writer, string propertyName, string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            writer.WriteString(propertyName, value);
+        }
+    }
+
+    private static void WriteBooleanIfTrue(Utf8JsonWriter writer, string propertyName, bool value)
+    {
+        if (value)
+        {
+            writer.WriteBoolean(propertyName, true);
+        }
+    }
+
+    private static void WriteArrayIfNotEmpty<T>(
+        Utf8JsonWriter writer,
+        string propertyName,
+        IReadOnlyList<T>? values,
+        JsonSerializerOptions options)
+    {
+        if (values is null || values.Count == 0)
+        {
+            return;
+        }
+
+        writer.WritePropertyName(propertyName);
+        JsonSerializer.Serialize(writer, values, options);
+    }
+}
 
 internal sealed record WindowTreeResult(
     WindowDescriptor Window,

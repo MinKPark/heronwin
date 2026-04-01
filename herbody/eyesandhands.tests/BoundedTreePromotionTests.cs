@@ -130,6 +130,41 @@ public sealed class BoundedTreePromotionTests
 
         Assert.Equal("1/0/3", snapshot.Path);
         Assert.Equal("1/0/3", snapshot.UiPath);
-        Assert.Contains("\"UiPath\": \"1/0/3\"", WindowAutomation.Serialize(snapshot));
+        var json = WindowAutomation.Serialize(snapshot);
+        Assert.Contains("\"UiPath\": \"1/0/3\"", json);
+        Assert.DoesNotContain("\"IsOffscreen\": false", json);
+        Assert.DoesNotContain("\"HasKeyboardFocus\": false", json);
+        Assert.DoesNotContain("\"Children\": []", json);
+        Assert.DoesNotContain("\"Bounds\": null", json);
+    }
+
+    [Fact]
+    public void UiElementSnapshot_OmitsEmptyStringsAndEmptyArrays()
+    {
+        var snapshot = new UiElementSnapshot(
+            "1/2",
+            "1/2",
+            "",
+            "Button",
+            "",
+            "",
+            IsEnabled: false,
+            IsOffscreen: false,
+            HasKeyboardFocus: false,
+            IsKeyboardFocusable: false,
+            AvailableActions: [],
+            Bounds: null,
+            Children: []);
+
+        var json = WindowAutomation.Serialize(snapshot);
+
+        Assert.Contains("\"Path\": \"1/2\"", json);
+        Assert.Contains("\"UiPath\": \"1/2\"", json);
+        Assert.Contains("\"ControlType\": \"Button\"", json);
+        Assert.DoesNotContain("\"Name\":", json);
+        Assert.DoesNotContain("\"AutomationId\":", json);
+        Assert.DoesNotContain("\"ClassName\":", json);
+        Assert.DoesNotContain("\"IsEnabled\": false", json);
+        Assert.DoesNotContain("\"AvailableActions\": []", json);
     }
 }
