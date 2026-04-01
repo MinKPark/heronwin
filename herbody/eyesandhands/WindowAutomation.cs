@@ -282,7 +282,7 @@ internal static class WindowAutomation
             BuildWindowDescriptor(handle),
             normalizedDepth,
             fullDepth,
-            CaptureElementTree(windowElement, normalizedDepth, "root"));
+            CaptureElementTree(windowElement, normalizedDepth, "root", "root"));
     }
 
     internal static WindowScreenshotResult CaptureSelectedWindowScreenshot(WindowSelectionState selectionState)
@@ -523,10 +523,14 @@ internal static class WindowAutomation
                 "The currently focused UI element does not belong to the selected window.");
         }
 
+        var focusedElementUiPath = TryFindElementPath(windowElement, focusedElement, "root")
+            ?? throw new InvalidOperationException(
+                "Could not resolve the focused UI element's path within the selected window.");
+
         return new FocusedElementTreeResult(
             BuildWindowDescriptor(handle),
             normalizedDepth,
-            CaptureElementTree(focusedElement, normalizedDepth, "focused"));
+            CaptureElementTree(focusedElement, normalizedDepth, "focused", focusedElementUiPath));
     }
 
     internal static MainMenuListResult ListMainMenuItems(
@@ -697,17 +701,19 @@ internal static class WindowAutomation
     private static UiElementSnapshot CaptureElementTree(
         AutomationElement element,
         int? remainingLevels,
-        string path)
+        string path,
+        string uiPath)
     {
-        var children = CaptureChildSnapshots(element, remainingLevels, path);
+        var children = CaptureChildSnapshots(element, remainingLevels, path, uiPath);
 
-        return BuildElementSnapshot(element, path, children, includeChildren: true);
+        return BuildElementSnapshot(element, path, children, includeChildren: true, uiPath);
     }
 
     private static List<UiElementSnapshot> CaptureChildSnapshots(
         AutomationElement element,
         int? remainingLevels,
-        string path)
+        string path,
+        string uiPath)
     {
         var children = new List<UiElementSnapshot>();
         if (remainingLevels.HasValue && remainingLevels.Value <= 1)
@@ -720,13 +726,14 @@ internal static class WindowAutomation
         for (var i = 0; i < childElements.Count; i++)
         {
             var childPath = BuildChildPath(path, i);
+            var childUiPath = BuildChildPath(uiPath, i);
             if (nextRemainingLevels.HasValue)
             {
-                AppendBoundedChildSnapshot(children, childElements[i], childPath, nextRemainingLevels.Value);
+                AppendBoundedChildSnapshot(children, childElements[i], childPath, childUiPath, nextRemainingLevels.Value);
                 continue;
             }
 
-            children.Add(CaptureElementTree(childElements[i], remainingLevels: null, childPath));
+            children.Add(CaptureElementTree(childElements[i], remainingLevels: null, childPath, childUiPath));
         }
 
         return children;
@@ -736,6 +743,7 @@ internal static class WindowAutomation
         List<UiElementSnapshot> snapshots,
         AutomationElement element,
         string path,
+        string uiPath,
         int remainingLevels)
     {
         if (ShouldPromoteChildrenInBoundedTree(element))
@@ -749,6 +757,7 @@ internal static class WindowAutomation
                         snapshots,
                         childElements[i],
                         BuildChildPath(path, i),
+                        BuildChildPath(uiPath, i),
                         remainingLevels);
                 }
 
@@ -756,7 +765,7 @@ internal static class WindowAutomation
             }
         }
 
-        var snapshot = CaptureElementTree(element, remainingLevels, path);
+        var snapshot = CaptureElementTree(element, remainingLevels, path, uiPath);
         if (ShouldOmitElementInBoundedTree(snapshot))
         {
             return;
@@ -774,10 +783,12 @@ internal static class WindowAutomation
         AutomationElement element,
         string path,
         IReadOnlyList<UiElementSnapshot> children,
-        bool includeChildren)
+        bool includeChildren,
+        string? uiPath = null)
     {
         return new UiElementSnapshot(
             path,
+            uiPath ?? path,
             GetElementName(element),
             GetControlTypeName(element),
             GetAutomationId(element),
@@ -1373,6 +1384,30 @@ internal static class WindowAutomation
         }
 
         return fullPath.StartsWith($"{prefixPath}/", StringComparison.Ordinal);
+    }
+
+    private static string? TryFindElementPath(
+        AutomationElement root,
+        AutomationElement target,
+        string currentPath)
+    {
+        if (AreSameAutomationElement(root, target))
+        {
+            return currentPath;
+        }
+
+        var children = root.FindAll(TreeScope.Children, Condition.TrueCondition);
+        for (var i = 0; i < children.Count; i++)
+        {
+            var childPath = BuildChildPath(currentPath, i);
+            var resolvedPath = TryFindElementPath(children[i], target, childPath);
+            if (resolvedPath is not null)
+            {
+                return resolvedPath;
+            }
+        }
+
+        return null;
     }
 
     internal static IReadOnlyList<string> BuildKeyboardInvocationKeyPreference(string? currentPath, string targetPath)
@@ -3334,6 +3369,7 @@ internal readonly record struct ScreenPoint(
 
 internal sealed record UiElementSnapshot(
     string Path,
+    string UiPath,
     string Name,
     string ControlType,
     string AutomationId,
@@ -3344,10 +3380,7 @@ internal sealed record UiElementSnapshot(
     bool IsKeyboardFocusable,
     IReadOnlyList<string> AvailableActions,
     ElementBounds? Bounds,
-    IReadOnlyList<UiElementSnapshot> Children)
-{
-    public string UiPath => Path;
-}
+    IReadOnlyList<UiElementSnapshot> Children);
 
 internal sealed record WindowTreeResult(
     WindowDescriptor Window,

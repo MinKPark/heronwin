@@ -111,9 +111,10 @@ public sealed class BoundedTreePromotionTests
     }
 
     [Fact]
-    public void UiElementSnapshot_ExposesUiPathAliasForOriginalPath()
+    public void UiElementSnapshot_SerializesExplicitUiPath()
     {
         var snapshot = new UiElementSnapshot(
+            "1/0/3",
             "1/0/3",
             "Play",
             "Button",

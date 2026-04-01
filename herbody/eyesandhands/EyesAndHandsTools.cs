@@ -131,7 +131,7 @@ public static class EyesAndHandsTools
     public static async Task<string> InvokeSelectedWindowElement(
         UiAutomationExecutor executor,
         WindowSelectionState selectionState,
-        [Description("Slash-delimited child path from describe_selected_window. Use the explicit path or uiPath value returned by the describe tools. Use root to invoke the selected window itself.")]
+        [Description("Slash-delimited child path from describe_selected_window. When using describe_selected_window_focus output, prefer the element's uiPath because path values there are relative to the focused subtree root. Use root to invoke the selected window itself.")]
         string elementPath,
         CancellationToken cancellationToken = default)
     {
@@ -163,7 +163,7 @@ public static class EyesAndHandsTools
         return WindowAutomation.Serialize(result);
     }
 
-    [McpServerTool, Description("Describe the currently focused UI element inside the selected window as a structured UI Automation tree. If a window has been selected, the server focuses it before inspection; otherwise it falls back to the current foreground window. maxDepth includes the focused element as level 1 and must be between 1 and 4.")]
+    [McpServerTool, Description("Describe the currently focused UI element inside the selected window as a structured UI Automation tree. If a window has been selected, the server focuses it before inspection; otherwise it falls back to the current foreground window. maxDepth includes the focused element as level 1 and must be between 1 and 4. In this response, path is relative to the focused subtree root and uiPath is the original window-root path for follow-up actions.")]
     public static async Task<string> DescribeSelectedWindowFocus(
         UiAutomationExecutor executor,
         WindowSelectionState selectionState,
