@@ -394,6 +394,23 @@ internal static class WindowAutomation
         var normalizedPath = NormalizeElementPath(elementPath);
         var windowElement = AutomationElement.FromHandle(handle);
         var targetElement = ResolveElementPath(windowElement, normalizedPath);
+        var directInvocation = TryInvokeAutomationElementOrDescendant(targetElement, normalizedPath);
+        if (directInvocation is not null)
+        {
+            var directUiSettle = WaitForUiToSettle(handle, settleObserver);
+            if (!ShouldRetryInvocationWithKeyboard(windowElement, targetElement, directUiSettle))
+            {
+                return new ElementInvocationResult(
+                    BuildWindowDescriptor(handle),
+                    BuildElementSnapshot(directInvocation.Value.Element, directInvocation.Value.Path, [], includeChildren: false),
+                    "direct_activation",
+                    [],
+                    0,
+                    directInvocation.Value.ActionTaken,
+                    directUiSettle);
+            }
+        }
+
         var invocationTarget = InvokeElementViaKeyboardNavigation(handle, windowElement, targetElement, normalizedPath);
         var uiSettle = WaitForUiToSettle(handle, settleObserver);
 
@@ -2398,6 +2415,44 @@ internal static class WindowAutomation
         return null;
     }
 
+    private static (AutomationElement Element, string Path, string ActionTaken)? TryInvokeAutomationElementOrDescendant(
+        AutomationElement element,
+        string path)
+    {
+        var actionTaken = TryInvokeAutomationElementDirectly(element);
+        if (actionTaken is not null)
+        {
+            return (AutomationElement.FocusedElement ?? element, path, actionTaken);
+        }
+
+        var children = element.FindAll(TreeScope.Children, Condition.TrueCondition);
+        for (var i = 0; i < children.Count; i++)
+        {
+            var childPath = path == "root" ? $"{i}" : $"{path}/{i}";
+            var invokedChild = TryInvokeAutomationElementOrDescendant(children[i], childPath);
+            if (invokedChild is not null)
+            {
+                return invokedChild;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? TryInvokeAutomationElementDirectly(AutomationElement element)
+    {
+        var focusAction = TryFocusElement(element);
+
+        if (TryGetPattern<InvokePattern>(element, InvokePattern.Pattern, out var invokePattern))
+        {
+            invokePattern.Invoke();
+            Thread.Sleep(150);
+            return focusAction is null ? "invoked" : $"{focusAction}_then_invoked";
+        }
+
+        return null;
+    }
+
     private static bool TryResolveClickableScreenPoint(
         AutomationElement element,
         WindowBounds windowBounds,
@@ -2531,6 +2586,32 @@ internal static class WindowAutomation
         }
 
         return null;
+    }
+
+    private static bool ShouldRetryInvocationWithKeyboard(
+        AutomationElement windowElement,
+        AutomationElement targetElement,
+        UiSettleResult uiSettle)
+    {
+        if (uiSettle.WindowInteractionStateChangeCount > 0 ||
+            uiSettle.StructureChangedEventCount > 0 ||
+            uiSettle.AsyncContentLoadedEventCount > 0)
+        {
+            return false;
+        }
+
+        var focusedElement = AutomationElement.FocusedElement;
+        if (focusedElement is null)
+        {
+            return false;
+        }
+
+        if (!IsSameOrDescendantOf(focusedElement, windowElement))
+        {
+            return false;
+        }
+
+        return IsSameOrDescendantOf(focusedElement, targetElement);
     }
 
     private static (AutomationElement Element, string Path, IReadOnlyList<string> NavigationKeys, string ActionTaken) InvokeElementViaKeyboardNavigation(

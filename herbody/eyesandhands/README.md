@@ -362,7 +362,7 @@ Notes:
 
 ### `invoke_selected_window_element`
 
-Activates a specific element in the selected window by its UI Automation path. The tool focuses the target directly when possible, otherwise it falls back to keyboard navigation and then presses `Enter`.
+Activates a specific element in the selected window by its UI Automation path. The tool first tries to focus the target and invoke it directly through UI Automation. If direct activation is unavailable, or appears to be a no-op, it falls back to keyboard navigation and then presses `Enter`.
 
 Parameters:
 
@@ -411,9 +411,9 @@ Response shape:
 Notes:
 
 - Use this tool for visible control activation requests even when the user phrases the action as click, press, open, or select.
-- It keeps the selected window in the foreground, watches the live focused element, and stops as soon as the target element or one of its descendants receives focus.
+- It keeps the selected window in the foreground, first attempts a direct UIA focus-plus-invoke on the requested subtree, and only then falls back to keyboard navigation.
 - `navigationKeys` shows the exact Tab and arrow keys the tool sent while searching for the target.
-- `actionTaken` is `pressed_enter_on_focused_element` when focus was already on target, or `focused_via_keyboard_then_pressed_enter` when keyboard navigation was needed.
+- `actionTaken` is `focused_then_invoked` when direct UIA activation succeeds, `pressed_enter_on_focused_element` when keyboard fallback starts with the target already focused, or `focused_via_keyboard_then_pressed_enter` when keyboard navigation was needed.
 
 ### `send_input_to_window`
 
