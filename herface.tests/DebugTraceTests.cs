@@ -48,4 +48,23 @@ public sealed class DebugTraceTests
         Assert.False(McpClientManager.ShouldLogFullToolPayload("click_selected_window_element", "{ }"));
         Assert.False(McpClientManager.ShouldLogFullToolPayload("describe_selected_window", ""));
     }
+
+    [Fact]
+    public void ExtractImageFilePathsFromJsonText_ReturnsReferencedImagePaths()
+    {
+        const string json = """
+        {
+          "ImagePath": "C:\\temp\\shot1.png",
+          "Nested": {
+            "screenshotPath": "C:\\temp\\shot2.png"
+          }
+        }
+        """;
+
+        var actual = McpClientManager.ExtractImageFilePathsFromJsonText(json);
+
+        Assert.Equal(
+            [@"C:\temp\shot1.png", @"C:\temp\shot2.png"],
+            actual);
+    }
 }

@@ -104,14 +104,22 @@ internal sealed class McpClientManager : IAsyncDisposable
             var textBlocks = result.Content.OfType<TextContentBlock>().Select(block => block.Text);
             var text = string.Join('\n', textBlocks);
             var images = ExtractImages(result.Content, text);
+            var imagePaths = ExtractImageFilePathsFromJsonText(text);
+            var logLines = new List<string>
+            {
+                $"server={serverName}",
+                $"tool={toolName}",
+                $"images={images.Count}",
+                $"result={DebugTrace.Preview(text, 1000)}"
+            };
+            if (imagePaths.Count > 0)
+            {
+                logLines.Add($"imagePaths={string.Join(", ", imagePaths)}");
+            }
+
             DebugTrace.WriteBlock(
                 "mcp.call.complete",
-                [
-                    $"server={serverName}",
-                    $"tool={toolName}",
-                    $"images={images.Count}",
-                    $"result={DebugTrace.Preview(text, 1000)}"
-                ]);
+                logLines);
             if (ShouldLogFullToolPayload(toolName, text))
             {
                 DebugTrace.WriteTextBlock(
@@ -211,7 +219,7 @@ internal sealed class McpClientManager : IAsyncDisposable
             or "describe_selected_window_focus";
     }
 
-    private static IReadOnlyList<ToolImage> ExtractImagesFromJsonText(string toolText)
+    internal static IReadOnlyList<string> ExtractImageFilePathsFromJsonText(string toolText)
     {
         if (string.IsNullOrWhiteSpace(toolText))
         {
@@ -221,8 +229,35 @@ internal sealed class McpClientManager : IAsyncDisposable
         try
         {
             using var document = JsonDocument.Parse(toolText);
+            var paths = new List<string>();
+            CollectImageFilePaths(document.RootElement, paths);
+            return paths
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static IReadOnlyList<ToolImage> ExtractImagesFromJsonText(string toolText)
+    {
+        if (string.IsNullOrWhiteSpace(toolText))
+        {
+            return [];
+        }
+
+        try
+        {
             var images = new List<ToolImage>();
-            CollectImageFilePaths(document.RootElement, images);
+            foreach (var path in ExtractImageFilePathsFromJsonText(toolText))
+            {
+                if (TryLoadImageFile(path, out var image))
+                {
+                    images.Add(image);
+                }
+            }
             return images;
         }
         catch
@@ -231,7 +266,7 @@ internal sealed class McpClientManager : IAsyncDisposable
         }
     }
 
-    private static void CollectImageFilePaths(JsonElement element, List<ToolImage> images)
+    private static void CollectImageFilePaths(JsonElement element, List<string> paths)
     {
         switch (element.ValueKind)
         {
@@ -239,14 +274,17 @@ internal sealed class McpClientManager : IAsyncDisposable
                 foreach (var property in element.EnumerateObject())
                 {
                     if (property.Value.ValueKind == JsonValueKind.String
-                        && IsImagePathProperty(property.Name)
-                        && TryLoadImageFile(property.Value.GetString(), out var image))
+                        && IsImagePathProperty(property.Name))
                     {
-                        images.Add(image);
+                        var path = property.Value.GetString();
+                        if (!string.IsNullOrWhiteSpace(path))
+                        {
+                            paths.Add(path);
+                        }
                     }
                     else
                     {
-                        CollectImageFilePaths(property.Value, images);
+                        CollectImageFilePaths(property.Value, paths);
                     }
                 }
 
@@ -255,7 +293,7 @@ internal sealed class McpClientManager : IAsyncDisposable
             case JsonValueKind.Array:
                 foreach (var item in element.EnumerateArray())
                 {
-                    CollectImageFilePaths(item, images);
+                    CollectImageFilePaths(item, paths);
                 }
 
                 break;

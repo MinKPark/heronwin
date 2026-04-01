@@ -12,6 +12,7 @@ Console.CancelKeyPress += (_, args) =>
 };
 
 var config = AppConfig.Load();
+ArtifactCleanup.CleanupPreviousRunArtifacts(AppContext.BaseDirectory, Environment.ProcessPath);
 DebugTrace.Configure(config.DebugAudioPlayback);
 Display.Banner();
 using var httpClient = new HttpClient();
@@ -294,6 +295,10 @@ catch (OperationCanceledException)
 
 Display.Info("Shutting down...");
 DebugTrace.WriteEvent("session.shutdown", "Application shutdown completed.");
+if (!DebugTrace.IsEnabled)
+{
+    ArtifactCleanup.CleanupCurrentRunArtifacts(DebugTrace.LogFilePath);
+}
 PrintDebugLogPathIfEnabled();
 return;
 
