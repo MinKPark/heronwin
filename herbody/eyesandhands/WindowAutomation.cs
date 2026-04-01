@@ -925,7 +925,18 @@ internal static class WindowAutomation
             return true;
         }
 
-        return IsSettledInteractionState(interactionState);
+        if (IsSettledInteractionState(interactionState))
+        {
+            return true;
+        }
+
+        if (interactionState is not null)
+        {
+            return false;
+        }
+
+        return lastObservedChangeUtc is null ||
+               utcNow - lastObservedChangeUtc.Value >= quietPeriod;
     }
 
     private static AutomationElement FindMainMenuBar(AutomationElement windowElement)

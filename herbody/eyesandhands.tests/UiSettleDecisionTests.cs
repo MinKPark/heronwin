@@ -66,6 +66,36 @@ public sealed class UiSettleDecisionTests
     }
 
     [Fact]
+    public void IsUiChangeSettled_ReturnsTrue_WhenStateIsIndefiniteButQuietPeriodElapsed()
+    {
+        var now = DateTime.UtcNow;
+
+        var settled = WindowAutomation.IsUiChangeSettled(
+            windowAvailable: true,
+            interactionState: null,
+            utcNow: now,
+            lastObservedChangeUtc: now - TimeSpan.FromMilliseconds(250),
+            quietPeriod: TimeSpan.FromMilliseconds(200));
+
+        Assert.True(settled);
+    }
+
+    [Fact]
+    public void IsUiChangeSettled_ReturnsTrue_WhenStateIsIndefiniteAndNoChangesWereObserved()
+    {
+        var now = DateTime.UtcNow;
+
+        var settled = WindowAutomation.IsUiChangeSettled(
+            windowAvailable: true,
+            interactionState: null,
+            utcNow: now,
+            lastObservedChangeUtc: null,
+            quietPeriod: TimeSpan.FromMilliseconds(200));
+
+        Assert.True(settled);
+    }
+
+    [Fact]
     public void IsUiChangeSettled_TreatsBlockedByModalWindowAsSettled()
     {
         var now = DateTime.UtcNow;
