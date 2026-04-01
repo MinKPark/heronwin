@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace HeronWin.HerFace;
 
@@ -67,6 +68,12 @@ internal static class AgentRunner
         if (!string.IsNullOrWhiteSpace(runtimeToolPolicy))
         {
             messages.Add(new AgentMessage.Summary(runtimeToolPolicy));
+        }
+
+        var ordinalActionSummary = BuildOrdinalActionReferenceSummary(userText, history);
+        if (!string.IsNullOrWhiteSpace(ordinalActionSummary))
+        {
+            messages.Add(new AgentMessage.Summary(ordinalActionSummary));
         }
 
         messages.Add(new AgentMessage.User(userText));
@@ -333,6 +340,30 @@ internal static class AgentRunner
         return string.Join(" ", parts);
     }
 
+    internal static string? BuildOrdinalActionReferenceSummary(
+        string userText,
+        IReadOnlyList<AgentMessage> history)
+    {
+        var ordinalIndex = TryResolveOrdinalActionIndex(userText);
+        if (ordinalIndex is null)
+        {
+            return null;
+        }
+
+        var likelyNextActions = FindMostRecentLikelyNextActions(history);
+        if (likelyNextActions.Count == 0)
+        {
+            return "If the user refers to a first, second, or third action but you did not previously give an explicit likely-next-actions list, ask for clarification instead of inventing a new ordering from the UI tree.";
+        }
+
+        if (ordinalIndex.Value >= likelyNextActions.Count)
+        {
+            return $"The user's ordinal reference exceeds the last explicit likely-next-actions list, which was: {FormatNumberedActions(likelyNextActions)}. Ask for clarification instead of inventing a new ordering from the UI tree.";
+        }
+
+        return $"The user's ordinal reference should resolve against the last explicit likely-next-actions list: {FormatNumberedActions(likelyNextActions)}. So \"{GetOrdinalWord(ordinalIndex.Value)} action\" means: {likelyNextActions[ordinalIndex.Value]}. Use that mapping unless the user explicitly overrides it.";
+    }
+
     internal static bool ShouldCollectFocusSnapshotAfterAction(
         string toolName,
         IReadOnlyDictionary<string, object?> args)
@@ -374,6 +405,100 @@ internal static class AgentRunner
         }
 
         return "Raw keyboard navigation is a weaker fallback for visible control activation. Before sending more standalone navigation keys, prefer `invoke_selected_window_element` on a candidate element path and use `send_input_to_window` only for explicit shortcut or text-entry requests.";
+    }
+
+    internal static int? TryResolveOrdinalActionIndex(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        var normalized = text.ToLowerInvariant();
+        return normalized switch
+        {
+            _ when Regex.IsMatch(normalized, @"\bfirst\s+(action|option|one)\b") => 0,
+            _ when Regex.IsMatch(normalized, @"\bsecond\s+(action|option|one)\b") => 1,
+            _ when Regex.IsMatch(normalized, @"\bthird\s+(action|option|one)\b") => 2,
+            _ => null
+        };
+    }
+
+    internal static IReadOnlyList<string> FindMostRecentLikelyNextActions(IReadOnlyList<AgentMessage> history)
+    {
+        for (var i = history.Count - 1; i >= 0; i--)
+        {
+            if (history[i] is not AgentMessage.Assistant { ToolCalls: null } assistant ||
+                string.IsNullOrWhiteSpace(assistant.Content))
+            {
+                continue;
+            }
+
+            var parsed = AssistantResponseParser.Parse(assistant.Content);
+            var actions = ExtractLikelyNextActions(parsed.SpokenText);
+            if (actions.Count > 0)
+            {
+                return actions;
+            }
+
+            actions = ExtractLikelyNextActions(parsed.LogText);
+            if (actions.Count > 0)
+            {
+                return actions;
+            }
+        }
+
+        return [];
+    }
+
+    internal static IReadOnlyList<string> ExtractLikelyNextActions(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return [];
+        }
+
+        var match = Regex.Match(
+            text,
+            @"Likely next actions:\s*(.+?)(?:$|\r?\n)",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (!match.Success)
+        {
+            return [];
+        }
+
+        var listText = match.Groups[1].Value.Trim();
+        listText = listText.TrimEnd('.', '!', '?');
+        if (listText.Length == 0)
+        {
+            return [];
+        }
+
+        listText = Regex.Replace(listText, @"\s*,\s*or\s+", "|", RegexOptions.IgnoreCase);
+        listText = Regex.Replace(listText, @"\s+or\s+", "|", RegexOptions.IgnoreCase);
+        listText = Regex.Replace(listText, @"\s*,\s*", "|");
+
+        return listText
+            .Split('|', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Select(action => action.Trim())
+            .Where(action => action.Length > 0)
+            .ToArray();
+    }
+
+    private static string FormatNumberedActions(IReadOnlyList<string> actions)
+    {
+        return string.Join(" ", actions.Select((action, index) => $"{index + 1}) {action}."));
+    }
+
+    private static string GetOrdinalWord(int zeroBasedIndex)
+    {
+        return zeroBasedIndex switch
+        {
+            0 => "first",
+            1 => "second",
+            2 => "third",
+            _ => $"{zeroBasedIndex + 1}th"
+        };
     }
 
     private static bool NeedsRepair(string rawText, AgentReply reply, bool usedAnyTools, bool performedDesktopAction)

@@ -88,4 +88,42 @@ public sealed class AgentRunnerDecisionTests
 
         Assert.Null(actual);
     }
+
+    [Fact]
+    public void ExtractLikelyNextActions_ParsesAssistantList()
+    {
+        var actual = AgentRunner.ExtractLikelyNextActions(
+            "Netflix opened successfully. Likely next actions: open Search, press Play on HUNINT, or open the profile menu.");
+
+        Assert.Equal(
+            ["open Search", "press Play on HUNINT", "open the profile menu"],
+            actual);
+    }
+
+    [Fact]
+    public void BuildOrdinalActionReferenceSummary_UsesMostRecentLikelyNextActions()
+    {
+        var history = new List<AgentMessage>
+        {
+            new AgentMessage.Assistant("{\"say\":\"Netflix opened successfully. Likely next actions: open Search, press Play on HUNINT, or open the profile menu.\",\"log\":\"\"}")
+        };
+
+        var actual = AgentRunner.BuildOrdinalActionReferenceSummary("No, do second action.", history);
+
+        Assert.NotNull(actual);
+        Assert.Contains("press Play on HUNINT", actual!, StringComparison.Ordinal);
+        Assert.Contains("1) open Search.", actual, StringComparison.Ordinal);
+        Assert.Contains("2) press Play on HUNINT.", actual, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildOrdinalActionReferenceSummary_AsksForClarification_WhenNoPriorListExists()
+    {
+        var actual = AgentRunner.BuildOrdinalActionReferenceSummary(
+            "Do second action.",
+            [new AgentMessage.Assistant("{\"say\":\"What should I do next?\",\"log\":\"\"}")]);
+
+        Assert.NotNull(actual);
+        Assert.Contains("ask for clarification", actual!, StringComparison.OrdinalIgnoreCase);
+    }
 }
