@@ -171,6 +171,11 @@ while (!cancellationSource.IsCancellationRequested)
     {
         await WaitForTurnOutputToFinishAsync(cancellationSource.Token);
         Display.Info(isActive ? "Listening..." : $"Waiting for {config.WakeWord}...");
+        if (isActive)
+        {
+            await PlayAudioOutputAsync(AudioPlayback.PlayRecordingStartCueAsync);
+        }
+
         recording = await AudioRecorder.RecordAsync(config.MaxRecordMs, maxWaitForSpeechMs, cancellationSource.Token);
 
         if (recording is null)
