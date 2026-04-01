@@ -248,6 +248,26 @@ internal static class AgentRunner
                         DebugTrace.WriteEvent(
                             "agent.desktop_followup_snapshot",
                             $"turn={turnId}, tool={toolCall.Name}, result={DebugTrace.Preview(postActionSnapshot.Text, 700)}, images={postActionSnapshot.Images.Count}");
+
+                        if (ShouldCollectFocusSnapshotAfterAction(toolCall.Name, parsedArgsDictionary))
+                        {
+                            var focusSnapshot = await mcpManager.CallToolAsync(
+                                "describe_selected_window_focus",
+                                new Dictionary<string, object?> { ["maxDepth"] = 3 },
+                                cancellationToken);
+                            Display.ToolResult("describe_selected_window_focus", focusSnapshot.Text, focusSnapshot.Images.Count);
+                            followUpEvidence.Add(new AgentMessage.User(
+                                $"Post-action focused element snapshot after tool \"{toolCall.Name}\":\n{focusSnapshot.Text}\nTreat this focused subtree as fresher evidence than any older focus assumptions before sending more navigation keys."));
+                            DebugTrace.WriteEvent(
+                                "agent.desktop_followup_focus_snapshot",
+                                $"turn={turnId}, tool={toolCall.Name}, result={DebugTrace.Preview(focusSnapshot.Text, 700)}, images={focusSnapshot.Images.Count}");
+                        }
+
+                        var toolSpecificGuidance = BuildToolSpecificGuidance(toolCall.Name, toolOutput.Text, parsedArgsDictionary);
+                        if (!string.IsNullOrWhiteSpace(toolSpecificGuidance))
+                        {
+                            followUpEvidence.Add(new AgentMessage.User(toolSpecificGuidance));
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -274,6 +294,50 @@ internal static class AgentRunner
             or "invoke_main_menu_item"
             or "invoke_context_menu_item"
             or "send_input_to_window";
+
+    internal static bool ShouldCollectFocusSnapshotAfterAction(
+        string toolName,
+        IReadOnlyDictionary<string, object?> args)
+    {
+        if (toolName != "send_input_to_window")
+        {
+            return false;
+        }
+
+        var key = TryGetStringArgument(args, "key");
+        return key is not null && key.Trim() is "Tab" or "Left" or "Right" or "Up" or "Down";
+    }
+
+    internal static string? BuildToolSpecificGuidance(
+        string toolName,
+        string toolOutputText,
+        IReadOnlyDictionary<string, object?> args)
+    {
+        _ = args;
+
+        if (toolName != "click_selected_window_element")
+        {
+            return null;
+        }
+
+        if (!TryParseClickedElementSummary(toolOutputText, out var clickedControlType, out var clickedName, out var clickedAutomationId))
+        {
+            return null;
+        }
+
+        var isGenericContainer =
+            string.IsNullOrWhiteSpace(clickedName) &&
+            (clickedControlType is "Group" or "Pane" or "Document" or "Window") &&
+            (string.IsNullOrWhiteSpace(clickedAutomationId) ||
+             string.Equals(clickedAutomationId, "appMountPoint", StringComparison.OrdinalIgnoreCase));
+
+        if (!isGenericContainer)
+        {
+            return null;
+        }
+
+        return "The prior click landed on a generic container rather than a precise visible control. Do not repeat that same container click path. Prefer `invoke_selected_window_element` for a focused Enter-based fallback, or refresh focus with `describe_selected_window_focus` before trying a short keyboard-navigation path.";
+    }
 
     private static bool NeedsRepair(string rawText, AgentReply reply, bool usedAnyTools, bool performedDesktopAction)
     {
@@ -394,6 +458,47 @@ internal static class AgentRunner
             JsonElement element when element.ValueKind == JsonValueKind.String => element.GetString(),
             _ => value.ToString()
         };
+    }
+
+    internal static bool TryParseClickedElementSummary(
+        string toolOutputText,
+        out string? controlType,
+        out string? name,
+        out string? automationId)
+    {
+        controlType = null;
+        name = null;
+        automationId = null;
+
+        if (string.IsNullOrWhiteSpace(toolOutputText))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(toolOutputText);
+            if (!document.RootElement.TryGetProperty("ClickedElement", out var clickedElement) ||
+                clickedElement.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            controlType = clickedElement.TryGetProperty("ControlType", out var controlTypeProperty)
+                ? controlTypeProperty.GetString()
+                : null;
+            name = clickedElement.TryGetProperty("Name", out var nameProperty)
+                ? nameProperty.GetString()
+                : null;
+            automationId = clickedElement.TryGetProperty("AutomationId", out var automationIdProperty)
+                ? automationIdProperty.GetString()
+                : null;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 }
 

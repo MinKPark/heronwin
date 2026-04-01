@@ -2389,7 +2389,14 @@ internal static class WindowAutomation
             return false;
         }
 
-        if (!string.IsNullOrWhiteSpace(name) || !string.IsNullOrWhiteSpace(automationId))
+        var normalizedAutomationId = automationId.Trim();
+        var shouldTreatAutomationIdAsGenericContainer = string.Equals(
+            normalizedAutomationId,
+            "appMountPoint",
+            StringComparison.OrdinalIgnoreCase);
+
+        if (!string.IsNullOrWhiteSpace(name) ||
+            (!string.IsNullOrWhiteSpace(normalizedAutomationId) && !shouldTreatAutomationIdAsGenericContainer))
         {
             return false;
         }

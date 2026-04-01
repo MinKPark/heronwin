@@ -35,6 +35,21 @@ public sealed class ClickTargetHeuristicsTests
     }
 
     [Fact]
+    public void IsLikelyImpreciseContainerClickTarget_ReturnsTrue_ForAppMountPointContainer()
+    {
+        var result = WindowAutomation.IsLikelyImpreciseContainerClickTarget(
+            "Group",
+            "",
+            "appMountPoint",
+            isKeyboardFocusable: false,
+            new ElementBounds(-1920, 40, 1901, 3565),
+            new ElementBounds(-1920, 40, 1901, 1000),
+            new WindowBounds(-1928, -8, 1936, 1048));
+
+        Assert.True(result);
+    }
+
+    [Fact]
     public void IsLikelyImpreciseContainerClickTarget_ReturnsFalse_ForNamedButton()
     {
         var result = WindowAutomation.IsLikelyImpreciseContainerClickTarget(

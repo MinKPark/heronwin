@@ -40,4 +40,57 @@ public sealed class AgentRunnerDecisionTests
 
         Assert.False(actual);
     }
+
+    [Fact]
+    public void ShouldCollectFocusSnapshotAfterAction_ReturnsTrue_ForNavigationKeys()
+    {
+        var actual = AgentRunner.ShouldCollectFocusSnapshotAfterAction(
+            "send_input_to_window",
+            new Dictionary<string, object?> { ["key"] = "Tab" });
+
+        Assert.True(actual);
+    }
+
+    [Fact]
+    public void BuildToolSpecificGuidance_ReturnsHint_ForGenericContainerClick()
+    {
+        const string toolOutput = """
+        {
+          "ClickedElement": {
+            "ControlType": "Group",
+            "Name": "",
+            "AutomationId": "appMountPoint"
+          }
+        }
+        """;
+
+        var actual = AgentRunner.BuildToolSpecificGuidance(
+            "click_selected_window_element",
+            toolOutput,
+            new Dictionary<string, object?>());
+
+        Assert.NotNull(actual);
+        Assert.Contains("invoke_selected_window_element", actual);
+    }
+
+    [Fact]
+    public void BuildToolSpecificGuidance_ReturnsNull_ForNamedButtonClick()
+    {
+        const string toolOutput = """
+        {
+          "ClickedElement": {
+            "ControlType": "Button",
+            "Name": "Play",
+            "AutomationId": "play-button"
+          }
+        }
+        """;
+
+        var actual = AgentRunner.BuildToolSpecificGuidance(
+            "click_selected_window_element",
+            toolOutput,
+            new Dictionary<string, object?>());
+
+        Assert.Null(actual);
+    }
 }
