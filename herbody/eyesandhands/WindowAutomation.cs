@@ -351,8 +351,18 @@ internal static class WindowAutomation
         var normalizedPath = NormalizeElementPath(elementPath);
         var normalizedButton = NormalizeMouseButton(mouseButton);
         var windowElement = AutomationElement.FromHandle(handle);
+        if (!NativeMethods.GetWindowRect(handle, out var rect))
+        {
+            throw new InvalidOperationException("Could not determine the bounds of the selected window.");
+        }
+
+        var windowBounds = new WindowBounds(
+            rect.Left,
+            rect.Top,
+            rect.Right - rect.Left,
+            rect.Bottom - rect.Top);
         var targetElement = ResolveElementPath(windowElement, normalizedPath);
-        var clickableTarget = ResolveClickableElementOrDescendant(targetElement, normalizedPath);
+        var clickableTarget = ResolveClickableElementOrDescendant(targetElement, normalizedPath, windowBounds);
 
         ClickAtScreenPoint(clickableTarget.ClickPoint, normalizedButton);
         var uiSettle = WaitForUiToSettle(handle, settleObserver);
@@ -2230,10 +2240,11 @@ internal static class WindowAutomation
 
     private static (AutomationElement Element, string Path, string? PreparationActionTaken, ScreenPoint ClickPoint) ResolveClickableElementOrDescendant(
         AutomationElement element,
-        string path)
+        string path,
+        WindowBounds windowBounds)
     {
         var preparationActionTaken = TryPrepareElementForMouseClick(element);
-        if (TryResolveClickableScreenPoint(element, out var clickPoint))
+        if (TryResolveClickableScreenPoint(element, windowBounds, out var clickPoint))
         {
             return (element, path, preparationActionTaken, clickPoint);
         }
@@ -2244,7 +2255,7 @@ internal static class WindowAutomation
             var childPath = path == "root" ? $"{i}" : $"{path}/{i}";
             try
             {
-                return ResolveClickableElementOrDescendant(children[i], childPath);
+                return ResolveClickableElementOrDescendant(children[i], childPath, windowBounds);
             }
             catch (InvalidOperationException)
             {
@@ -2308,7 +2319,10 @@ internal static class WindowAutomation
         return null;
     }
 
-    private static bool TryResolveClickableScreenPoint(AutomationElement element, out ScreenPoint clickPoint)
+    private static bool TryResolveClickableScreenPoint(
+        AutomationElement element,
+        WindowBounds windowBounds,
+        out ScreenPoint clickPoint)
     {
         clickPoint = default;
 
@@ -2318,10 +2332,83 @@ internal static class WindowAutomation
             return false;
         }
 
+        if (!TryResolveVisibleClickArea(bounds, windowBounds, out var visibleBounds))
+        {
+            return false;
+        }
+
+        if (IsLikelyImpreciseContainerClickTarget(
+            GetControlTypeName(element),
+            GetElementName(element),
+            GetAutomationId(element),
+            GetIsKeyboardFocusable(element),
+            bounds,
+            visibleBounds,
+            windowBounds))
+        {
+            return false;
+        }
+
         clickPoint = new ScreenPoint(
-            (int)Math.Round(bounds.Left + (bounds.Width / 2d), MidpointRounding.AwayFromZero),
-            (int)Math.Round(bounds.Top + (bounds.Height / 2d), MidpointRounding.AwayFromZero));
+            (int)Math.Round(visibleBounds.Left + (visibleBounds.Width / 2d), MidpointRounding.AwayFromZero),
+            (int)Math.Round(visibleBounds.Top + (visibleBounds.Height / 2d), MidpointRounding.AwayFromZero));
         return true;
+    }
+
+    internal static bool TryResolveVisibleClickArea(
+        ElementBounds elementBounds,
+        WindowBounds windowBounds,
+        out ElementBounds visibleBounds)
+    {
+        var left = Math.Max(elementBounds.Left, windowBounds.Left);
+        var top = Math.Max(elementBounds.Top, windowBounds.Top);
+        var right = Math.Min(elementBounds.Left + elementBounds.Width, windowBounds.Left + windowBounds.Width);
+        var bottom = Math.Min(elementBounds.Top + elementBounds.Height, windowBounds.Top + windowBounds.Height);
+
+        if (right - left <= 1 || bottom - top <= 1)
+        {
+            visibleBounds = null!;
+            return false;
+        }
+
+        visibleBounds = new ElementBounds(left, top, right - left, bottom - top);
+        return true;
+    }
+
+    internal static bool IsLikelyImpreciseContainerClickTarget(
+        string controlType,
+        string name,
+        string automationId,
+        bool isKeyboardFocusable,
+        ElementBounds elementBounds,
+        ElementBounds visibleBounds,
+        WindowBounds windowBounds)
+    {
+        if (isKeyboardFocusable)
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(name) || !string.IsNullOrWhiteSpace(automationId))
+        {
+            return false;
+        }
+
+        if (controlType is not ("Group" or "Pane" or "Document" or "Window"))
+        {
+            return false;
+        }
+
+        var windowArea = Math.Max(1d, windowBounds.Width * windowBounds.Height);
+        var visibleArea = Math.Max(0d, visibleBounds.Width) * Math.Max(0d, visibleBounds.Height);
+        var widthRatio = visibleBounds.Width / Math.Max(1d, windowBounds.Width);
+        var heightRatio = visibleBounds.Height / Math.Max(1d, windowBounds.Height);
+        var areaRatio = visibleArea / windowArea;
+        var isVeryTallContainer = elementBounds.Height >= windowBounds.Height * 2d;
+
+        return areaRatio >= 0.35d ||
+               (widthRatio >= 0.8d && heightRatio >= 0.35d) ||
+               isVeryTallContainer;
     }
 
     private static string? TryFocusElement(AutomationElement element)
