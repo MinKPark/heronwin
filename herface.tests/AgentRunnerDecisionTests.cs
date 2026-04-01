@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Xunit;
 
 namespace HeronWin.HerFace.Tests;
@@ -52,44 +53,38 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
-    public void BuildToolSpecificGuidance_ReturnsHint_ForGenericContainerClick()
+    public void BuildRuntimeToolPolicy_ReturnsInvokePreference_WhenRelevantToolsExist()
     {
-        const string toolOutput = """
-        {
-          "ClickedElement": {
-            "ControlType": "Group",
-            "Name": "",
-            "AutomationId": "appMountPoint"
-          }
-        }
-        """;
-
-        var actual = AgentRunner.BuildToolSpecificGuidance(
-            "click_selected_window_element",
-            toolOutput,
-            new Dictionary<string, object?>());
+        var actual = AgentRunner.BuildRuntimeToolPolicy(
+            [
+                new ToolDefinition("invoke_selected_window_element", "desc", default),
+                new ToolDefinition("send_input_to_window", "desc", default)
+            ]);
 
         Assert.NotNull(actual);
-        Assert.Contains("invoke_selected_window_element", actual);
+        Assert.Contains("invoke_selected_window_element", actual!, StringComparison.Ordinal);
+        Assert.Contains("send_input_to_window only", actual, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public void BuildToolSpecificGuidance_ReturnsNull_ForNamedButtonClick()
+    public void BuildToolSpecificGuidance_ReturnsHint_ForNavigationKeyFallback()
     {
-        const string toolOutput = """
-        {
-          "ClickedElement": {
-            "ControlType": "Button",
-            "Name": "Play",
-            "AutomationId": "play-button"
-          }
-        }
-        """;
-
         var actual = AgentRunner.BuildToolSpecificGuidance(
-            "click_selected_window_element",
-            toolOutput,
-            new Dictionary<string, object?>());
+            "send_input_to_window",
+            "{}",
+            new Dictionary<string, object?> { ["key"] = "Tab" });
+
+        Assert.NotNull(actual);
+        Assert.Contains("invoke_selected_window_element", actual!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildToolSpecificGuidance_ReturnsNull_ForModifiedShortcut()
+    {
+        var actual = AgentRunner.BuildToolSpecificGuidance(
+            "send_input_to_window",
+            "{}",
+            new Dictionary<string, object?> { ["key"] = "F4", ["modifiers"] = JsonDocument.Parse("""["Alt"]""").RootElement });
 
         Assert.Null(actual);
     }

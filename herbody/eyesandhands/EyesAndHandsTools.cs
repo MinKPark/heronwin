@@ -127,28 +127,11 @@ public static class EyesAndHandsTools
         return WindowAutomation.Serialize(result);
     }
 
-    [McpServerTool, Description("Mouse-click a specific child element in the selected window using the slash-delimited path returned by describe_selected_window, such as 0, 1/3, or 2/0/1. Supports left and right clicks.")]
-    public static async Task<string> ClickSelectedWindowElement(
-        UiAutomationExecutor executor,
-        WindowSelectionState selectionState,
-        [Description("Slash-delimited child path from describe_selected_window. Use root to click the window element itself.")]
-        string elementPath,
-        [Description("Mouse button to press: left or right. Defaults to left.")]
-        string mouseButton = "left",
-        CancellationToken cancellationToken = default)
-    {
-        var result = await executor.RunAsync(
-            () => WindowAutomation.ClickSelectedWindowElement(selectionState, elementPath, mouseButton),
-            cancellationToken);
-
-        return WindowAutomation.Serialize(result);
-    }
-
-    [McpServerTool, Description("Focus a specific child element in the selected window by navigating with Tab and arrow keys until the target element receives focus, then press Enter to invoke it. Use this as a fallback when direct InvokePattern activation or mouse clicks do not work.")]
+    [McpServerTool, Description("Activate a specific child element in the selected window by its UI Automation path. The tool focuses the target directly when possible, otherwise it falls back to Tab and arrow-key navigation until the target element receives focus, then presses Enter. Use it for visible control activation requests such as click, press, open, select, or invoke.")]
     public static async Task<string> InvokeSelectedWindowElement(
         UiAutomationExecutor executor,
         WindowSelectionState selectionState,
-        [Description("Slash-delimited child path from describe_selected_window. Use root to invoke the selected window itself.")]
+        [Description("Slash-delimited child path from describe_selected_window. Use the explicit path or uiPath value returned by the describe tools. Use root to invoke the selected window itself.")]
         string elementPath,
         CancellationToken cancellationToken = default)
     {

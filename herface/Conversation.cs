@@ -62,7 +62,14 @@ internal static class AgentRunner
         CancellationToken cancellationToken)
     {
         var tools = await mcpManager.ListAllToolsAsync(cancellationToken);
-        var messages = history.Concat([new AgentMessage.User(userText)]).ToList();
+        var messages = history.ToList();
+        var runtimeToolPolicy = BuildRuntimeToolPolicy(tools);
+        if (!string.IsNullOrWhiteSpace(runtimeToolPolicy))
+        {
+            messages.Add(new AgentMessage.Summary(runtimeToolPolicy));
+        }
+
+        messages.Add(new AgentMessage.User(userText));
         DebugTrace.WriteEvent(
             "agent.turn.start",
             $"turn={turnId}, historyMessages={history.Count}, toolsAvailable={tools.Count}, provider={llmClient.DisplayName}");
@@ -288,12 +295,43 @@ internal static class AgentRunner
         => toolName is "launch_app_via_taskbar_search"
             or "select_taskbar_app"
             or "select_window"
-            or "click_selected_window_element"
             or "focus_selected_window_element"
             or "invoke_selected_window_element"
             or "invoke_main_menu_item"
             or "invoke_context_menu_item"
             or "send_input_to_window";
+
+    internal static string? BuildRuntimeToolPolicy(IReadOnlyList<ToolDefinition> tools)
+    {
+        var toolNames = tools.Select(tool => tool.Name).ToHashSet(StringComparer.Ordinal);
+        if (!toolNames.Contains("invoke_selected_window_element") &&
+            !toolNames.Contains("send_input_to_window"))
+        {
+            return null;
+        }
+
+        var parts = new List<string>();
+        if (toolNames.Contains("invoke_selected_window_element"))
+        {
+            parts.Add(
+                "For requests to click, press, open, select, or otherwise activate a visible UI control by element path, prefer invoke_selected_window_element.");
+        }
+
+        if (toolNames.Contains("send_input_to_window"))
+        {
+            parts.Add(
+                "Use send_input_to_window only when the user explicitly asks for a specific key, shortcut, or text entry, not as a generic fallback for activating visible controls.");
+        }
+
+        if (toolNames.Contains("invoke_selected_window_element") &&
+            toolNames.Contains("send_input_to_window"))
+        {
+            parts.Add(
+                "Do not replace invoke_selected_window_element with standalone Tab, arrow, or other ad hoc navigation keys when trying to activate a visible control.");
+        }
+
+        return string.Join(" ", parts);
+    }
 
     internal static bool ShouldCollectFocusSnapshotAfterAction(
         string toolName,
@@ -313,30 +351,29 @@ internal static class AgentRunner
         string toolOutputText,
         IReadOnlyDictionary<string, object?> args)
     {
-        _ = args;
+        _ = toolOutputText;
 
-        if (toolName != "click_selected_window_element")
+        if (toolName != "send_input_to_window")
         {
             return null;
         }
 
-        if (!TryParseClickedElementSummary(toolOutputText, out var clickedControlType, out var clickedName, out var clickedAutomationId))
+        var key = TryGetStringArgument(args, "key");
+        var hasNavigationKey = key is not null && key.Trim() is "Tab" or "Left" or "Right" or "Up" or "Down";
+        if (!hasNavigationKey)
         {
             return null;
         }
 
-        var isGenericContainer =
-            string.IsNullOrWhiteSpace(clickedName) &&
-            (clickedControlType is "Group" or "Pane" or "Document" or "Window") &&
-            (string.IsNullOrWhiteSpace(clickedAutomationId) ||
-             string.Equals(clickedAutomationId, "appMountPoint", StringComparison.OrdinalIgnoreCase));
-
-        if (!isGenericContainer)
+        if (args.TryGetValue("modifiers", out var modifiersValue) &&
+            modifiersValue is JsonElement modifiersElement &&
+            modifiersElement.ValueKind == JsonValueKind.Array &&
+            modifiersElement.GetArrayLength() > 0)
         {
             return null;
         }
 
-        return "The prior click landed on a generic container rather than a precise visible control. Do not repeat that same container click path. Prefer `invoke_selected_window_element` for a focused Enter-based fallback, or refresh focus with `describe_selected_window_focus` before trying a short keyboard-navigation path.";
+        return "Raw keyboard navigation is a weaker fallback for visible control activation. Before sending more standalone navigation keys, prefer `invoke_selected_window_element` on a candidate element path and use `send_input_to_window` only for explicit shortcut or text-entry requests.";
     }
 
     private static bool NeedsRepair(string rawText, AgentReply reply, bool usedAnyTools, bool performedDesktopAction)
@@ -460,46 +497,6 @@ internal static class AgentRunner
         };
     }
 
-    internal static bool TryParseClickedElementSummary(
-        string toolOutputText,
-        out string? controlType,
-        out string? name,
-        out string? automationId)
-    {
-        controlType = null;
-        name = null;
-        automationId = null;
-
-        if (string.IsNullOrWhiteSpace(toolOutputText))
-        {
-            return false;
-        }
-
-        try
-        {
-            using var document = JsonDocument.Parse(toolOutputText);
-            if (!document.RootElement.TryGetProperty("ClickedElement", out var clickedElement) ||
-                clickedElement.ValueKind != JsonValueKind.Object)
-            {
-                return false;
-            }
-
-            controlType = clickedElement.TryGetProperty("ControlType", out var controlTypeProperty)
-                ? controlTypeProperty.GetString()
-                : null;
-            name = clickedElement.TryGetProperty("Name", out var nameProperty)
-                ? nameProperty.GetString()
-                : null;
-            automationId = clickedElement.TryGetProperty("AutomationId", out var automationIdProperty)
-                ? automationIdProperty.GetString()
-                : null;
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
 }
 
 internal static class Display

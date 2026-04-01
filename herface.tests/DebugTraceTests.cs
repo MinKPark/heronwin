@@ -45,7 +45,7 @@ public sealed class DebugTraceTests
     [Fact]
     public void ShouldLogFullToolPayload_ReturnsFalse_ForNonTreeTools()
     {
-        Assert.False(McpClientManager.ShouldLogFullToolPayload("click_selected_window_element", "{ }"));
+        Assert.False(McpClientManager.ShouldLogFullToolPayload("invoke_selected_window_element", "{ }"));
         Assert.False(McpClientManager.ShouldLogFullToolPayload("describe_selected_window", ""));
     }
 

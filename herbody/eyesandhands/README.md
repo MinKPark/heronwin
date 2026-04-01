@@ -13,8 +13,7 @@ It is designed for "look at the current app, pick the right window, inspect the 
 | `describe_selected_window` | Return a UI Automation tree for the selected window, either bounded or full depth |
 | `capture_selected_window_screenshot` | Capture a PNG screenshot of the selected or foreground window |
 | `focus_selected_window_element` | Focus an element from the selected window tree using its path |
-| `click_selected_window_element` | Mouse-click an element from the selected window tree using its path |
-| `invoke_selected_window_element` | Fallback-invoke an element by navigating focus with Tab and arrow keys, then pressing Enter |
+| `invoke_selected_window_element` | Activate an element from the selected window tree using its path, with direct focus and keyboard fallback |
 | `send_input_to_window` | Send a key press, shortcut, or typed text to the selected window |
 | `describe_selected_window_focus` | Return a bounded UI Automation tree rooted at the currently focused element inside the selected window |
 | `list_main_menu_items` | List traditional main-menu sections and their immediate visible items |
@@ -98,10 +97,9 @@ Most clients should use the tools in this order:
 3. Call `describe_selected_window` to inspect the selected window's control tree.
 4. If the UI Automation tree is too sparse, call `capture_selected_window_screenshot` and inspect the saved image.
 5. Use a returned `path` with `focus_selected_window_element`.
-6. Use `click_selected_window_element` when the user wants a left or right mouse click on a specific UI element.
-7. Use `invoke_selected_window_element` as a fallback when direct UI Automation invoke behavior or mouse clicking does not activate the target control.
-8. Use `send_input_to_window` when the user wants to press a shortcut or type text into the current app.
-9. Optionally call `describe_selected_window_focus` to verify where focus landed.
+6. Use `invoke_selected_window_element` when the user wants to activate a specific visible control by path, including requests phrased as click, press, open, select, or invoke.
+7. Use `send_input_to_window` when the user explicitly wants to press a shortcut or type text into the current app.
+8. Optionally call `describe_selected_window_focus` to verify where focus landed.
 10. Use `list_main_menu_items` to discover traditional menu commands and `invoke_main_menu_item` to run a chosen path.
 11. If the user wants an action on the focused control, use `list_context_menu_items` and then `invoke_context_menu_item`.
 
@@ -362,69 +360,9 @@ Notes:
 - `uiSettle.status` is typically `settled`, may be `window_unavailable` when the action closes the target window, and is `timed_out` if `WindowInteractionState` never became definite within the polling window.
 - In debug mode, `uiSettle.traceLines` includes timestamped settle checks directly in the tool result JSON.
 
-### `click_selected_window_element`
-
-Mouse-clicks a specific element in the selected window.
-
-Parameters:
-
-- `elementPath`: a path returned by `describe_selected_window`, or `root`
-- `mouseButton`: optional; `left` or `right`, default `left`
-
-Response shape:
-
-```json
-{
-  "window": { "...": "same window descriptor as above" },
-  "clickedElement": {
-    "path": "2/1",
-    "name": "Open",
-    "controlType": "Button",
-    "automationId": "OpenButton",
-    "className": "Button",
-    "isEnabled": true,
-    "isOffscreen": false,
-    "hasKeyboardFocus": true,
-    "isKeyboardFocusable": true,
-    "availableActions": ["focus", "invoke"],
-    "bounds": {
-      "left": 200,
-      "top": 160,
-      "width": 90,
-      "height": 28
-    },
-    "children": []
-  },
-  "mouseButton": "left",
-  "clickPoint": {
-    "x": 245,
-    "y": 174
-  },
-  "preparationActionTaken": "focused",
-  "actionTaken": "left_clicked",
-  "uiSettle": {
-    "status": "settled",
-    "completed": true,
-    "windowInteractionState": "ReadyForUserInteraction",
-    "windowInteractionStateChangeCount": 1,
-    "structureChangedEventCount": 2,
-    "asyncContentLoadedEventCount": 0,
-    "elapsedMilliseconds": 1315
-  }
-}
-```
-
-Notes:
-
-- The tool brings the selected or foreground window to the front before clicking.
-- The click target is the center of the element's visible bounds.
-- If the requested element does not expose usable bounds, the tool searches downward for a descendant that does.
-- The tool may scroll, select, or focus the target element before clicking so that a clickable point becomes available.
-- The mouse cursor is moved to the clicked screen point as part of the interaction.
-
 ### `invoke_selected_window_element`
 
-Fallback-invokes a specific element in the selected window by moving focus with keyboard navigation and then pressing `Enter`.
+Activates a specific element in the selected window by its UI Automation path. The tool focuses the target directly when possible, otherwise it falls back to keyboard navigation and then presses `Enter`.
 
 Parameters:
 
@@ -472,7 +410,7 @@ Response shape:
 
 Notes:
 
-- The tool is intended as a fallback for controls that do not activate reliably through `InvokePattern` or `click_selected_window_element`.
+- Use this tool for visible control activation requests even when the user phrases the action as click, press, open, or select.
 - It keeps the selected window in the foreground, watches the live focused element, and stops as soon as the target element or one of its descendants receives focus.
 - `navigationKeys` shows the exact Tab and arrow keys the tool sent while searching for the target.
 - `actionTaken` is `pressed_enter_on_focused_element` when focus was already on target, or `focused_via_keyboard_then_pressed_enter` when keyboard navigation was needed.
