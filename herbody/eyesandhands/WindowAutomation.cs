@@ -73,10 +73,12 @@ internal static class WindowAutomation
     private static readonly TimeSpan UiSettlePollInterval = TimeSpan.FromMilliseconds(300);
     private static readonly TimeSpan UiSettleTimeout = TimeSpan.FromMinutes(3);
     private static readonly TimeSpan UiSettleWaitSlice = TimeSpan.FromMilliseconds(50);
+    private static readonly TimeSpan KeyboardNavigationStepDelay = TimeSpan.FromMilliseconds(120);
     private static readonly string ScreenshotDirectory = Path.Combine(
         Path.GetTempPath(),
         "heronwin",
         "eyesandhands");
+    private const int MaxKeyboardNavigationSteps = 48;
 
     internal static string Serialize(object value) => JsonSerializer.Serialize(value, JsonOptions);
 
@@ -362,6 +364,31 @@ internal static class WindowAutomation
             clickableTarget.ClickPoint,
             clickableTarget.PreparationActionTaken,
             $"{normalizedButton}_clicked",
+            uiSettle);
+    }
+
+    internal static ElementInvocationResult InvokeSelectedWindowElement(
+        WindowSelectionState selectionState,
+        string elementPath)
+    {
+        var handle = ResolveInteractionWindowHandle(selectionState);
+        using var settleObserver = UiSettleObserver.TryCreate(handle);
+        FocusWindow(handle);
+        selectionState.SetSelectedHandle(handle);
+
+        var normalizedPath = NormalizeElementPath(elementPath);
+        var windowElement = AutomationElement.FromHandle(handle);
+        var targetElement = ResolveElementPath(windowElement, normalizedPath);
+        var invocationTarget = InvokeElementViaKeyboardNavigation(handle, windowElement, targetElement, normalizedPath);
+        var uiSettle = WaitForUiToSettle(handle, settleObserver);
+
+        return new ElementInvocationResult(
+            BuildWindowDescriptor(handle),
+            BuildElementSnapshot(invocationTarget.Element, invocationTarget.Path, [], includeChildren: false),
+            "keyboard_navigation",
+            invocationTarget.NavigationKeys,
+            invocationTarget.NavigationKeys.Count,
+            invocationTarget.ActionTaken,
             uiSettle);
     }
 
@@ -1197,6 +1224,83 @@ internal static class WindowAutomation
         return elementPath.Trim().Replace('\\', '/');
     }
 
+    private static string? GetParentPath(string elementPath)
+    {
+        if (string.Equals(elementPath, "root", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var separatorIndex = elementPath.LastIndexOf('/');
+        return separatorIndex < 0 ? "root" : elementPath[..separatorIndex];
+    }
+
+    private static int GetLastPathIndex(string elementPath)
+    {
+        var lastSegment = elementPath.Split('/').Last();
+        return int.TryParse(lastSegment, out var index)
+            ? index
+            : throw new InvalidOperationException($"Element path segment '{lastSegment}' is not a valid child index.");
+    }
+
+    private static bool IsPathPrefix(string prefixPath, string fullPath)
+    {
+        if (string.Equals(prefixPath, fullPath, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (string.Equals(prefixPath, "root", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return fullPath.StartsWith($"{prefixPath}/", StringComparison.Ordinal);
+    }
+
+    internal static IReadOnlyList<string> BuildKeyboardInvocationKeyPreference(string? currentPath, string targetPath)
+    {
+        var normalizedTargetPath = NormalizeElementPath(targetPath);
+        var normalizedCurrentPath = string.IsNullOrWhiteSpace(currentPath)
+            ? null
+            : NormalizeElementPath(currentPath);
+
+        if (normalizedCurrentPath is null || normalizedCurrentPath == "root")
+        {
+            return ["Tab", "Right", "Down", "Left", "Up", "Shift+Tab"];
+        }
+
+        if (IsPathPrefix(normalizedCurrentPath, normalizedTargetPath))
+        {
+            return ["Right", "Down", "Tab", "Left", "Up", "Shift+Tab"];
+        }
+
+        if (IsPathPrefix(normalizedTargetPath, normalizedCurrentPath))
+        {
+            return ["Left", "Up", "Shift+Tab", "Right", "Down", "Tab"];
+        }
+
+        var currentParentPath = GetParentPath(normalizedCurrentPath);
+        var targetParentPath = GetParentPath(normalizedTargetPath);
+        if (currentParentPath is not null &&
+            string.Equals(currentParentPath, targetParentPath, StringComparison.Ordinal))
+        {
+            var currentIndex = GetLastPathIndex(normalizedCurrentPath);
+            var targetIndex = GetLastPathIndex(normalizedTargetPath);
+            if (currentIndex < targetIndex)
+            {
+                return ["Right", "Down", "Tab", "Left", "Up", "Shift+Tab"];
+            }
+
+            if (currentIndex > targetIndex)
+            {
+                return ["Left", "Up", "Shift+Tab", "Right", "Down", "Tab"];
+            }
+        }
+
+        return ["Tab", "Right", "Down", "Left", "Up", "Shift+Tab"];
+    }
+
     internal static string NormalizeMouseButton(string mouseButton)
     {
         if (string.IsNullOrWhiteSpace(mouseButton))
@@ -1906,6 +2010,30 @@ internal static class WindowAutomation
         PressKey(NativeMethods.VkReturn, "Failed to send Enter to the focused taskbar item.");
     }
 
+    private static void PressKeyboardNavigationKey(string key)
+    {
+        switch (key)
+        {
+            case "Shift+Tab":
+                PressKeyWithModifiers(
+                    ResolveVirtualKey("Tab"),
+                    [NativeMethods.VkShift],
+                    "Failed to send Shift+Tab during keyboard navigation.");
+                break;
+            case "Tab":
+            case "Left":
+            case "Right":
+            case "Up":
+            case "Down":
+                PressKey(
+                    ResolveVirtualKey(key),
+                    $"Failed to send {key} during keyboard navigation.");
+                break;
+            default:
+                throw new InvalidOperationException($"Unsupported keyboard navigation key '{key}'.");
+        }
+    }
+
     private static void PressKey(ushort virtualKey, string errorMessage)
     {
         SendKeyboardInputs(
@@ -2221,6 +2349,104 @@ internal static class WindowAutomation
         return null;
     }
 
+    private static (AutomationElement Element, string Path, IReadOnlyList<string> NavigationKeys, string ActionTaken) InvokeElementViaKeyboardNavigation(
+        nint handle,
+        AutomationElement windowElement,
+        AutomationElement targetElement,
+        string targetPath)
+    {
+        var currentFocusedElement = EnsureFocusedElementWithinWindow(handle, windowElement);
+        if (IsSameOrDescendantOf(currentFocusedElement, targetElement))
+        {
+            var currentPath = FindPathToElementOrAncestor(windowElement, "root", currentFocusedElement) ?? targetPath;
+            PressEnterKey();
+            return (currentFocusedElement, currentPath, [], "pressed_enter_on_focused_element");
+        }
+
+        var navigationKeys = new List<string>();
+        for (var step = 0; step < MaxKeyboardNavigationSteps; step++)
+        {
+            currentFocusedElement = EnsureFocusedElementWithinWindow(handle, windowElement);
+            var currentPath = FindPathToElementOrAncestor(windowElement, "root", currentFocusedElement);
+            var candidateKeys = BuildKeyboardInvocationKeyPreference(currentPath, targetPath);
+            var advanced = false;
+
+            foreach (var candidateKey in candidateKeys)
+            {
+                var previousFocusedElement = currentFocusedElement;
+                PressKeyboardNavigationKey(candidateKey);
+                navigationKeys.Add(candidateKey);
+                WaitWithMessagePump(KeyboardNavigationStepDelay);
+
+                currentFocusedElement = EnsureFocusedElementWithinWindow(handle, windowElement);
+                if (IsSameOrDescendantOf(currentFocusedElement, targetElement))
+                {
+                    var focusedPath = FindPathToElementOrAncestor(windowElement, "root", currentFocusedElement) ?? targetPath;
+                    PressEnterKey();
+                    return (currentFocusedElement, focusedPath, navigationKeys, "focused_via_keyboard_then_pressed_enter");
+                }
+
+                if (!AreSameAutomationElement(previousFocusedElement, currentFocusedElement))
+                {
+                    advanced = true;
+                    break;
+                }
+            }
+
+            if (!advanced)
+            {
+                break;
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Could not reach element path '{targetPath}' via keyboard navigation after {navigationKeys.Count} key presses.");
+    }
+
+    private static AutomationElement EnsureFocusedElementWithinWindow(nint handle, AutomationElement windowElement)
+    {
+        var focusedElement = AutomationElement.FocusedElement;
+        if (focusedElement is not null && IsSameOrDescendantOf(focusedElement, windowElement))
+        {
+            return focusedElement;
+        }
+
+        FocusWindow(handle);
+        focusedElement = AutomationElement.FocusedElement;
+        if (focusedElement is not null && IsSameOrDescendantOf(focusedElement, windowElement))
+        {
+            return focusedElement;
+        }
+
+        return windowElement;
+    }
+
+    private static string? FindPathToElementOrAncestor(
+        AutomationElement root,
+        string path,
+        AutomationElement targetElement)
+    {
+        if (!IsSameOrDescendantOf(targetElement, root))
+        {
+            return null;
+        }
+
+        var children = root.FindAll(TreeScope.Children, Condition.TrueCondition);
+        for (var i = 0; i < children.Count; i++)
+        {
+            var child = children[i];
+            if (!IsSameOrDescendantOf(targetElement, child))
+            {
+                continue;
+            }
+
+            var childPath = path == "root" ? $"{i}" : $"{path}/{i}";
+            return FindPathToElementOrAncestor(child, childPath, targetElement) ?? childPath;
+        }
+
+        return path;
+    }
+
     private static bool IsSameOrDescendantOf(AutomationElement element, AutomationElement ancestor)
     {
         var targetRuntimeId = GetRuntimeIdSignature(ancestor);
@@ -2242,6 +2468,14 @@ internal static class WindowAutomation
         }
 
         return false;
+    }
+
+    private static bool AreSameAutomationElement(AutomationElement left, AutomationElement right)
+    {
+        var leftRuntimeId = GetRuntimeIdSignature(left);
+        var rightRuntimeId = GetRuntimeIdSignature(right);
+        return leftRuntimeId is not null &&
+               string.Equals(leftRuntimeId, rightRuntimeId, StringComparison.Ordinal);
     }
 
     private static string? GetRuntimeIdSignature(AutomationElement element)
@@ -2876,6 +3110,15 @@ internal sealed record ElementClickResult(
     string MouseButton,
     ScreenPoint ClickPoint,
     string? PreparationActionTaken,
+    string ActionTaken,
+    UiSettleResult UiSettle);
+
+internal sealed record ElementInvocationResult(
+    WindowDescriptor Window,
+    UiElementSnapshot InvokedElement,
+    string Strategy,
+    IReadOnlyList<string> NavigationKeys,
+    int NavigationStepCount,
     string ActionTaken,
     UiSettleResult UiSettle);
 

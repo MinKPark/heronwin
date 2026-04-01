@@ -144,6 +144,21 @@ public static class EyesAndHandsTools
         return WindowAutomation.Serialize(result);
     }
 
+    [McpServerTool, Description("Focus a specific child element in the selected window by navigating with Tab and arrow keys until the target element receives focus, then press Enter to invoke it. Use this as a fallback when direct InvokePattern activation or mouse clicks do not work.")]
+    public static async Task<string> InvokeSelectedWindowElement(
+        UiAutomationExecutor executor,
+        WindowSelectionState selectionState,
+        [Description("Slash-delimited child path from describe_selected_window. Use root to invoke the selected window itself.")]
+        string elementPath,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await executor.RunAsync(
+            () => WindowAutomation.InvokeSelectedWindowElement(selectionState, elementPath),
+            cancellationToken);
+
+        return WindowAutomation.Serialize(result);
+    }
+
     [McpServerTool, Description("Send a key press, shortcut, or typed text to the selected window. Provide either key or text. The tool brings the selected or foreground window to the front without intentionally changing the focused control inside it.")]
     public static async Task<string> SendInputToWindow(
         UiAutomationExecutor executor,

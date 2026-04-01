@@ -14,6 +14,7 @@ It is designed for "look at the current app, pick the right window, inspect the 
 | `capture_selected_window_screenshot` | Capture a PNG screenshot of the selected or foreground window |
 | `focus_selected_window_element` | Focus an element from the selected window tree using its path |
 | `click_selected_window_element` | Mouse-click an element from the selected window tree using its path |
+| `invoke_selected_window_element` | Fallback-invoke an element by navigating focus with Tab and arrow keys, then pressing Enter |
 | `send_input_to_window` | Send a key press, shortcut, or typed text to the selected window |
 | `describe_selected_window_focus` | Return a bounded UI Automation tree rooted at the currently focused element inside the selected window |
 | `list_main_menu_items` | List traditional main-menu sections and their immediate visible items |
@@ -30,7 +31,7 @@ It is designed for "look at the current app, pick the right window, inspect the 
 - Taskbar discovery uses the main `Shell_TrayWnd` window plus UI Automation.
 - UI inspection and interaction use `System.Windows.Automation`.
 - All UI Automation work is serialized onto a dedicated STA thread, which is the safest way to interact with many Windows accessibility APIs.
-- The server keeps an in-memory "selected window" handle. That state is used by `list_windows`, the `describe_*` tools, `focus_selected_window_element`, and lets `list_main_menu_items` and `invoke_main_menu_item` omit `windowHandle`.
+- The server keeps an in-memory "selected window" handle. That state is used by `list_windows`, the `describe_*` tools, `focus_selected_window_element`, `invoke_selected_window_element`, and lets `list_main_menu_items` and `invoke_main_menu_item` omit `windowHandle`.
 
 ## Requirements
 
@@ -98,10 +99,11 @@ Most clients should use the tools in this order:
 4. If the UI Automation tree is too sparse, call `capture_selected_window_screenshot` and inspect the saved image.
 5. Use a returned `path` with `focus_selected_window_element`.
 6. Use `click_selected_window_element` when the user wants a left or right mouse click on a specific UI element.
-7. Use `send_input_to_window` when the user wants to press a shortcut or type text into the current app.
-8. Optionally call `describe_selected_window_focus` to verify where focus landed.
-9. Use `list_main_menu_items` to discover traditional menu commands and `invoke_main_menu_item` to run a chosen path.
-10. If the user wants an action on the focused control, use `list_context_menu_items` and then `invoke_context_menu_item`.
+7. Use `invoke_selected_window_element` as a fallback when direct UI Automation invoke behavior or mouse clicking does not activate the target control.
+8. Use `send_input_to_window` when the user wants to press a shortcut or type text into the current app.
+9. Optionally call `describe_selected_window_focus` to verify where focus landed.
+10. Use `list_main_menu_items` to discover traditional menu commands and `invoke_main_menu_item` to run a chosen path.
+11. If the user wants an action on the focused control, use `list_context_menu_items` and then `invoke_context_menu_item`.
 
 For taskbar-driven workflows:
 
@@ -416,6 +418,61 @@ Notes:
 - If the requested element does not expose usable bounds, the tool searches downward for a descendant that does.
 - The tool may scroll, select, or focus the target element before clicking so that a clickable point becomes available.
 - The mouse cursor is moved to the clicked screen point as part of the interaction.
+
+### `invoke_selected_window_element`
+
+Fallback-invokes a specific element in the selected window by moving focus with keyboard navigation and then pressing `Enter`.
+
+Parameters:
+
+- `elementPath`: a path returned by `describe_selected_window`, or `root`
+
+Response shape:
+
+```json
+{
+  "window": { "...": "same window descriptor as above" },
+  "invokedElement": {
+    "path": "2/1",
+    "name": "Open",
+    "controlType": "Button",
+    "automationId": "OpenButton",
+    "className": "Button",
+    "isEnabled": true,
+    "isOffscreen": false,
+    "hasKeyboardFocus": true,
+    "isKeyboardFocusable": true,
+    "availableActions": ["focus", "invoke"],
+    "bounds": {
+      "left": 200,
+      "top": 160,
+      "width": 90,
+      "height": 28
+    },
+    "children": []
+  },
+  "strategy": "keyboard_navigation",
+  "navigationKeys": ["Tab", "Right", "Down"],
+  "navigationStepCount": 3,
+  "actionTaken": "focused_via_keyboard_then_pressed_enter",
+  "uiSettle": {
+    "status": "settled",
+    "completed": true,
+    "windowInteractionState": "ReadyForUserInteraction",
+    "windowInteractionStateChangeCount": 1,
+    "structureChangedEventCount": 1,
+    "asyncContentLoadedEventCount": 0,
+    "elapsedMilliseconds": 1260
+  }
+}
+```
+
+Notes:
+
+- The tool is intended as a fallback for controls that do not activate reliably through `InvokePattern` or `click_selected_window_element`.
+- It keeps the selected window in the foreground, watches the live focused element, and stops as soon as the target element or one of its descendants receives focus.
+- `navigationKeys` shows the exact Tab and arrow keys the tool sent while searching for the target.
+- `actionTaken` is `pressed_enter_on_focused_element` when focus was already on target, or `focused_via_keyboard_then_pressed_enter` when keyboard navigation was needed.
 
 ### `send_input_to_window`
 

@@ -270,6 +270,7 @@ internal static class AgentRunner
             or "select_window"
             or "click_selected_window_element"
             or "focus_selected_window_element"
+            or "invoke_selected_window_element"
             or "invoke_main_menu_item"
             or "invoke_context_menu_item"
             or "send_input_to_window";
