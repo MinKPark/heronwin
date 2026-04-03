@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace HeronWin.HerFace;
 
@@ -264,6 +265,12 @@ internal static class AgentPromptComposer
             selectedKeys.Add("desktop-launch-and-first-look");
         }
 
+        if (MatchesBrowserRequest(userText, normalizedText)
+            && HasAnyTool(toolNames, "describe_selected_window", "describe_selected_window_focus", "invoke_selected_window_element", "focus_selected_window_element", "send_input_to_window", "capture_selected_window_screenshot"))
+        {
+            selectedKeys.Add("browser-navigation-and-web-operations");
+        }
+
         if (MatchesSearchOrEnumerationRequest(normalizedText)
             && HasAnyTool(toolNames, "describe_selected_window", "describe_selected_window_focus", "capture_selected_window_screenshot"))
         {
@@ -303,6 +310,14 @@ internal static class AgentPromptComposer
         return normalizedText.Contains("open ", StringComparison.Ordinal)
                && !ContainsAny(
                    normalizedText,
+                   " website",
+                   " web site",
+                   " site",
+                   " url",
+                   " address bar",
+                   " browser",
+                   " tab",
+                   " link",
                    " menu",
                    " button",
                    " dialog",
@@ -326,6 +341,43 @@ internal static class AgentPromptComposer
                    " prompt",
                    " message",
                    " control");
+    }
+
+    private static bool MatchesBrowserRequest(string rawText, string normalizedText)
+    {
+        if (ContainsAny(
+                normalizedText,
+                "website",
+                "web site",
+                "url",
+                "address bar",
+                "browser",
+                "webpage",
+                "web page",
+                "open site",
+                "open website",
+                "open url"))
+        {
+            return true;
+        }
+
+        if (ContainsAny(normalizedText, "edge", "chrome", "firefox", "safari")
+            && ContainsAny(
+                normalizedText,
+                "tab",
+                "new tab",
+                "back",
+                "forward",
+                "refresh",
+                "reload",
+                "home page",
+                "homepage"))
+        {
+            return true;
+        }
+
+        return Regex.IsMatch(rawText, @"\b(?:https?://|www\.)\S+", RegexOptions.IgnoreCase)
+               || Regex.IsMatch(rawText, @"\b[\w-]+\.(?:com|org|net|io|ai|gov|edu|app|dev|tv|co)\b", RegexOptions.IgnoreCase);
     }
 
     private static bool MatchesSearchOrEnumerationRequest(string normalizedText)

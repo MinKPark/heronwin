@@ -64,6 +64,45 @@ public sealed class AgentPromptComposerTests
         Assert.Contains(actual.ActiveSkills, skill => skill.Key == "ui-refresh-and-evidence");
     }
 
+    [Fact]
+    public void Compose_ActivatesBrowserSkill_ForWebsiteNavigationRequests()
+    {
+        var catalog = CreateCatalog();
+
+        var actual = AgentPromptComposer.Compose(
+            catalog,
+            "Can you go to the Netflix website?",
+            [
+                new ToolDefinition("describe_selected_window", "desc", default),
+                new ToolDefinition("invoke_selected_window_element", "desc", default),
+                new ToolDefinition("send_input_to_window", "desc", default)
+            ]);
+
+        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "browser-navigation-and-web-operations");
+        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "ui-refresh-and-evidence");
+        Assert.DoesNotContain(actual.ActiveSkills, skill => skill.Key == "desktop-launch-and-first-look");
+    }
+
+    [Fact]
+    public void Compose_DoesNotTreatWebsiteOpenRequest_AsAppLaunch()
+    {
+        var catalog = CreateCatalog();
+
+        var actual = AgentPromptComposer.Compose(
+            catalog,
+            "Open the Netflix website in Edge.",
+            [
+                new ToolDefinition("list_windows", "desc", default),
+                new ToolDefinition("select_window", "desc", default),
+                new ToolDefinition("launch_app_via_taskbar_search", "desc", default),
+                new ToolDefinition("describe_selected_window", "desc", default),
+                new ToolDefinition("send_input_to_window", "desc", default)
+            ]);
+
+        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "browser-navigation-and-web-operations");
+        Assert.DoesNotContain(actual.ActiveSkills, skill => skill.Key == "desktop-launch-and-first-look");
+    }
+
     private static AgentPromptCatalog CreateCatalog()
         => new(
             FallbackDefinitionPath: "fallback/her.agent.md",
@@ -73,6 +112,7 @@ public sealed class AgentPromptComposerTests
             Skills:
             [
                 new AgentSkillPrompt("action-discovery-and-invocation", "skills/action.skill.md", "action skill"),
+                new AgentSkillPrompt("browser-navigation-and-web-operations", "skills/browser.skill.md", "browser skill"),
                 new AgentSkillPrompt("desktop-launch-and-first-look", "skills/launch.skill.md", "launch skill"),
                 new AgentSkillPrompt("search-and-enumeration", "skills/search.skill.md", "search skill"),
                 new AgentSkillPrompt("ui-refresh-and-evidence", "skills/refresh.skill.md", "refresh skill")

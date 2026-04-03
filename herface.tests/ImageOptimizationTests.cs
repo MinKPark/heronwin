@@ -41,7 +41,7 @@ public sealed class ImageOptimizationTests
                     "Screenshot evidence",
                     [new ToolImage("image/png", "AA==")])
             ],
-            agentDefinition: string.Empty);
+            systemPrompt: string.Empty);
 
         var content = messages[0]!.AsObject()["content"]!.AsArray();
         var imageItem = content[1]!.AsObject();

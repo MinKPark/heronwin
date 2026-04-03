@@ -42,6 +42,8 @@ Pick only the smallest set of skills that clearly apply to the current user turn
   activate `search-and-enumeration.skill.md`
 - Click, press, open, select, save, or menu request in the current app:
   activate `action-discovery-and-invocation.skill.md`
+- Website, URL, address bar, tab, or browser chrome request:
+  activate `browser-navigation-and-web-operations.skill.md`
 - Any UI-changing action, stale tree, sparse tree, or ambiguous state:
   activate `ui-refresh-and-evidence.skill.md`
 
