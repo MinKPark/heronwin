@@ -5,7 +5,7 @@ dist/
 *.d.ts.map
 
 # Environment files
-.env
+# .env
 
 # Logs
 *.log
