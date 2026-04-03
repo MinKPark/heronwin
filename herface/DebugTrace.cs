@@ -115,7 +115,9 @@ internal static class DebugTrace
         int attempt,
         string providerName,
         IReadOnlyList<AgentMessage> messages,
-        IReadOnlyList<ToolDefinition> tools)
+        IReadOnlyList<ToolDefinition> tools,
+        string? systemPrompt,
+        string? promptSource)
     {
         if (!_isEnabled)
         {
@@ -130,6 +132,17 @@ internal static class DebugTrace
             $"messages={messages.Count}",
             $"tools={tools.Count}"
         };
+
+        if (!string.IsNullOrWhiteSpace(promptSource))
+        {
+            lines.Add($"promptSource={promptSource}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(systemPrompt))
+        {
+            lines.Add($"systemPromptChars={systemPrompt.Length}");
+            lines.Add($"systemPrompt={Preview(systemPrompt, 900)}");
+        }
 
         if (tools.Count > 0)
         {

@@ -20,6 +20,7 @@ internal sealed record AppConfig(
     LlmProviderId LlmProvider,
     string AgentDefinitionPath,
     string AgentDefinition,
+    AgentPromptCatalog AgentPrompts,
     bool DebugAudioPlayback,
     string OpenAiApiKey,
     string OpenAiModel,
@@ -48,11 +49,12 @@ internal sealed record AppConfig(
                 "LLM_PROVIDER=chatgpt-web is not supported in herface. Use openai-api or claude-api.");
         }
 
-        var agentDefinitionPath = ResolveAgentDefinitionPath();
+        var agentPrompts = AgentPromptLoader.Load();
         return new AppConfig(
             provider,
-            agentDefinitionPath,
-            LoadAgentDefinition(agentDefinitionPath),
+            agentPrompts.FallbackDefinitionPath,
+            agentPrompts.FallbackDefinition,
+            agentPrompts,
             ParseBoolean(Environment.GetEnvironmentVariable("DEBUG_AUDIO_PLAYBACK"), fallback: false),
             Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? string.Empty,
             Environment.GetEnvironmentVariable("OPENAI_MODEL") ?? "gpt-5.2-chat-latest",
@@ -99,48 +101,6 @@ internal sealed record AppConfig(
         {
             Console.WriteLine("Warning: MCP_SERVERS is not valid JSON, ignoring.");
             return [];
-        }
-    }
-
-    private static string ResolveAgentDefinitionPath()
-    {
-        var cwd = Directory.GetCurrentDirectory();
-        var configuredPath = Environment.GetEnvironmentVariable("AGENT_DEFINITION_PATH")?.Trim();
-        if (!string.IsNullOrWhiteSpace(configuredPath))
-        {
-            return Path.GetFullPath(Path.Combine(cwd, configuredPath));
-        }
-
-        foreach (var candidatePath in new[] { "her.agent.md", ".github/agents/her.agent.md" })
-        {
-            var resolved = Path.GetFullPath(Path.Combine(cwd, candidatePath));
-            if (File.Exists(resolved))
-            {
-                return resolved;
-            }
-        }
-
-        return Path.GetFullPath(Path.Combine(cwd, "her.agent.md"));
-    }
-
-    private static string LoadAgentDefinition(string agentDefinitionPath)
-    {
-        if (!File.Exists(agentDefinitionPath))
-        {
-            Console.WriteLine(
-                $"Warning: agent definition file not found at \"{agentDefinitionPath}\"; continuing without it.");
-            return string.Empty;
-        }
-
-        try
-        {
-            return File.ReadAllText(agentDefinitionPath).Trim();
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine(
-                $"Warning: failed to read agent definition at \"{agentDefinitionPath}\"; continuing without it. {ex.Message}");
-            return string.Empty;
         }
     }
 

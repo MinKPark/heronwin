@@ -42,6 +42,7 @@ internal interface ILlmClient
     Task<ChatResult> ChatAsync(
         IReadOnlyList<AgentMessage> messages,
         IReadOnlyList<ToolDefinition> tools,
+        string? systemPrompt,
         CancellationToken cancellationToken);
 }
 
@@ -57,12 +58,12 @@ internal static class AgentRunner
         long turnId,
         string userText,
         List<AgentMessage> history,
-        AppConfig config,
+        IReadOnlyList<ToolDefinition> tools,
+        ComposedAgentPrompt composedPrompt,
         ILlmClient llmClient,
         McpClientManager mcpManager,
         CancellationToken cancellationToken)
     {
-        var tools = await mcpManager.ListAllToolsAsync(cancellationToken);
         var messages = history.ToList();
         var runtimeToolPolicy = BuildRuntimeToolPolicy(tools);
         if (!string.IsNullOrWhiteSpace(runtimeToolPolicy))
@@ -89,8 +90,15 @@ internal static class AgentRunner
         while (true)
         {
             llmAttempt += 1;
-            DebugTrace.WriteLlmRequest(turnId, llmAttempt, llmClient.DisplayName, messages, tools);
-            var result = await llmClient.ChatAsync(messages, tools, cancellationToken);
+            DebugTrace.WriteLlmRequest(
+                turnId,
+                llmAttempt,
+                llmClient.DisplayName,
+                messages,
+                tools,
+                composedPrompt.SystemPrompt,
+                composedPrompt.SourceDescription);
+            var result = await llmClient.ChatAsync(messages, tools, composedPrompt.SystemPrompt, cancellationToken);
             DebugTrace.WriteLlmResponse(turnId, llmAttempt, llmClient.DisplayName, result);
             if (result.ToolCalls.Count == 0)
             {
@@ -112,10 +120,13 @@ internal static class AgentRunner
                         llmAttempt,
                         $"{llmClient.DisplayName} repair",
                         repairMessages,
-                        Array.Empty<ToolDefinition>());
+                        Array.Empty<ToolDefinition>(),
+                        composedPrompt.SystemPrompt,
+                        $"{composedPrompt.SourceDescription} (repair)");
                     var repairedReply = await llmClient.ChatAsync(
                         repairMessages,
                         [],
+                        composedPrompt.SystemPrompt,
                         cancellationToken);
                     DebugTrace.WriteLlmResponse(turnId, llmAttempt, $"{llmClient.DisplayName} repair", repairedReply);
                     if (repairedReply.ToolCalls.Count == 0 && !string.IsNullOrWhiteSpace(repairedReply.Text))
@@ -940,10 +951,10 @@ internal static class ContextManager
 
     public static int EstimateTokens(
         IReadOnlyList<AgentMessage> history,
-        string agentDefinition,
+        string systemPrompt,
         string? pendingUserText = null)
     {
-        var total = EstimateTextTokens(agentDefinition) + 16;
+        var total = EstimateTextTokens(systemPrompt) + 16;
         foreach (var message in history)
         {
             total += message switch
@@ -968,12 +979,12 @@ internal static class ContextManager
     public static async Task EnsureCapacityAsync(
         List<AgentMessage> history,
         string pendingUserText,
-        string agentDefinition,
+        string systemPrompt,
         int maxContextTokens,
         ILlmClient llmClient,
         CancellationToken cancellationToken)
     {
-        var currentTokens = EstimateTokens(history, agentDefinition, pendingUserText);
+        var currentTokens = EstimateTokens(history, systemPrompt, pendingUserText);
         Display.ContextUsage(currentTokens, maxContextTokens);
 
         if (maxContextTokens <= 0
@@ -993,7 +1004,7 @@ internal static class ContextManager
         history.RemoveRange(0, splitIndex);
         history.Insert(0, new AgentMessage.Summary(summaryText));
 
-        var compressedTokens = EstimateTokens(history, agentDefinition, pendingUserText);
+        var compressedTokens = EstimateTokens(history, systemPrompt, pendingUserText);
         Display.ContextCompressed(compressedTokens, maxContextTokens);
     }
 
@@ -1033,7 +1044,8 @@ Return plain text only, under 250 words, with short lines.
         var result = await llmClient.ChatAsync(
             [new AgentMessage.User($"{summaryPrompt}\n\nConversation:\n{transcript}")],
             [],
-            cancellationToken);
+            systemPrompt: null,
+            cancellationToken: cancellationToken);
 
         var summaryText = result.Text ?? string.Empty;
         if (AssistantResponseParser.IsStructuredJson(summaryText))

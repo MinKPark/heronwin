@@ -17,7 +17,6 @@ internal static class LlmFactory
                 httpClient,
                 config.OpenAiApiKey,
                 config.OpenAiModel,
-                config.AgentDefinition,
                 config.LlmTemperature),
             LlmProviderId.ClaudeApi when string.IsNullOrWhiteSpace(config.AnthropicApiKey) =>
                 throw new InvalidOperationException(
@@ -26,7 +25,6 @@ internal static class LlmFactory
                 httpClient,
                 config.AnthropicApiKey,
                 config.AnthropicModel,
-                config.AgentDefinition,
                 config.LlmTemperature),
             _ => throw new InvalidOperationException("Unsupported LLM provider.")
         };
@@ -57,7 +55,6 @@ internal sealed class OpenAiApiClient(
     HttpClient httpClient,
     string apiKey,
     string model,
-    string agentDefinition,
     double temperature) : ILlmClient
 {
     public LlmProviderId ProviderId => LlmProviderId.OpenAiApi;
@@ -66,6 +63,7 @@ internal sealed class OpenAiApiClient(
     public async Task<ChatResult> ChatAsync(
         IReadOnlyList<AgentMessage> messages,
         IReadOnlyList<ToolDefinition> tools,
+        string? systemPrompt,
         CancellationToken cancellationToken)
     {
         DebugTrace.WriteEvent(
@@ -77,7 +75,7 @@ internal sealed class OpenAiApiClient(
         var payload = new JsonObject
         {
             ["model"] = model,
-            ["messages"] = ToOpenAiMessages(messages, agentDefinition)
+            ["messages"] = ToOpenAiMessages(messages, systemPrompt)
         };
 
         if (SupportsTemperatureControl(model))
@@ -126,15 +124,15 @@ internal sealed class OpenAiApiClient(
         return new ChatResult(text, toolCalls);
     }
 
-    internal static JsonArray ToOpenAiMessages(IReadOnlyList<AgentMessage> messages, string agentDefinition)
+    internal static JsonArray ToOpenAiMessages(IReadOnlyList<AgentMessage> messages, string? systemPrompt)
     {
         var result = new JsonArray();
-        if (!string.IsNullOrWhiteSpace(agentDefinition))
+        if (!string.IsNullOrWhiteSpace(systemPrompt))
         {
             result.Add(new JsonObject
             {
                 ["role"] = "system",
-                ["content"] = agentDefinition
+                ["content"] = systemPrompt
             });
         }
 
@@ -349,7 +347,6 @@ internal sealed class ClaudeApiClient(
     HttpClient httpClient,
     string apiKey,
     string model,
-    string agentDefinition,
     double temperature) : ILlmClient
 {
     public LlmProviderId ProviderId => LlmProviderId.ClaudeApi;
@@ -358,6 +355,7 @@ internal sealed class ClaudeApiClient(
     public async Task<ChatResult> ChatAsync(
         IReadOnlyList<AgentMessage> messages,
         IReadOnlyList<ToolDefinition> tools,
+        string? systemPrompt,
         CancellationToken cancellationToken)
     {
         DebugTrace.WriteEvent(
@@ -375,9 +373,9 @@ internal sealed class ClaudeApiClient(
             ["messages"] = ToAnthropicMessages(messages)
         };
 
-        if (!string.IsNullOrWhiteSpace(agentDefinition))
+        if (!string.IsNullOrWhiteSpace(systemPrompt))
         {
-            payload["system"] = agentDefinition;
+            payload["system"] = systemPrompt;
         }
 
         if (tools.Count > 0)

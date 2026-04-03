@@ -20,7 +20,7 @@ await using var mcpManager = new McpClientManager();
 
 DebugTrace.WriteEvent(
     "config.loaded",
-    $"llmProvider={config.LlmProvider}, openAiModel={config.OpenAiModel}, anthropicModel={config.AnthropicModel}, whisperModel={config.WhisperModel}, wakeWord={DebugTrace.SerializeObject(config.WakeWord)}, agentDefinitionPath={config.AgentDefinitionPath}, mcpServers={config.McpServers.Count}, debugAudioPlayback={config.DebugAudioPlayback}");
+    $"llmProvider={config.LlmProvider}, openAiModel={config.OpenAiModel}, anthropicModel={config.AnthropicModel}, whisperModel={config.WhisperModel}, wakeWord={DebugTrace.SerializeObject(config.WakeWord)}, agentDefinitionPath={config.AgentDefinitionPath}, agentCoreDefinitionPath={config.AgentPrompts.CoreDefinitionPath ?? "(none)"}, agentSkills={config.AgentPrompts.Skills.Count}, mcpServers={config.McpServers.Count}, debugAudioPlayback={config.DebugAudioPlayback}");
 
 ILlmClient llmClient;
 IAudioTranscriber? audioTranscriber;
@@ -110,10 +110,16 @@ var agentTask = Task.Run(async () =>
                 "agent.turn.dequeue",
                 $"turn={queuedTurn.TurnId}, historyMessages={history.Count}, queuedText={DebugTrace.Preview(queuedTurn.Text, 500)}");
 
+            var tools = await mcpManager.ListAllToolsAsync(cancellationSource.Token);
+            var composedPrompt = AgentPromptComposer.Compose(config.AgentPrompts, queuedTurn.Text, tools);
+            DebugTrace.WriteEvent(
+                "agent.prompt.composed",
+                $"turn={queuedTurn.TurnId}, source={composedPrompt.SourceDescription}, fallback={composedPrompt.UsesFallbackDefinition}, skills={string.Join(", ", composedPrompt.ActiveSkills.Select(skill => skill.Key).DefaultIfEmpty("(none)"))}");
+
             await ContextManager.EnsureCapacityAsync(
                 history,
                 queuedTurn.Text,
-                config.AgentDefinition,
+                composedPrompt.SystemPrompt,
                 config.MaxContextTokens,
                 llmClient,
                 cancellationSource.Token);
@@ -122,14 +128,15 @@ var agentTask = Task.Run(async () =>
                 queuedTurn.TurnId,
                 queuedTurn.Text,
                 history,
-                config,
+                tools,
+                composedPrompt,
                 llmClient,
                 mcpManager,
                 cancellationSource.Token);
             history.Add(new AgentMessage.User(queuedTurn.Text));
             history.Add(new AgentMessage.Assistant(reply.RawText));
             Display.ContextUsage(
-                ContextManager.EstimateTokens(history, config.AgentDefinition),
+                ContextManager.EstimateTokens(history, composedPrompt.SystemPrompt),
                 config.MaxContextTokens);
             DebugTrace.WriteEvent(
                 "agent.turn.complete",
