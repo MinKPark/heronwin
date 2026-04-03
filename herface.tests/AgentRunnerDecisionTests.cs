@@ -67,6 +67,26 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void BuildRuntimeToolPolicy_ReturnsLaunchContinuationGuidance_WhenLaunchToolsExist()
+    {
+        var actual = AgentRunner.BuildRuntimeToolPolicy(
+            [
+                new ToolDefinition("list_windows", "desc", default),
+                new ToolDefinition("select_window", "desc", default),
+                new ToolDefinition("list_taskbar_elements", "desc", default),
+                new ToolDefinition("select_taskbar_app", "desc", default),
+                new ToolDefinition("launch_app_via_taskbar_search", "desc", default)
+            ]);
+
+        Assert.NotNull(actual);
+        Assert.Contains("do not stop after saying you are checking whether it is already open", actual!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("list_taskbar_elements", actual, StringComparison.Ordinal);
+        Assert.Contains("select_taskbar_app", actual, StringComparison.Ordinal);
+        Assert.Contains("launch_app_via_taskbar_search", actual, StringComparison.Ordinal);
+        Assert.Contains("ask the user to launch the app manually", actual, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void BuildToolSpecificGuidance_ReturnsHint_ForNavigationKeyFallback()
     {
         var actual = AgentRunner.BuildToolSpecificGuidance(
@@ -76,6 +96,32 @@ public sealed class AgentRunnerDecisionTests
 
         Assert.NotNull(actual);
         Assert.Contains("invoke_selected_window_element", actual!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildToolSpecificGuidance_ReturnsFailureHint_ForTaskbarAppLaunchWithoutSelectedWindow()
+    {
+        var actual = AgentRunner.BuildToolSpecificGuidance(
+            "select_taskbar_app",
+            """{"selectedWindow":null}""",
+            new Dictionary<string, object?>());
+
+        Assert.NotNull(actual);
+        Assert.Contains("Do not imply that the app opened successfully", actual!, StringComparison.Ordinal);
+        Assert.Contains("launch failed", actual, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildToolSpecificGuidance_ReturnsFailureHint_ForTaskbarSearchLaunchWithoutSelectedWindow()
+    {
+        var actual = AgentRunner.BuildToolSpecificGuidance(
+            "launch_app_via_taskbar_search",
+            """{"selectedWindow":null}""",
+            new Dictionary<string, object?>());
+
+        Assert.NotNull(actual);
+        Assert.Contains("Do not imply that the app opened successfully", actual!, StringComparison.Ordinal);
+        Assert.Contains("launch failed", actual, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

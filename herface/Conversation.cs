@@ -311,13 +311,36 @@ internal static class AgentRunner
     internal static string? BuildRuntimeToolPolicy(IReadOnlyList<ToolDefinition> tools)
     {
         var toolNames = tools.Select(tool => tool.Name).ToHashSet(StringComparer.Ordinal);
-        if (!toolNames.Contains("invoke_selected_window_element") &&
-            !toolNames.Contains("send_input_to_window"))
+        var parts = new List<string>();
+        var hasWindowListing = toolNames.Contains("list_windows");
+        var hasWindowSelection = toolNames.Contains("select_window");
+        var hasTaskbarListing = toolNames.Contains("list_taskbar_elements");
+        var hasTaskbarSelection = toolNames.Contains("select_taskbar_app");
+        var hasTaskbarSearchLaunch = toolNames.Contains("launch_app_via_taskbar_search");
+        if (hasWindowListing && (hasWindowSelection || hasTaskbarSelection || hasTaskbarSearchLaunch))
         {
-            return null;
+            parts.Add(
+                "For requests to start or open an application, do not stop after saying you are checking whether it is already open. First call list_windows. If a likely matching window already exists, select_window it instead of launching a second instance.");
+
+            if (hasTaskbarListing && hasTaskbarSelection)
+            {
+                parts.Add(
+                    "If the app does not appear to be open already, next inspect the taskbar with list_taskbar_elements and use select_taskbar_app when the app looks pinned or already present there.");
+            }
+
+            if (hasTaskbarSearchLaunch)
+            {
+                parts.Add(
+                    "If the app is not clearly available as a visible taskbar app button, use launch_app_via_taskbar_search in the same turn as the fallback launch attempt.");
+            }
+
+            if (hasTaskbarSelection || hasTaskbarSearchLaunch)
+            {
+                parts.Add(
+                    "Only ask the user to launch the app manually after those taskbar-based launch attempts are unavailable, ambiguous, or fail.");
+            }
         }
 
-        var parts = new List<string>();
         if (toolNames.Contains("invoke_selected_window_element"))
         {
             parts.Add(
@@ -337,7 +360,7 @@ internal static class AgentRunner
                 "Do not replace invoke_selected_window_element with standalone Tab, arrow, or other ad hoc navigation keys when trying to activate a visible control.");
         }
 
-        return string.Join(" ", parts);
+        return parts.Count == 0 ? null : string.Join(" ", parts);
     }
 
     internal static string? BuildOrdinalActionReferenceSummary(
@@ -382,7 +405,17 @@ internal static class AgentRunner
         string toolOutputText,
         IReadOnlyDictionary<string, object?> args)
     {
-        _ = toolOutputText;
+        if (IsLaunchAttemptWithoutSelectedWindow(toolName, toolOutputText))
+        {
+            return toolName switch
+            {
+                "select_taskbar_app" =>
+                    "The taskbar app activation did not surface a launched or selected app window. Do not imply that the app opened successfully. Try `launch_app_via_taskbar_search` next when it is available, and if that fallback is unavailable or also fails, explicitly tell the user that the launch failed.",
+                "launch_app_via_taskbar_search" =>
+                    "The taskbar search launch did not surface a launched app window. Do not imply that the app opened successfully. If earlier taskbar launch routes also failed or were unavailable, explicitly tell the user that the launch failed.",
+                _ => null
+            };
+        }
 
         if (toolName != "send_input_to_window")
         {
@@ -405,6 +438,34 @@ internal static class AgentRunner
         }
 
         return "Raw keyboard navigation is a weaker fallback for visible control activation. Before sending more standalone navigation keys, prefer `invoke_selected_window_element` on a candidate element path and use `send_input_to_window` only for explicit shortcut or text-entry requests.";
+    }
+
+    private static bool IsLaunchAttemptWithoutSelectedWindow(string toolName, string toolOutputText)
+    {
+        if (toolName is not "select_taskbar_app" and not "launch_app_via_taskbar_search")
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(toolOutputText))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(toolOutputText);
+            if (!document.RootElement.TryGetProperty("selectedWindow", out var selectedWindow))
+            {
+                return false;
+            }
+
+            return selectedWindow.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     internal static int? TryResolveOrdinalActionIndex(string text)
