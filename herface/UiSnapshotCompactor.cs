@@ -5,6 +5,8 @@ namespace HeronWin.HerFace;
 
 internal static class UiSnapshotCompactor
 {
+    private const int MaxContentHints = 6;
+    private const int MaxContentHintDepth = 8;
     private static readonly HashSet<string> HighValueControlTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         "Window",
@@ -157,7 +159,7 @@ internal static class UiSnapshotCompactor
             return;
         }
 
-        foreach (var child in children.EnumerateArray())
+        foreach (var child in EnumerateChildrenByPriority(children))
         {
             if (selectedLines.Count >= MaxIncludedNodes)
             {
@@ -245,6 +247,7 @@ internal static class UiSnapshotCompactor
             .Where(action => !string.Equals(action, "scroll_into_view", StringComparison.OrdinalIgnoreCase))
             .Take(4)
             .ToArray();
+        var contentHints = TryGetContentHints(element, name);
 
         var description = new StringBuilder();
         description.Append(path);
@@ -276,6 +279,11 @@ internal static class UiSnapshotCompactor
         if (actions.Length > 0)
         {
             flags.Add($"actions={string.Join(",", actions)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(contentHints))
+        {
+            flags.Add($"content={contentHints}");
         }
 
         if (flags.Count > 0)
@@ -333,6 +341,70 @@ internal static class UiSnapshotCompactor
         return builder.Length == 0
             ? "[UI snapshot omitted because it exceeded the active model budget.]"
             : builder.ToString();
+    }
+
+    private static IEnumerable<JsonElement> EnumerateChildrenByPriority(JsonElement children)
+    {
+        var prioritizedChildren = children
+            .EnumerateArray()
+            .Select((child, index) => new PrioritizedElement(child, index, GetTraversalPriority(child)))
+            .OrderByDescending(item => item.Priority)
+            .ThenBy(item => item.Index);
+
+        foreach (var item in prioritizedChildren)
+        {
+            yield return item.Element;
+        }
+    }
+
+    private static int GetTraversalPriority(JsonElement element)
+    {
+        var name = NormalizeInlineText(TryGetJsonStringProperty(element, "name"));
+        var controlType = TryGetJsonStringProperty(element, "controlType");
+        var className = TryGetJsonStringProperty(element, "className");
+
+        var priority = 0;
+        if (TryGetJsonBooleanProperty(element, "hasKeyboardFocus") == true)
+        {
+            priority += 400;
+        }
+
+        if (TryGetJsonBooleanProperty(element, "isSelected") == true)
+        {
+            priority += 350;
+        }
+
+        if (ElementLooksLikeDocumentRoot(element))
+        {
+            priority += 300;
+        }
+
+        if (LooksLikeMeaningfulPageContent(name, controlType, className))
+        {
+            priority += 220;
+        }
+
+        if (LooksLikeBrowserChrome(name, controlType, className))
+        {
+            priority += 140;
+        }
+
+        if (LooksLikeWindowCaptionButton(name, controlType))
+        {
+            priority -= 120;
+        }
+
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            priority += 20;
+        }
+
+        if (GetActions(element).Any(action => !string.Equals(action, "scroll_into_view", StringComparison.OrdinalIgnoreCase)))
+        {
+            priority += 10;
+        }
+
+        return priority;
     }
 
     private static string TruncateRawSnapshot(string snapshotText, int budget, string modelName)
@@ -394,6 +466,129 @@ internal static class UiSnapshotCompactor
                || normalizedName.Equals("Reload", StringComparison.OrdinalIgnoreCase)
                || normalizedName.Equals("Home", StringComparison.OrdinalIgnoreCase)
                || normalizedName.Contains("site information", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool LooksLikeWindowCaptionButton(string? name, string? controlType)
+    {
+        if (!string.Equals(controlType, "Button", StringComparison.OrdinalIgnoreCase) ||
+            string.IsNullOrWhiteSpace(name))
+        {
+            return false;
+        }
+
+        return name.Equals("Minimize", StringComparison.OrdinalIgnoreCase)
+               || name.Equals("Maximize", StringComparison.OrdinalIgnoreCase)
+               || name.Equals("Restore", StringComparison.OrdinalIgnoreCase)
+               || name.Equals("Close", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool ElementLooksLikeDocumentRoot(JsonElement element)
+    {
+        var controlType = TryGetJsonStringProperty(element, "controlType");
+        if (string.Equals(controlType, "Document", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var automationId = TryGetJsonStringProperty(element, "automationId");
+        return string.Equals(automationId, "RootWebArea", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool LooksLikeMeaningfulPageContent(string? name, string? controlType, string? className)
+    {
+        if (string.IsNullOrWhiteSpace(name) ||
+            LooksLikeBrowserChrome(name, controlType, className) ||
+            LooksLikeWindowCaptionButton(name, controlType))
+        {
+            return false;
+        }
+
+        if (name.Contains("Microsoft Edge", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return string.Equals(controlType, "Text", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(controlType, "ListItem", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(controlType, "Hyperlink", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(controlType, "Link", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(controlType, "Button", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(controlType, "MenuItem", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(controlType, "Document", StringComparison.OrdinalIgnoreCase)
+               || (!string.IsNullOrWhiteSpace(className) &&
+                   className.Contains("profile", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string? TryGetContentHints(JsonElement element, string? elementName)
+    {
+        if (!ElementLooksLikeDocumentRoot(element))
+        {
+            return null;
+        }
+
+        var hints = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        CollectContentHints(element, elementName, depth: 0, hints, seen);
+        return hints.Count == 0 ? null : string.Join(", ", hints);
+    }
+
+    private static void CollectContentHints(
+        JsonElement element,
+        string? documentName,
+        int depth,
+        List<string> hints,
+        HashSet<string> seen)
+    {
+        if (hints.Count >= MaxContentHints ||
+            depth > MaxContentHintDepth ||
+            element.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        if (depth > 0 &&
+            TryBuildContentHint(element, documentName) is { Length: > 0 } hint &&
+            seen.Add(hint))
+        {
+            hints.Add(hint);
+        }
+
+        if (hints.Count >= MaxContentHints ||
+            !TryGetJsonProperty(element, "children", out var children) ||
+            children.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (var child in EnumerateChildrenByPriority(children))
+        {
+            if (hints.Count >= MaxContentHints)
+            {
+                break;
+            }
+
+            CollectContentHints(child, documentName, depth + 1, hints, seen);
+        }
+    }
+
+    private static string? TryBuildContentHint(JsonElement element, string? documentName)
+    {
+        var controlType = TryGetJsonStringProperty(element, "controlType");
+        var className = TryGetJsonStringProperty(element, "className");
+        var name = NormalizeContentHint(TryGetJsonStringProperty(element, "name"));
+        if (!LooksLikeMeaningfulPageContent(name, controlType, className) ||
+            string.IsNullOrWhiteSpace(name))
+        {
+            return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(documentName) &&
+            string.Equals(name, documentName, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return name;
     }
 
     private static string? TryGetJsonStringProperty(JsonElement element, string propertyName)
@@ -470,4 +665,25 @@ internal static class UiSnapshotCompactor
 
         return normalized[..77].TrimEnd() + "...";
     }
+
+    private static string? NormalizeContentHint(string? value)
+    {
+        var normalized = NormalizeInlineText(value);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return null;
+        }
+
+        var start = 0;
+        while (start < normalized.Length &&
+               !char.IsLetterOrDigit(normalized[start]))
+        {
+            start++;
+        }
+
+        normalized = start == 0 ? normalized : normalized[start..].TrimStart();
+        return string.IsNullOrWhiteSpace(normalized) ? null : normalized;
+    }
+
+    private sealed record PrioritizedElement(JsonElement Element, int Index, int Priority);
 }

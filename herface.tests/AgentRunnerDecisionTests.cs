@@ -325,6 +325,17 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void ShouldOpenNewTabBeforeBrowserUrlEntry_ReturnsTrue_ForRootWindowToolOutput()
+    {
+        var actual = AgentRunner.ShouldOpenNewTabBeforeBrowserUrlEntry(
+            "Open the Netflix website in Edge.",
+            new Dictionary<string, object?> { ["text"] = "https://www.netflix.com" },
+            """{"Handle":"0x00060A88","Title":"YouTube - Personal - Microsoft Edge","ClassName":"Chrome_WidgetWin_1"}""");
+
+        Assert.True(actual);
+    }
+
+    [Fact]
     public void ShouldOpenNewTabBeforeBrowserUrlEntry_ReturnsFalse_WhenUserWantsCurrentTab()
     {
         var actual = AgentRunner.ShouldOpenNewTabBeforeBrowserUrlEntry(
@@ -349,6 +360,15 @@ public sealed class AgentRunnerDecisionTests
     {
         var actual = AgentRunner.DescribePrimaryWindowFromToolOutput(
             """{"Window":{"Handle":"0x00ABCDEF","Title":"Settings"}}""");
+
+        Assert.Equal("Settings (0x00ABCDEF)", actual);
+    }
+
+    [Fact]
+    public void DescribePrimaryWindowFromToolOutput_UsesRootWindowShape_WhenNestedWindowIsAbsent()
+    {
+        var actual = AgentRunner.DescribePrimaryWindowFromToolOutput(
+            """{"Handle":"0x00ABCDEF","Title":"Settings"}""");
 
         Assert.Equal("Settings (0x00ABCDEF)", actual);
     }

@@ -1768,7 +1768,14 @@ internal static class AgentRunner
             using var document = JsonDocument.Parse(toolOutputText);
             if (!TryGetJsonProperty(document.RootElement, propertyName, out var property))
             {
-                return false;
+                if (!LooksLikeWindowPropertyName(propertyName) ||
+                    !JsonElementLooksLikeWindow(document.RootElement))
+                {
+                    return false;
+                }
+
+                window = document.RootElement.Clone();
+                return true;
             }
 
             window = property.Clone();
@@ -1778,6 +1785,22 @@ internal static class AgentRunner
         {
             return false;
         }
+    }
+
+    private static bool LooksLikeWindowPropertyName(string propertyName)
+        => string.Equals(propertyName, "window", StringComparison.OrdinalIgnoreCase) ||
+           string.Equals(propertyName, "selectedWindow", StringComparison.OrdinalIgnoreCase);
+
+    private static bool JsonElementLooksLikeWindow(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        return !string.IsNullOrWhiteSpace(TryGetJsonStringProperty(element, "title")) ||
+               !string.IsNullOrWhiteSpace(TryGetJsonStringProperty(element, "handle")) ||
+               !string.IsNullOrWhiteSpace(TryGetJsonStringProperty(element, "className"));
     }
 
     private static string? DescribeWindowElement(JsonElement windowElement)

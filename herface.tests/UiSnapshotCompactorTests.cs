@@ -75,6 +75,169 @@ public sealed class UiSnapshotCompactorTests
     }
 
     [Fact]
+    public void CompactToolTextForContext_PreservesMeaningfulWebContent_WhenBrowserChromeIsVerbose()
+    {
+        var filler = new string('x', 600);
+        var snapshot = $$"""
+        {
+          "Window": {
+            "Handle": "0x016A037E",
+            "Title": "Netflix - Personal - Microsoft Edge",
+            "ClassName": "Chrome_WidgetWin_1"
+          },
+          "ElementTree": {
+            "Path": "root",
+            "UiPath": "root",
+            "Name": "Netflix - Personal - Microsoft Edge",
+            "ControlType": "Window",
+            "Children": [
+              {
+                "Path": "1/0",
+                "UiPath": "1/0",
+                "Name": "Minimize",
+                "ControlType": "Button"
+              },
+              {
+                "Path": "1/1",
+                "UiPath": "1/1",
+                "Name": "Restore",
+                "ControlType": "Button"
+              },
+              {
+                "Path": "1/2",
+                "UiPath": "1/2",
+                "Name": "Close",
+                "ControlType": "Button"
+              },
+              {
+                "Path": "2/0",
+                "UiPath": "2/0",
+                "Name": "App bar",
+                "ControlType": "ToolBar",
+                "ClassName": "EdgeToolbarView",
+                "Children": [
+                  {
+                    "Path": "2/0/0",
+                    "UiPath": "2/0/0",
+                    "Name": "Back",
+                    "ControlType": "Button",
+                    "ClassName": "BackForwardButton",
+                    "AvailableActions": [ "focus", "invoke" ]
+                  },
+                  {
+                    "Path": "2/0/1",
+                    "UiPath": "2/0/1",
+                    "Name": "Address and search bar",
+                    "ControlType": "Edit",
+                    "ClassName": "OmniboxViewViews",
+                    "AvailableActions": [ "focus", "set_value" ]
+                  },
+                  {
+                    "Path": "2/0/2",
+                    "UiPath": "2/0/2",
+                    "Name": "{{filler}}",
+                    "ControlType": "Text"
+                  }
+                ]
+              },
+              {
+                "Path": "3/0",
+                "UiPath": "3/0",
+                "Name": "Netflix",
+                "ControlType": "Document",
+                "AutomationId": "RootWebArea",
+                "HasKeyboardFocus": true,
+                "Children": [
+                  {
+                    "Path": "3/0/0",
+                    "UiPath": "3/0/0",
+                    "ControlType": "Pane",
+                    "Children": [
+                      {
+                        "Path": "3/0/0/0",
+                        "UiPath": "3/0/0/0",
+                        "ControlType": "Pane",
+                        "Children": [
+                          {
+                            "Path": "3/0/0/0/0",
+                            "UiPath": "3/0/0/0/0",
+                            "Name": "Who's watching?",
+                            "ControlType": "Text",
+                            "ClassName": "profile-gate-label"
+                          },
+                          {
+                            "Path": "3/0/0/0/1",
+                            "UiPath": "3/0/0/0/1",
+                            "Name": "Min",
+                            "ControlType": "ListItem",
+                            "ClassName": "profile"
+                          },
+                          {
+                            "Path": "3/0/0/0/2",
+                            "UiPath": "3/0/0/0/2",
+                            "Name": "Esther",
+                            "ControlType": "ListItem",
+                            "ClassName": "profile"
+                          },
+                          {
+                            "Path": "3/0/0/0/3",
+                            "UiPath": "3/0/0/0/3",
+                            "Name": "Henry",
+                            "ControlType": "ListItem",
+                            "ClassName": "profile"
+                          },
+                          {
+                            "Path": "3/0/0/0/4",
+                            "UiPath": "3/0/0/0/4",
+                            "Name": "Yoon",
+                            "ControlType": "ListItem",
+                            "ClassName": "profile"
+                          },
+                          {
+                            "Path": "3/0/0/0/5",
+                            "UiPath": "3/0/0/0/5",
+                            "Name": "\uE716Add Profile",
+                            "ControlType": "ListItem"
+                          },
+                          {
+                            "Path": "3/0/0/0/6",
+                            "UiPath": "3/0/0/0/6",
+                            "Name": "Manage Profiles",
+                            "ControlType": "Hyperlink",
+                            "ClassName": "profile-button"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+        """;
+
+        var profile = new LlmModelProfile(
+            LlmProviderId.OpenAiApi,
+            "gpt-5.4-mini",
+            ContextCompressionTriggerRatio: 0.55,
+            WindowSnapshotCharBudget: 1_200,
+            FocusSnapshotCharBudget: 320,
+            MaxThrottleRetries: 2);
+
+        var actual = UiSnapshotCompactor.CompactToolTextForContext(
+            "describe_selected_window",
+            snapshot,
+            profile);
+
+        Assert.Contains("Who's watching?", actual, StringComparison.Ordinal);
+        Assert.Contains("Min", actual, StringComparison.Ordinal);
+        Assert.Contains("Add Profile", actual, StringComparison.Ordinal);
+        Assert.Contains("Address and search bar", actual, StringComparison.Ordinal);
+        Assert.True(actual.Length <= profile.WindowSnapshotCharBudget);
+    }
+
+    [Fact]
     public void Create_ReturnsMoreAggressiveCompression_ForMiniModel()
     {
         var mini = LlmModelProfiles.Create(LlmProviderId.OpenAiApi, "gpt-5.4-mini");
