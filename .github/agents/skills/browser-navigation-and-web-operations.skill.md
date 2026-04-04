@@ -18,13 +18,15 @@ applies_when:
 
 1. Determine whether the user wants direct website navigation, web search, browser chrome control, or page interaction.
 2. Distinguish browser chrome controls such as the address bar, tabs, back, forward, and refresh from the web page content.
-3. When the user wants a website, navigate through the browser address bar with a clean URL.
-4. Unless the user explicitly wants to modify the existing address-bar text in place, clear the current address-bar contents before entering a new address or URL.
-5. After navigation, refresh the visible browser state and verify that the page actually changed to the intended site.
+3. In Microsoft Edge, when the user wants to open a new website or web page, open a new tab first unless the user explicitly asked to reuse the current tab.
+4. When the user wants a website, navigate through the browser address bar with a clean URL.
+5. Unless the user explicitly wants to modify the existing address-bar text in place, clear the current address-bar contents before entering a new address or URL.
+6. After navigation, refresh the visible browser state and verify that the page actually changed to the intended site.
 
 ## Direct Website Navigation Rules
 
 - When the user says to go to a website, open a site, open a URL, or use the address bar, treat that as direct URL navigation, not a search-engine query.
+- In Microsoft Edge, if the user wants to open a different website or new web page, prefer creating a new tab for that destination before navigating unless they explicitly asked to reuse the current tab.
 - Do not satisfy a direct website request by staying on a search results page unless the user explicitly asked to search the web or click a specific search result.
 - Prefer a clean canonical URL such as `https://www.netflix.com` or the plain domain when appropriate.
 - Do not mix search text, prior address-bar contents, or extra words into the URL.
@@ -33,6 +35,7 @@ applies_when:
 ## Address Bar Rules
 
 - If the browser UI exposes the address bar as a visible element such as `Address and search bar`, prefer focusing or invoking that element first.
+- If the user wants a new site in Microsoft Edge and a new-tab control is available, prefer invoking that control first. If direct element targeting is unavailable or fails, use the browser-standard new-tab shortcut such as `Ctrl+T`.
 - If direct element targeting is unavailable or fails, use the browser-standard address-bar shortcut such as `Ctrl+L` as the fallback.
 - Treat in-page fields such as a webpage `Search box`, site search field, or Bing results search box as page content, not as the browser address bar.
 - For direct website navigation, do not type the site domain or URL into an in-page `Search box` just because it currently has focus.
