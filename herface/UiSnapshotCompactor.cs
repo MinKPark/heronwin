@@ -18,6 +18,8 @@ internal static class UiSnapshotCompactor
         "ComboBox",
         "List",
         "ListItem",
+        "Link",
+        "Hyperlink",
         "Menu",
         "MenuItem",
         "Tree",
