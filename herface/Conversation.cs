@@ -823,9 +823,9 @@ internal static class AgentRunner
             return toolName switch
             {
                 "select_taskbar_app" =>
-                    "The taskbar app activation did not surface a launched or selected app window. Do not imply that the app opened successfully. Use fresh evidence before deciding what happened, and if another materially different launch route is available, prefer that over repeating the same route.",
+                    "The taskbar app activation did not surface a launched or selected app window. Do not imply that the app opened successfully, and do not treat the unchanged current window as the requested app just because it is still visible. Use fresh evidence before deciding what happened, and if another materially different launch route is available, prefer that over repeating the same route.",
                 "launch_app_via_taskbar_search" =>
-                    "The taskbar search launch did not surface a launched app window. Do not imply that the app opened successfully, and do not assume a same-title app window exists just because Search shows a matching result. Use fresh evidence before deciding what happened, and if another materially different launch route is available, prefer that next.",
+                    "The taskbar search launch did not surface a launched app window. Do not imply that the app opened successfully, do not assume a same-title app window exists just because Search shows a matching result, and do not treat the unchanged current window as the requested app just because it is still visible. Use fresh evidence before deciding what happened, and if another materially different launch route is available, prefer that next.",
                 _ => null
             };
         }

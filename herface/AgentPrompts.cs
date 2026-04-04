@@ -253,19 +253,22 @@ internal static class AgentPromptComposer
         var toolNames = tools.Select(tool => tool.Name).ToHashSet(StringComparer.Ordinal);
         var selectedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var normalizedText = NormalizeText(userText);
+        var matchesBrowserRequest = MatchesBrowserRequest(userText, normalizedText);
+        var matchesDirectBrowserNavigationRequest = MatchesDirectBrowserNavigationRequest(userText, normalizedText);
+        var hasLaunchTools = HasAnyTool(toolNames, "list_windows", "select_window", "list_taskbar_elements", "select_taskbar_app", "launch_app_via_taskbar_search");
 
         if (HasAnyTool(toolNames, "describe_selected_window", "describe_selected_window_focus", "capture_selected_window_screenshot"))
         {
             selectedKeys.Add("ui-refresh-and-evidence");
         }
 
-        if (MatchesLaunchRequest(normalizedText)
-            && HasAnyTool(toolNames, "list_windows", "select_window", "list_taskbar_elements", "select_taskbar_app", "launch_app_via_taskbar_search"))
+        if ((MatchesLaunchRequest(normalizedText) || matchesDirectBrowserNavigationRequest)
+            && hasLaunchTools)
         {
             selectedKeys.Add("desktop-launch-and-first-look");
         }
 
-        if (MatchesBrowserRequest(userText, normalizedText)
+        if (matchesBrowserRequest
             && HasAnyTool(toolNames, "describe_selected_window", "describe_selected_window_focus", "invoke_selected_window_element", "focus_selected_window_element", "send_input_to_window", "capture_selected_window_screenshot"))
         {
             selectedKeys.Add("browser-navigation-and-web-operations");
@@ -277,7 +280,8 @@ internal static class AgentPromptComposer
             selectedKeys.Add("search-and-enumeration");
         }
 
-        if (MatchesActionRequest(normalizedText)
+        if (!matchesBrowserRequest
+            && MatchesActionRequest(normalizedText)
             && HasAnyTool(toolNames, "list_main_menu_items", "list_context_menu_items", "invoke_main_menu_item", "invoke_context_menu_item", "invoke_selected_window_element", "focus_selected_window_element", "send_input_to_window"))
         {
             selectedKeys.Add("action-discovery-and-invocation");
@@ -377,6 +381,30 @@ internal static class AgentPromptComposer
         }
 
         return Regex.IsMatch(rawText, @"\b(?:https?://|www\.)\S+", RegexOptions.IgnoreCase)
+               || Regex.IsMatch(rawText, @"\b[\w-]+\.(?:com|org|net|io|ai|gov|edu|app|dev|tv|co)\b", RegexOptions.IgnoreCase);
+    }
+
+    private static bool MatchesDirectBrowserNavigationRequest(string rawText, string normalizedText)
+    {
+        if (!MatchesBrowserRequest(rawText, normalizedText))
+        {
+            return false;
+        }
+
+        return ContainsAny(
+                   normalizedText,
+                   "go to",
+                   "visit",
+                   "website",
+                   "web site",
+                   "url",
+                   "address bar",
+                   "webpage",
+                   "web page",
+                   "open site",
+                   "open website",
+                   "open url")
+               || Regex.IsMatch(rawText, @"\b(?:https?://|www\.)\S+", RegexOptions.IgnoreCase)
                || Regex.IsMatch(rawText, @"\b[\w-]+\.(?:com|org|net|io|ai|gov|edu|app|dev|tv|co)\b", RegexOptions.IgnoreCase);
     }
 

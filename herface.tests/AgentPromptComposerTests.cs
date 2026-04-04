@@ -81,10 +81,11 @@ public sealed class AgentPromptComposerTests
         Assert.Contains(actual.ActiveSkills, skill => skill.Key == "browser-navigation-and-web-operations");
         Assert.Contains(actual.ActiveSkills, skill => skill.Key == "ui-refresh-and-evidence");
         Assert.DoesNotContain(actual.ActiveSkills, skill => skill.Key == "desktop-launch-and-first-look");
+        Assert.DoesNotContain(actual.ActiveSkills, skill => skill.Key == "action-discovery-and-invocation");
     }
 
     [Fact]
-    public void Compose_DoesNotTreatWebsiteOpenRequest_AsAppLaunch()
+    public void Compose_ActivatesLaunchSkill_ForWebsiteOpenRequest_WhenLaunchToolsExist()
     {
         var catalog = CreateCatalog();
 
@@ -100,7 +101,8 @@ public sealed class AgentPromptComposerTests
             ]);
 
         Assert.Contains(actual.ActiveSkills, skill => skill.Key == "browser-navigation-and-web-operations");
-        Assert.DoesNotContain(actual.ActiveSkills, skill => skill.Key == "desktop-launch-and-first-look");
+        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "desktop-launch-and-first-look");
+        Assert.DoesNotContain(actual.ActiveSkills, skill => skill.Key == "action-discovery-and-invocation");
     }
 
     private static AgentPromptCatalog CreateCatalog()

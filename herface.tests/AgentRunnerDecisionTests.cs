@@ -126,6 +126,7 @@ public sealed class AgentRunnerDecisionTests
 
         Assert.NotNull(actual);
         Assert.Contains("Do not imply that the app opened successfully", actual!, StringComparison.Ordinal);
+        Assert.Contains("do not treat the unchanged current window as the requested app", actual, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("fresh evidence", actual, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("materially different launch route", actual, StringComparison.OrdinalIgnoreCase);
     }
@@ -141,6 +142,7 @@ public sealed class AgentRunnerDecisionTests
         Assert.NotNull(actual);
         Assert.Contains("Do not imply that the app opened successfully", actual!, StringComparison.Ordinal);
         Assert.Contains("do not assume a same-title app window exists", actual, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("do not treat the unchanged current window as the requested app", actual, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("fresh evidence", actual, StringComparison.OrdinalIgnoreCase);
     }
 
