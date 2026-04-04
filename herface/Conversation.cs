@@ -222,6 +222,8 @@ internal static class AgentRunner
                         ["usedAnyTools"] = usedAnyTools,
                         ["performedDesktopAction"] = performedDesktopAction,
                         ["performedConfidenceEvidenceRetry"] = performedConfidenceEvidenceRetry,
+                        ["sayText"] = parsedReply.SpokenText,
+                        ["logText"] = parsedReply.LogText,
                         ["sayPreview"] = DebugTrace.Preview(parsedReply.SpokenText, 400),
                         ["logPreview"] = DebugTrace.Preview(parsedReply.LogText, 900),
                         ["rawPreview"] = DebugTrace.Preview(responseText, 1200),

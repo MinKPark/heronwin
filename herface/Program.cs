@@ -1,19 +1,36 @@
 using HeronWin.HerFace;
-using System.Text.RegularExpressions;
 using System.Threading.Channels;
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 
-var cancellationSource = new CancellationTokenSource();
-Console.CancelKeyPress += (_, args) =>
+HerfaceConsoleOptions consoleOptions;
+try
 {
-    args.Cancel = true;
+    consoleOptions = HerfaceConsoleMode.Parse(args);
+}
+catch (Exception ex) when (ex is InvalidOperationException or FileNotFoundException)
+{
+    Console.Error.WriteLine($"x  {ex.Message}");
+    Environment.ExitCode = 1;
+    return;
+}
+
+if (consoleOptions.ShowHelp)
+{
+    HerfaceConsoleMode.PrintHelp();
+    return;
+}
+
+var cancellationSource = new CancellationTokenSource();
+Console.CancelKeyPress += (_, eventArgs) =>
+{
+    eventArgs.Cancel = true;
     cancellationSource.Cancel();
 };
 
 var config = AppConfig.Load();
 ArtifactCleanup.CleanupPreviousRunArtifacts(AppContext.BaseDirectory, Environment.ProcessPath);
-DebugTrace.Configure(config.DebugAudioPlayback);
+DebugTrace.Configure(config.EnableDebugTrace || config.DebugAudioPlayback || consoleOptions.RequiresDebugTrace);
 Display.Banner();
 using var httpClient = new HttpClient();
 await using var mcpManager = new McpClientManager();
@@ -27,6 +44,10 @@ DebugTrace.WriteStructuredEvent(
         ["cwd"] = Directory.GetCurrentDirectory(),
         ["baseDir"] = AppContext.BaseDirectory,
         ["sessionId"] = DebugTrace.SessionId,
+        ["launchMode"] = consoleOptions.IsScripted ? "scripted" : "voice",
+        ["scriptedScenarioPath"] = consoleOptions.ScenarioFilePath,
+        ["scriptedCommands"] = consoleOptions.Commands.ToArray(),
+        ["debugTraceEnabled"] = DebugTrace.IsEnabled,
         ["llmProvider"] = config.LlmProvider.ToString(),
         ["openAiModel"] = config.OpenAiModel,
         ["anthropicModel"] = config.AnthropicModel,
@@ -50,7 +71,22 @@ DebugTrace.WriteStructuredEvent(
 
 DebugTrace.WriteEvent(
     "config.loaded",
-    $"llmProvider={config.LlmProvider}, openAiModel={config.OpenAiModel}, anthropicModel={config.AnthropicModel}, whisperModel={config.WhisperModel}, wakeWord={DebugTrace.SerializeObject(config.WakeWord)}, agentDefinitionPath={config.AgentDefinitionPath}, agentCoreDefinitionPath={config.AgentPrompts.CoreDefinitionPath ?? "(none)"}, agentSkills={config.AgentPrompts.Skills.Count}, mcpServers={config.McpServers.Count}, debugAudioPlayback={config.DebugAudioPlayback}");
+    $"mode={(consoleOptions.IsScripted ? "scripted" : "voice")}, llmProvider={config.LlmProvider}, openAiModel={config.OpenAiModel}, anthropicModel={config.AnthropicModel}, whisperModel={config.WhisperModel}, wakeWord={DebugTrace.SerializeObject(config.WakeWord)}, agentDefinitionPath={config.AgentDefinitionPath}, agentCoreDefinitionPath={config.AgentPrompts.CoreDefinitionPath ?? "(none)"}, agentSkills={config.AgentPrompts.Skills.Count}, mcpServers={config.McpServers.Count}, debugTrace={DebugTrace.IsEnabled}, debugAudioPlayback={config.DebugAudioPlayback}");
+
+if (consoleOptions.IsScripted)
+{
+    var scriptedExitCode = await RunScriptedModeAsync(cancellationSource.Token);
+    Display.Info("Shutting down...");
+    DebugTrace.WriteEvent("session.shutdown", "Application shutdown completed.");
+    if (!DebugTrace.IsEnabled)
+    {
+        ArtifactCleanup.CleanupCurrentRunArtifacts(DebugTrace.LogFilePath, DebugTrace.JsonLogFilePath);
+    }
+
+    PrintDebugLogPathIfEnabled();
+    Environment.ExitCode = scriptedExitCode;
+    return;
+}
 
 ILlmClient llmClient;
 IAudioTranscriber? audioTranscriber;
@@ -144,49 +180,28 @@ var agentTask = Task.Run(async () =>
                 "agent.turn.dequeue",
                 $"turn={queuedTurn.TurnId}, historyMessages={history.Count}, queuedText={DebugTrace.Preview(queuedTurn.Text, 500)}");
 
-            var tools = await mcpManager.ListAllToolsAsync(cancellationSource.Token);
-            var composedPrompt = AgentPromptComposer.Compose(config.AgentPrompts, queuedTurn.Text, tools);
-            DebugTrace.WriteEvent(
-                "agent.prompt.composed",
-                $"turn={queuedTurn.TurnId}, source={composedPrompt.SourceDescription}, fallback={composedPrompt.UsesFallbackDefinition}, skills={string.Join(", ", composedPrompt.ActiveSkills.Select(skill => skill.Key).DefaultIfEmpty("(none)"))}");
-
-            await ContextManager.EnsureCapacityAsync(
-                history,
-                queuedTurn.Text,
-                composedPrompt.SystemPrompt,
-                config.MaxContextTokens,
-                llmClient.ModelProfile,
-                llmClient,
-                cancellationSource.Token);
-
-            var reply = await AgentRunner.RunTurnAsync(
+            var processedTurn = await HerfaceTurnProcessor.ProcessAsync(
                 queuedTurn.TurnId,
                 queuedTurn.Text,
                 history,
-                tools,
-                composedPrompt,
+                config,
                 llmClient,
                 mcpManager,
                 cancellationSource.Token,
+                turnSource: "voice",
                 intermediateStepNarrator: speechSynthesizer is null
                     ? null
-                    : async (stepText, cancellationToken) =>
+                    : async (stepText, innerCancellationToken) =>
                     {
-                        await PlayAudioOutputAsync(() => SpeakAsync(speechSynthesizer, stepText, cancellationToken));
+                        await PlayAudioOutputAsync(() => SpeakAsync(speechSynthesizer, stepText, innerCancellationToken));
                     });
-            history.Add(new AgentMessage.User(queuedTurn.Text));
-            history.Add(new AgentMessage.Assistant(reply.RawText));
-            Display.ContextUsage(
-                ContextManager.EstimateTokens(history, composedPrompt.SystemPrompt),
-                config.MaxContextTokens);
-            DebugTrace.WriteEvent(
-                "agent.turn.complete",
-                $"turn={queuedTurn.TurnId}, spoken={DebugTrace.Preview(reply.SpokenText, 300)}, log={DebugTrace.Preview(reply.LogText, 600)}");
-            if (!string.IsNullOrWhiteSpace(reply.SpokenText))
+
+            if (!string.IsNullOrWhiteSpace(processedTurn.Reply.SpokenText))
             {
                 try
                 {
-                    await PlayAudioOutputAsync(() => SpeakAsync(speechSynthesizer, reply.SpokenText, cancellationSource.Token));
+                    await PlayAudioOutputAsync(
+                        () => SpeakAsync(speechSynthesizer, processedTurn.Reply.SpokenText, cancellationSource.Token));
                 }
                 catch (Exception ex)
                 {
@@ -354,6 +369,56 @@ if (!DebugTrace.IsEnabled)
 }
 PrintDebugLogPathIfEnabled();
 return;
+
+async Task<int> RunScriptedModeAsync(CancellationToken cancellationToken)
+{
+    ILlmClient scriptedLlmClient;
+    try
+    {
+        scriptedLlmClient = LlmFactory.CreateLlmClient(config, httpClient);
+    }
+    catch (Exception ex)
+    {
+        Display.Error(ex.Message);
+        return 1;
+    }
+
+    Display.Info($"LLM: {scriptedLlmClient.DisplayName}");
+    if (DebugTrace.IsEnabled && !string.IsNullOrWhiteSpace(DebugTrace.LogFilePath))
+    {
+        Display.Info($"Debug trace: {DebugTrace.LogFilePath}");
+        if (!string.IsNullOrWhiteSpace(DebugTrace.JsonLogFilePath))
+        {
+            Display.Info($"Debug trace JSONL: {DebugTrace.JsonLogFilePath}");
+        }
+    }
+
+    if (config.McpServers.Count > 0)
+    {
+        Display.Info($"Connecting to {config.McpServers.Count} MCP server(s)...");
+        try
+        {
+            await mcpManager.ConnectAsync(config.McpServers, cancellationToken);
+            var tools = await mcpManager.ListAllToolsAsync(cancellationToken);
+            Display.Info($"MCP tools available: {string.Join(", ", tools.Select(tool => tool.Name).DefaultIfEmpty("(none)"))}");
+        }
+        catch (Exception ex)
+        {
+            Display.Warn($"MCP connection failed: {ex.Message}");
+        }
+    }
+    else
+    {
+        Display.Info("No MCP servers configured. Running without tool support.");
+    }
+
+    return await ScriptedConversationRunner.RunAsync(
+        consoleOptions,
+        config,
+        scriptedLlmClient,
+        mcpManager,
+        cancellationToken);
+}
 
 static void CleanupRecording(RecordingResult? recording)
 {
