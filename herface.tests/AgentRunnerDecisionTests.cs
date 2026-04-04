@@ -331,6 +331,67 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void NeedsBrowserWindowPreflight_ReturnsTrue_ForWebsiteShortcutOnNonBrowserWindow()
+    {
+        using var modifiers = JsonDocument.Parse("""["Control"]""");
+        var actual = AgentRunner.NeedsBrowserWindowPreflight(
+            "Go to the Netflix website.",
+            "send_input_to_window",
+            new Dictionary<string, object?> { ["key"] = "L", ["modifiers"] = modifiers.RootElement },
+            """{"Window":{"Handle":"0x004C08DE","Title":"heronwin - Visual Studio Code","ClassName":"Chrome_WidgetWin_1"}}""");
+
+        Assert.True(actual);
+    }
+
+    [Fact]
+    public void NeedsBrowserWindowPreflight_ReturnsFalse_WhenBrowserIsAlreadySelected()
+    {
+        var actual = AgentRunner.NeedsBrowserWindowPreflight(
+            "Go to the Netflix website.",
+            "send_input_to_window",
+            new Dictionary<string, object?> { ["text"] = "https://www.netflix.com" },
+            """{"Window":{"Handle":"0x00060A88","Title":"Netflix - Microsoft Edge","ClassName":"Chrome_WidgetWin_1"}}""");
+
+        Assert.False(actual);
+    }
+
+    [Fact]
+    public void TryBuildBrowserSelectionArguments_PrefersUsableEdgeWindow()
+    {
+        var recentListWindowsOutput =
+            """
+            {
+              "SelectedWindowHandle": "0x004C08DE",
+              "Windows": [
+                {
+                  "Handle": "0x004C08DE",
+                  "Title": "heronwin - Visual Studio Code",
+                  "ClassName": "Chrome_WidgetWin_1",
+                  "ProcessId": 17924,
+                  "Bounds": { "Left": 1912, "Top": 0, "Width": 1936, "Height": 1048 },
+                  "IsSelected": true
+                },
+                {
+                  "Handle": "0x00060A88",
+                  "Title": "Netflix - Microsoft Edge",
+                  "ClassName": "Chrome_WidgetWin_1",
+                  "ProcessId": 43600,
+                  "Bounds": { "Left": -1928, "Top": -8, "Width": 1936, "Height": 1048 },
+                  "IsSelected": false
+                }
+              ]
+            }
+            """;
+
+        var rewritten = AgentRunner.TryBuildBrowserSelectionArguments(
+            recentListWindowsOutput,
+            out var actualArgs);
+
+        Assert.True(rewritten);
+        Assert.Equal("0x00060A88", actualArgs["windowHandle"]);
+    }
+
+    [Fact]
     public void TryRewriteBrowserAddressBarActionToShortcut_ReturnsTrue_ForBrowserAddressBarElement()
     {
         var actual = AgentRunner.TryRewriteBrowserAddressBarActionToShortcut(

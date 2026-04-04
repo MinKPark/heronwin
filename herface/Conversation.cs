@@ -69,6 +69,9 @@ internal static class AgentRunner
     {
         var turnStopwatch = Stopwatch.StartNew();
         var messages = history.ToList();
+        var availableToolNames = tools
+            .Select(tool => tool.Name)
+            .ToHashSet(StringComparer.Ordinal);
         var runtimeToolPolicy = BuildRuntimeToolPolicy(tools);
         if (!string.IsNullOrWhiteSpace(runtimeToolPolicy))
         {
@@ -298,6 +301,7 @@ internal static class AgentRunner
                 var executableToolName = toolCall.Name;
                 string? toolRewriteNote = null;
                 var attemptedBrowserFullscreenExit = false;
+                var attemptedBrowserWindowPreflight = false;
 
                 async Task MaybeExitBrowserFullscreenAsync(string reason)
                 {
@@ -339,6 +343,175 @@ internal static class AgentRunner
                     {
                         DebugTrace.WriteStructuredEvent(
                             "agent.browser_fullscreen_exit_failed",
+                            new Dictionary<string, object?>
+                            {
+                                ["turn"] = turnId,
+                                ["toolCallId"] = toolCall.Id,
+                                ["reason"] = reason,
+                                ["error"] = DebugTrace.Preview(ex.ToString(), 700),
+                        });
+                    }
+                }
+
+                async Task MaybeEnsureBrowserWindowBeforeBrowserNavigationAsync(string reason)
+                {
+                    if (attemptedBrowserWindowPreflight ||
+                        !NeedsBrowserWindowPreflight(userText, executableToolName, executableArgs, recentWindowContext))
+                    {
+                        return;
+                    }
+
+                    attemptedBrowserWindowPreflight = true;
+
+                    if (string.IsNullOrWhiteSpace(recentListWindowsOutput) &&
+                        availableToolNames.Contains("list_windows"))
+                    {
+                        try
+                        {
+                            var listResult = await mcpManager.CallToolAsync(
+                                "list_windows",
+                                new Dictionary<string, object?>(),
+                                cancellationToken);
+                            DebugTrace.WriteStructuredEvent(
+                                "agent.browser_window_preflight_list_windows",
+                                new Dictionary<string, object?>
+                                {
+                                    ["turn"] = turnId,
+                                    ["toolCallId"] = toolCall.Id,
+                                    ["reason"] = reason,
+                                    ["isError"] = listResult.IsError,
+                                    ["resultPreview"] = DebugTrace.Preview(listResult.Text, 700),
+                                });
+
+                            if (!listResult.IsError)
+                            {
+                                recentListWindowsOutput = listResult.Text;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            DebugTrace.WriteStructuredEvent(
+                                "agent.browser_window_preflight_list_windows_failed",
+                                new Dictionary<string, object?>
+                                {
+                                    ["turn"] = turnId,
+                                    ["toolCallId"] = toolCall.Id,
+                                    ["reason"] = reason,
+                                    ["error"] = DebugTrace.Preview(ex.ToString(), 700),
+                                });
+                        }
+                    }
+
+                    if (availableToolNames.Contains("select_window") &&
+                        TryBuildBrowserSelectionArguments(recentListWindowsOutput, out var browserSelectionArgs))
+                    {
+                        try
+                        {
+                            var selectionResult = await mcpManager.CallToolAsync(
+                                "select_window",
+                                browserSelectionArgs,
+                                cancellationToken);
+                            DebugTrace.WriteStructuredEvent(
+                                "agent.browser_window_preflight_select_window",
+                                new Dictionary<string, object?>
+                                {
+                                    ["turn"] = turnId,
+                                    ["toolCallId"] = toolCall.Id,
+                                    ["reason"] = reason,
+                                    ["arguments"] = browserSelectionArgs,
+                                    ["isError"] = selectionResult.IsError,
+                                    ["selectedWindow"] = DescribePrimaryWindowFromToolOutput(selectionResult.Text),
+                                    ["resultPreview"] = DebugTrace.Preview(selectionResult.Text, 700),
+                                });
+
+                            if (!selectionResult.IsError &&
+                                DescribePrimaryWindowFromToolOutput(selectionResult.Text) is not null)
+                            {
+                                recentWindowContext = selectionResult.Text;
+                                return;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            DebugTrace.WriteStructuredEvent(
+                                "agent.browser_window_preflight_select_window_failed",
+                                new Dictionary<string, object?>
+                                {
+                                    ["turn"] = turnId,
+                                    ["toolCallId"] = toolCall.Id,
+                                    ["reason"] = reason,
+                                    ["arguments"] = browserSelectionArgs,
+                                    ["error"] = DebugTrace.Preview(ex.ToString(), 700),
+                                });
+                        }
+                    }
+
+                    if (!availableToolNames.Contains("launch_app_via_taskbar_search"))
+                    {
+                        return;
+                    }
+
+                    try
+                    {
+                        var launchArgs = new Dictionary<string, object?>
+                        {
+                            ["appName"] = "Microsoft Edge",
+                        };
+                        var launchResult = await mcpManager.CallToolAsync(
+                            "launch_app_via_taskbar_search",
+                            launchArgs,
+                            cancellationToken);
+                        DebugTrace.WriteStructuredEvent(
+                            "agent.browser_window_preflight_launch_browser",
+                            new Dictionary<string, object?>
+                            {
+                                ["turn"] = turnId,
+                                ["toolCallId"] = toolCall.Id,
+                                ["reason"] = reason,
+                                ["arguments"] = launchArgs,
+                                ["isError"] = launchResult.IsError,
+                                ["selectedWindow"] = DescribePrimaryWindowFromToolOutput(launchResult.Text),
+                                ["resultPreview"] = DebugTrace.Preview(launchResult.Text, 700),
+                            });
+
+                        if (!launchResult.IsError &&
+                            DescribePrimaryWindowFromToolOutput(launchResult.Text) is not null)
+                        {
+                            recentWindowContext = launchResult.Text;
+                        }
+
+                        var followUpSelectionArgs = TryBuildLaunchFollowUpSelectionArguments(launchResult.Text);
+                        if (followUpSelectionArgs is not null &&
+                            availableToolNames.Contains("select_window"))
+                        {
+                            var followUpResult = await mcpManager.CallToolAsync(
+                                "select_window",
+                                followUpSelectionArgs,
+                                cancellationToken);
+                            DebugTrace.WriteStructuredEvent(
+                                "agent.browser_window_preflight_select_launched_browser",
+                                new Dictionary<string, object?>
+                                {
+                                    ["turn"] = turnId,
+                                    ["toolCallId"] = toolCall.Id,
+                                    ["reason"] = reason,
+                                    ["arguments"] = followUpSelectionArgs,
+                                    ["isError"] = followUpResult.IsError,
+                                    ["selectedWindow"] = DescribePrimaryWindowFromToolOutput(followUpResult.Text),
+                                    ["resultPreview"] = DebugTrace.Preview(followUpResult.Text, 700),
+                                });
+
+                            if (!followUpResult.IsError &&
+                                DescribePrimaryWindowFromToolOutput(followUpResult.Text) is not null)
+                            {
+                                recentWindowContext = followUpResult.Text;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugTrace.WriteStructuredEvent(
+                            "agent.browser_window_preflight_launch_browser_failed",
                             new Dictionary<string, object?>
                             {
                                 ["turn"] = turnId,
@@ -391,6 +564,8 @@ internal static class AgentRunner
                             ["rewrittenArgumentsPreview"] = DebugTrace.Preview(effectiveArgumentsText, 600),
                         });
                 }
+
+                await MaybeEnsureBrowserWindowBeforeBrowserNavigationAsync("browser_navigation_preflight");
 
                 if (executableToolName == "send_input_to_window" &&
                     LooksLikeUrl(TryGetStringArgument(executableArgs, "text") ?? string.Empty))
@@ -1493,6 +1668,103 @@ internal static class AgentRunner
         return true;
     }
 
+    internal static bool NeedsBrowserWindowPreflight(
+        string userText,
+        string toolName,
+        IReadOnlyDictionary<string, object?> args,
+        string? recentWindowContext)
+    {
+        if (toolName != "send_input_to_window" ||
+            SnapshotLooksLikeBrowserWindow(recentWindowContext) ||
+            !UserRequestLooksLikeWebsiteNavigation(userText))
+        {
+            return false;
+        }
+
+        var text = TryGetStringArgument(args, "text");
+        if (LooksLikeUrl(text ?? string.Empty))
+        {
+            return true;
+        }
+
+        var key = TryGetStringArgument(args, "key");
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return false;
+        }
+
+        if (string.Equals(key, "F6", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var modifiers = GetModifierNames(args);
+        if (!modifiers.Contains("Control", StringComparer.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return key.Trim() is "L" or "l" or "T" or "t";
+    }
+
+    internal static bool TryBuildBrowserSelectionArguments(
+        string? recentListWindowsOutput,
+        out Dictionary<string, object?> selectionArgs)
+    {
+        selectionArgs = new Dictionary<string, object?>(StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(recentListWindowsOutput))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(recentListWindowsOutput);
+            if (!TryGetJsonProperty(document.RootElement, "windows", out var windowsElement) ||
+                windowsElement.ValueKind != JsonValueKind.Array)
+            {
+                return false;
+            }
+
+            var candidates = windowsElement
+                .EnumerateArray()
+                .Where(WindowLooksLikeBrowser)
+                .Select(window => new BrowserWindowCandidate(
+                    TryGetJsonStringProperty(window, "handle"),
+                    TryGetJsonStringProperty(window, "title"),
+                    TryGetJsonBooleanProperty(window, "isSelected") == true,
+                    HasUsableWindowBounds(window),
+                    WindowLooksLikeEdge(window)))
+                .Where(candidate => !string.IsNullOrWhiteSpace(candidate.Handle) ||
+                                    !string.IsNullOrWhiteSpace(candidate.Title))
+                .OrderByDescending(candidate => candidate.IsSelected && candidate.HasUsableBounds)
+                .ThenByDescending(candidate => candidate.IsEdge && candidate.HasUsableBounds)
+                .ThenByDescending(candidate => candidate.HasUsableBounds)
+                .ThenByDescending(candidate => candidate.IsSelected)
+                .ThenByDescending(candidate => candidate.IsEdge)
+                .ToArray();
+
+            if (candidates.Length == 0)
+            {
+                return false;
+            }
+
+            var chosen = candidates[0];
+            if (!string.IsNullOrWhiteSpace(chosen.Handle))
+            {
+                selectionArgs["windowHandle"] = chosen.Handle;
+                return true;
+            }
+
+            selectionArgs["titleContains"] = chosen.Title!;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     internal static bool TryRewriteBrowserAddressBarActionToShortcut(
         string toolName,
         IReadOnlyDictionary<string, object?> args,
@@ -1844,13 +2116,6 @@ internal static class AgentRunner
 
     private static bool WindowLooksLikeBrowser(JsonElement window)
     {
-        var className = TryGetJsonStringProperty(window, "className");
-        if (!string.IsNullOrWhiteSpace(className) &&
-            string.Equals(className, "Chrome_WidgetWin_1", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
         var title = TryGetJsonStringProperty(window, "title");
         if (string.IsNullOrWhiteSpace(title))
         {
@@ -2066,6 +2331,29 @@ internal static class AgentRunner
         string? Title,
         bool IsSelected,
         bool HasUsableBounds);
+
+    private sealed record BrowserWindowCandidate(
+        string? Handle,
+        string? Title,
+        bool IsSelected,
+        bool HasUsableBounds,
+        bool IsEdge);
+
+    private static bool UserRequestLooksLikeWebsiteNavigation(string userText)
+    {
+        if (string.IsNullOrWhiteSpace(userText))
+        {
+            return false;
+        }
+
+        return userText.Contains("website", StringComparison.OrdinalIgnoreCase)
+               || userText.Contains("url", StringComparison.OrdinalIgnoreCase)
+               || userText.Contains("web page", StringComparison.OrdinalIgnoreCase)
+               || Regex.IsMatch(
+                   userText,
+                   @"\b[\w-]+\.(com|net|org|io|ai|app|tv|co)\b",
+                   RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
 
     private static bool UserExplicitlyRequestsCurrentTabReuse(string userText)
     {

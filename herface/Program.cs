@@ -32,7 +32,8 @@ var config = AppConfig.Load();
 ArtifactCleanup.CleanupPreviousRunArtifacts(AppContext.BaseDirectory, Environment.ProcessPath);
 DebugTrace.Configure(config.EnableDebugTrace || config.DebugAudioPlayback || consoleOptions.RequiresDebugTrace);
 Display.Banner();
-using var httpClient = new HttpClient();
+var httpClientSetup = HerfaceHttpClientFactory.Create();
+using var httpClient = httpClientSetup.Client;
 await using var mcpManager = new McpClientManager();
 
 DebugTrace.WriteStructuredEvent(
@@ -105,6 +106,11 @@ catch (Exception ex)
 }
 
 Display.Info($"LLM: {llmClient.DisplayName}");
+if (httpClientSetup.BypassedBrokenLoopbackProxy)
+{
+    Display.Warn(
+        $"Ignoring broken loopback proxy setting for outbound API calls: {httpClientSetup.BypassedProxyValue}");
+}
 Display.Info($"Microphone: {AudioDevices.DescribeDefaultMicrophone()}");
 Display.Info($"Speaker: {AudioDevices.DescribeDefaultSpeaker()}");
 Display.Info($"Mic capture: {AudioRecorder.DescribeRecordingFormat()}");
@@ -384,6 +390,11 @@ async Task<int> RunScriptedModeAsync(CancellationToken cancellationToken)
     }
 
     Display.Info($"LLM: {scriptedLlmClient.DisplayName}");
+    if (httpClientSetup.BypassedBrokenLoopbackProxy)
+    {
+        Display.Warn(
+            $"Ignoring broken loopback proxy setting for outbound API calls: {httpClientSetup.BypassedProxyValue}");
+    }
     if (DebugTrace.IsEnabled && !string.IsNullOrWhiteSpace(DebugTrace.LogFilePath))
     {
         Display.Info($"Debug trace: {DebugTrace.LogFilePath}");
