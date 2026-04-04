@@ -345,13 +345,22 @@ internal static class HerfaceScenarioEvaluator
             .Where(record => record.TryGetBoolean("isError", out var isError) && isError)
             .ToArray();
         var toolErrorCount = toolErrorRecords.Length;
-        var hasReplyContradiction = turnRecords.Any(record => record.Category == "agent.reply_contradiction_detected");
+        var replyContradictionRecords = turnRecords
+            .Where(record => record.Category == "agent.reply_contradiction_detected")
+            .OrderBy(record => record.Sequence)
+            .ToArray();
+        var hasReplyContradiction = replyContradictionRecords.Length > 0;
         var assistantReply = turnRecords.LastOrDefault(record => record.Category == "assistant.reply");
         var hasAssistantReply = assistantReply is not null;
         var finalSayText = assistantReply?.GetString("sayText") ?? string.Empty;
         var finalLogText = assistantReply?.GetString("logText") ?? string.Empty;
         var combinedFinalText = $"{finalSayText}\n{finalLogText}".Trim();
         var hasExplicitlyUnresolvedOutcome = AgentRunner.HasExplicitlyUnresolvedOutcome(combinedFinalText);
+        var hasRecoveredReplyContradiction = hasReplyContradiction
+            && hasAssistantReply
+            && string.IsNullOrWhiteSpace(
+                AgentRunner.GetReplyOutcomeContradictionRule(
+                    new AgentReply(finalLogText, finalSayText, RawText: string.Empty)));
         var hasRecoveredToolErrors = toolErrorCount > 0
             && hasAssistantReply
             && !hasReplyContradiction
@@ -370,7 +379,7 @@ internal static class HerfaceScenarioEvaluator
             failures.Add($"The turn recorded {toolErrorCount} unrecovered tool error event(s).");
         }
 
-        if (hasReplyContradiction && !assertions.AllowReplyContradictions)
+        if (hasReplyContradiction && !assertions.AllowReplyContradictions && !hasRecoveredReplyContradiction)
         {
             failures.Add("The turn recorded a reply contradiction between say/log outcomes.");
         }

@@ -192,6 +192,25 @@ public sealed class ScriptedModeTests
     }
 
     [Fact]
+    public void AssessTurn_Passes_WhenReplyContradictionIsRecoveredBeforeFinalReply()
+    {
+        var records = new[]
+        {
+            CreateTraceRecord(1, "agent.reply_contradiction_detected", """{"turn":10}"""),
+            CreateTraceRecord(
+                2,
+                "assistant.reply",
+                """{"turn":10,"sayText":"Netflix is open on a playback page.","logText":"Confirmed playback page is open in Netflix."}""")
+        };
+
+        var actual = HerfaceScenarioEvaluator.AssessTurn(records, 10);
+
+        Assert.True(actual.Passed);
+        Assert.True(actual.HasReplyContradiction);
+        Assert.Empty(actual.Failures);
+    }
+
+    [Fact]
     public void AssessTurn_Fails_WhenToolErrorsRemainUnrecovered()
     {
         var records = new[]
@@ -251,6 +270,55 @@ public sealed class ScriptedModeTests
 
         Assert.True(actual.Passed);
         Assert.Empty(actual.Failures);
+    }
+
+    [Fact]
+    public void EvaluateScenario_Fails_WhenFinalReplyContainsForbiddenWrongTitle()
+    {
+        var scenario = new HerfaceScenarioDefinition(
+            "Play Boyfriend on Demand",
+            ["open boyfriend on demand and play episode 1"],
+            new HerfaceScenarioAssertions(
+                RequiredCategories: ["assistant.reply"],
+                ForbiddenCategories: [],
+                RequiredFinalText: ["Boyfriend on Demand"],
+                ForbiddenFinalText: ["Pursuit of Jade"],
+                AllowToolErrors: false,
+                AllowReplyContradictions: false,
+                AllowExplicitlyUnresolvedOutcome: false));
+        var assessment = new HerfaceTurnAssessment(
+            Passed: true,
+            ToolCallCount: 4,
+            ToolErrorCount: 0,
+            HasAssistantReply: true,
+            HasReplyContradiction: false,
+            HasExplicitlyUnresolvedOutcome: false,
+            FinalSayText: "Episode 1 is playing now.",
+            FinalLogText: "Confirmed playback for Pursuit of Jade E1 Episode 1.",
+            Failures: []);
+        var turn = new HerfaceScriptedTurnResult(
+            5,
+            "open boyfriend on demand and play episode 1",
+            new AgentReply(
+                "Confirmed playback for Pursuit of Jade E1 Episode 1.",
+                "Episode 1 is playing now.",
+                "{}"),
+            assessment);
+        var records = new[]
+        {
+            CreateTraceRecord(
+                1,
+                "assistant.reply",
+                """{"turn":5,"sayText":"Episode 1 is playing now.","logText":"Confirmed playback for Pursuit of Jade E1 Episode 1."}""")
+        };
+
+        var actual = HerfaceScenarioEvaluator.EvaluateScenario(records, scenario, [turn]);
+
+        Assert.False(actual.Passed);
+        Assert.Contains(
+            actual.Failures,
+            failure => failure.Contains("required text", StringComparison.OrdinalIgnoreCase)
+                       || failure.Contains("forbidden text", StringComparison.OrdinalIgnoreCase));
     }
 
     private static HerfaceTraceRecord CreateTraceRecord(long sequence, string category, string dataJson)

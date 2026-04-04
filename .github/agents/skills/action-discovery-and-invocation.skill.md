@@ -35,13 +35,16 @@ applies_when:
 
 - When the user explicitly asks to click, press, open, select, or invoke a visible UI element and you have an element path for it, use `eyesandhands/invoke_selected_window_element` first and prefer `eyesandhands/click_selected_window_element` when direct invocation is unavailable or unreliable for that visible target.
 - If the user asks to open something from visible search results and a matching visible result tile or row is already on screen, target that visible result instead of re-entering the search query or re-focusing the search field.
+- If the immediately preceding evidence or reply already confirmed that the requested title is visible in search results, continue from that visible result. Do not click the site logo, home link, or generic navigation controls just because they appear earlier in the tree.
 - If the requested title is visible as a named result tile and a hover preview or play overlay is also visible, prefer the named matching result tile unless the preview itself clearly shows the same title.
 - If the refreshed tree contains a named actionable element whose text exactly matches the requested title, use that exact named path and do not click an unnamed or differently named wrapper while the exact match exists.
+- If a click unexpectedly returns the page to a generic home or browse screen instead of opening the requested title, treat that as drift rather than progress. Refresh the evidence and recover the requested result instead of continuing from unrelated content.
 - When you have an exact `path` or `uiPath` from a refreshed tree, reuse it exactly as shown. Do not shorten it, normalize it, or guess a neighboring path.
 - If a conditional request says "if X is visible, do Y," then perform `Y` when `X` is present. Do not stop just because the target is visible.
 - If the condition is absent, report a successful no-op instead of framing the step as failed or incomplete.
 - For that successful no-op reply, prefer language like "No action was needed because the requested prompt was not present" and avoid phrases like "I did not click" or "I did not type" unless the user explicitly asked for a postmortem.
 - For a conditional prompt, dialog, passcode, or overlay check, start with `eyesandhands/describe_selected_window` and, if needed, `eyesandhands/capture_selected_window_screenshot` before trying focus or invocation tools.
+- For a conditional prompt, dialog, passcode, or overlay check, do not call `eyesandhands/describe_selected_window_focus` unless the fresh tree or screenshot already shows a visible input target, keypad, or dialog whose focus matters.
 - Do not call `eyesandhands/describe_selected_window_focus` just to determine whether a conditional prompt, dialog, passcode, or overlay exists. Use focus inspection only after the prompt is already visible and you need to confirm the active input target.
 - If the current selected window already appears to be the right app and the condition is absent in the fresh evidence, stop immediately instead of re-selecting the same window or attempting unrelated element actions.
 - If the visible control is exposed only through a sparse or generic subtree, still prefer direct element targeting with `eyesandhands/invoke_selected_window_element` or `eyesandhands/click_selected_window_element` over ad hoc `Tab` or arrow-key retries.

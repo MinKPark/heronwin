@@ -8,5 +8,10 @@ commands:
 assertions:
   requiredCategories:
     - assistant.reply
+  requiredFinalText:
+    - Boyfriend on Demand
   forbiddenCategories:
     - agent.reply_contradiction_detected
+  forbiddenFinalText:
+    - Pursuit of Jade
+    - Anaconda

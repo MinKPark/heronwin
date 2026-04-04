@@ -182,11 +182,11 @@ internal static class UiSnapshotCompactor
         var className = TryGetJsonStringProperty(element, "className");
         var hasKeyboardFocus = TryGetJsonBooleanProperty(element, "hasKeyboardFocus") == true;
         var isSelected = TryGetJsonBooleanProperty(element, "isSelected") == true;
-        var isOffscreen = TryGetJsonBooleanProperty(element, "isOffscreen");
         var isKeyboardFocusable = TryGetJsonBooleanProperty(element, "isKeyboardFocusable") == true;
         var actions = GetActions(element);
         var hasInterestingAction = actions.Any(action => !string.Equals(action, "scroll_into_view", StringComparison.OrdinalIgnoreCase));
         var browserChrome = LooksLikeBrowserChrome(name, controlType, className);
+        var namedActionablePageContent = LooksLikeNamedActionablePageContent(name, controlType, className, actions);
 
         if (hasKeyboardFocus || isSelected || browserChrome)
         {
@@ -201,6 +201,13 @@ internal static class UiSnapshotCompactor
         if (depth <= 2 &&
             (HighValueControlTypes.Contains(controlType ?? string.Empty) || isKeyboardFocusable) &&
             (!string.IsNullOrWhiteSpace(name) || hasInterestingAction))
+        {
+            return true;
+        }
+
+        if (!focusMode &&
+            hasInterestingAction &&
+            namedActionablePageContent)
         {
             return true;
         }
@@ -371,8 +378,9 @@ internal static class UiSnapshotCompactor
         var name = NormalizeInlineText(TryGetJsonStringProperty(element, "name"));
         var controlType = TryGetJsonStringProperty(element, "controlType");
         var className = TryGetJsonStringProperty(element, "className");
-        var isOffscreen = TryGetJsonBooleanProperty(element, "isOffscreen");
-        var hasInterestingAction = GetActions(element).Any(action => !string.Equals(action, "scroll_into_view", StringComparison.OrdinalIgnoreCase));
+        var actions = GetActions(element);
+        var hasInterestingAction = actions.Any(action => !string.Equals(action, "scroll_into_view", StringComparison.OrdinalIgnoreCase));
+        var namedActionablePageContent = LooksLikeNamedActionablePageContent(name, controlType, className, actions);
 
         var priority = 0;
         if (TryGetJsonBooleanProperty(element, "hasKeyboardFocus") == true)
@@ -390,9 +398,20 @@ internal static class UiSnapshotCompactor
             priority += 300;
         }
 
+        if (namedActionablePageContent)
+        {
+            priority += 320;
+        }
+
         if (LooksLikeMeaningfulPageContent(name, controlType, className))
         {
             priority += 220;
+        }
+
+        if (string.Equals(controlType, "Text", StringComparison.OrdinalIgnoreCase) &&
+            LooksLikeMeaningfulPageContent(name, controlType, className))
+        {
+            priority += 160;
         }
 
         if (IsLikelyVisible(element) &&
@@ -405,6 +424,11 @@ internal static class UiSnapshotCompactor
         if (LooksLikeBrowserChrome(name, controlType, className))
         {
             priority += 140;
+        }
+
+        if (LooksLikeSiteBrandOrLogo(name, controlType, className))
+        {
+            priority -= 220;
         }
 
         if (LooksLikeWindowCaptionButton(name, controlType))
@@ -515,9 +539,36 @@ internal static class UiSnapshotCompactor
     private static bool IsLikelyVisible(JsonElement element)
         => TryGetJsonBooleanProperty(element, "isOffscreen") != true;
 
+    private static bool LooksLikeNamedActionablePageContent(
+        string? name,
+        string? controlType,
+        string? className,
+        IReadOnlyList<string> actions)
+    {
+        if (!LooksLikeMeaningfulPageContent(name, controlType, className) ||
+            string.IsNullOrWhiteSpace(name) ||
+            LooksLikeSiteBrandOrLogo(name, controlType, className))
+        {
+            return false;
+        }
+
+        return actions.Any(action => !string.Equals(action, "scroll_into_view", StringComparison.OrdinalIgnoreCase))
+               || string.Equals(controlType, "Hyperlink", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(controlType, "Link", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(controlType, "Button", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(controlType, "ListItem", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool LooksLikeSiteBrandOrLogo(string? name, string? controlType, string? className)
+    {
+        return !string.IsNullOrWhiteSpace(className) &&
+               className.Contains("logo", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static bool LooksLikeMeaningfulPageContent(string? name, string? controlType, string? className)
     {
         if (string.IsNullOrWhiteSpace(name) ||
+            LooksLikeSiteBrandOrLogo(name, controlType, className) ||
             LooksLikeBrowserChrome(name, controlType, className) ||
             LooksLikeWindowCaptionButton(name, controlType))
         {

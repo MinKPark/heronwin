@@ -230,9 +230,9 @@ public sealed class UiSnapshotCompactorTests
             snapshot,
             profile);
 
-        Assert.Contains("Who's watching?", actual, StringComparison.Ordinal);
         Assert.Contains("Min", actual, StringComparison.Ordinal);
         Assert.Contains("Add Profile", actual, StringComparison.Ordinal);
+        Assert.Contains("Manage Profiles", actual, StringComparison.Ordinal);
         Assert.Contains("Address and search bar", actual, StringComparison.Ordinal);
         Assert.True(actual.Length <= profile.WindowSnapshotCharBudget);
     }
@@ -403,6 +403,93 @@ public sealed class UiSnapshotCompactorTests
         Assert.Contains("Boyfriend on Demand", actual, StringComparison.Ordinal);
         Assert.Contains("1/0/0/0/0", actual, StringComparison.Ordinal);
         Assert.Contains("Anaconda", actual, StringComparison.Ordinal);
+        Assert.True(actual.Length <= profile.WindowSnapshotCharBudget);
+    }
+
+    [Fact]
+    public void CompactToolTextForContext_PrioritizesNamedResultTiles_OverSiteLogo_WhenOffscreenFlagIsMisleading()
+    {
+        var snapshot = """
+        {
+          "Window": {
+            "Handle": "0x00070EC4",
+            "Title": "Netflix - Personal - Microsoft Edge",
+            "ClassName": "Chrome_WidgetWin_1"
+          },
+          "ElementTree": {
+            "Path": "root",
+            "UiPath": "root",
+            "Name": "Netflix - Personal - Microsoft Edge",
+            "ControlType": "Window",
+            "Children": [
+              {
+                "Path": "1/0",
+                "UiPath": "1/0",
+                "Name": "Netflix",
+                "ControlType": "Document",
+                "AutomationId": "RootWebArea",
+                "Children": [
+                  {
+                    "Path": "1/0/0",
+                    "UiPath": "1/0/0",
+                    "Name": "Netflix",
+                    "ControlType": "Hyperlink",
+                    "ClassName": "logo icon-logoUpdate active",
+                    "AvailableActions": [ "focus", "invoke" ]
+                  },
+                  {
+                    "Path": "1/0/1",
+                    "UiPath": "1/0/1",
+                    "ControlType": "Pane",
+                    "Children": [
+                      {
+                        "Path": "1/0/1/0",
+                        "UiPath": "1/0/1/0",
+                        "Name": "Boyfriend on Demand",
+                        "ControlType": "Hyperlink",
+                        "ClassName": "slider-refocus",
+                        "IsOffscreen": true,
+                        "AvailableActions": [ "focus", "invoke" ]
+                      },
+                      {
+                        "Path": "1/0/1/1",
+                        "UiPath": "1/0/1/1",
+                        "Name": "Pursuit of Jade",
+                        "ControlType": "Hyperlink",
+                        "ClassName": "slider-refocus",
+                        "IsOffscreen": true,
+                        "AvailableActions": [ "focus", "invoke" ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+        """;
+
+        var profile = new LlmModelProfile(
+            LlmProviderId.OpenAiApi,
+            "gpt-5.4-mini",
+            ContextCompressionTriggerRatio: 0.55,
+            WindowSnapshotCharBudget: 1_200,
+            FocusSnapshotCharBudget: 320,
+            MaxThrottleRetries: 2);
+
+        var actual = UiSnapshotCompactor.CompactToolTextForContext(
+            "describe_selected_window",
+            snapshot,
+            profile);
+
+        var boyfriendIndex = actual.IndexOf("1/0/1/0: Hyperlink \"Boyfriend on Demand\"", StringComparison.Ordinal);
+        var logoIndex = actual.IndexOf("1/0/0: Hyperlink \"Netflix\"", StringComparison.Ordinal);
+
+        Assert.Contains("Boyfriend on Demand", actual, StringComparison.Ordinal);
+        Assert.Contains("Pursuit of Jade", actual, StringComparison.Ordinal);
+        Assert.True(boyfriendIndex >= 0);
+        Assert.True(logoIndex >= 0);
+        Assert.True(boyfriendIndex < logoIndex);
         Assert.True(actual.Length <= profile.WindowSnapshotCharBudget);
     }
 

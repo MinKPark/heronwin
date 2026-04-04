@@ -15,9 +15,24 @@ internal sealed class McpClientManager : IAsyncDisposable
 
     private readonly Dictionary<string, McpClient> _clients = new();
     private readonly Dictionary<string, HashSet<string>> _toolNamesByServer = new(StringComparer.Ordinal);
+    private readonly Func<CancellationToken, Task<IReadOnlyList<ToolDefinition>>>? _listAllToolsOverride;
+    private IReadOnlyList<ToolDefinition> _cachedToolDefinitions = [];
+    private bool _hasCachedToolDefinitions;
+
+    public McpClientManager()
+        : this(null)
+    {
+    }
+
+    internal McpClientManager(Func<CancellationToken, Task<IReadOnlyList<ToolDefinition>>>? listAllToolsOverride)
+    {
+        _listAllToolsOverride = listAllToolsOverride;
+    }
 
     public async Task ConnectAsync(IReadOnlyList<McpServerConfig> servers, CancellationToken cancellationToken)
     {
+        _cachedToolDefinitions = [];
+        _hasCachedToolDefinitions = false;
         var envBaseDir = Environment.GetEnvironmentVariable("HERFACE_ENV_DIR")
                          ?? Directory.GetCurrentDirectory();
 
@@ -103,11 +118,26 @@ internal sealed class McpClientManager : IAsyncDisposable
 
     public async Task<IReadOnlyList<ToolDefinition>> ListAllToolsAsync(CancellationToken cancellationToken)
     {
+        if (_hasCachedToolDefinitions)
+        {
+            DebugTrace.WriteEvent(
+                "mcp.tools.cached",
+                $"count={_cachedToolDefinitions.Count}, servers={_clients.Count}");
+            return _cachedToolDefinitions;
+        }
+
+        if (_listAllToolsOverride is not null)
+        {
+            _cachedToolDefinitions = await _listAllToolsOverride(cancellationToken);
+            _hasCachedToolDefinitions = true;
+            return _cachedToolDefinitions;
+        }
+
         var result = new List<ToolDefinition>();
 
         foreach (var (serverName, client) in _clients)
         {
-            var tools = await client.ListToolsAsync();
+            var tools = await client.ListToolsAsync(cancellationToken: cancellationToken);
             var toolNames = new HashSet<string>(tools.Select(tool => tool.Name), StringComparer.Ordinal);
             _toolNamesByServer[serverName] = toolNames;
             DebugTrace.WriteEvent(
@@ -122,7 +152,9 @@ internal sealed class McpClientManager : IAsyncDisposable
             }
         }
 
-        return result;
+        _cachedToolDefinitions = result.ToArray();
+        _hasCachedToolDefinitions = true;
+        return _cachedToolDefinitions;
     }
 
     public async Task<ToolCallOutcome> CallToolAsync(string toolName, object args, CancellationToken cancellationToken)
@@ -227,6 +259,8 @@ internal sealed class McpClientManager : IAsyncDisposable
 
         _clients.Clear();
         _toolNamesByServer.Clear();
+        _cachedToolDefinitions = [];
+        _hasCachedToolDefinitions = false;
     }
 
     private static JsonElement ExtractParameters(object tool)

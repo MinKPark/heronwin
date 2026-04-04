@@ -1419,7 +1419,7 @@ internal static class AgentRunner
             : reply with { SpokenText = normalizedSay };
     }
 
-    private static string? GetReplyOutcomeContradictionRule(AgentReply reply)
+    internal static string? GetReplyOutcomeContradictionRule(AgentReply reply)
     {
         if (string.IsNullOrWhiteSpace(reply.LogText) ||
             string.IsNullOrWhiteSpace(reply.SpokenText))
