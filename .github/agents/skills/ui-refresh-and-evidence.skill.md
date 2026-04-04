@@ -31,6 +31,9 @@ applies_when:
 
 - Treat UI Automation as insufficient when it exposes only generic containers, very sparse metadata, or otherwise does not support a useful description of what is visibly on screen.
 - If keystrokes and UI inspection are not enough to determine the next step, capture the selected window and inspect the screenshot before continuing.
+- If the user asked to wait for a visible state and the refreshed tree is still sparse or ambiguous, capture a screenshot before replying that the state is still unconfirmed.
+- For wait-style requests, prefer doing one or more short re-checks within the same turn over asking the user whether you should continue waiting.
+- After an open, click, or play action that materially changes the page, capture a fresh screenshot before claiming the resulting visible playback or detail-page state when the tree alone could still be ambiguous.
 - When using a screenshot fallback, say briefly that the screenshot is the stronger evidence source for the visible UI state.
 
 ## Reporting Rules

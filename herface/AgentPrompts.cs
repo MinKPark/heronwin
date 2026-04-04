@@ -269,7 +269,7 @@ internal static class AgentPromptComposer
         }
 
         if (matchesBrowserRequest
-            && HasAnyTool(toolNames, "describe_selected_window", "describe_selected_window_focus", "invoke_selected_window_element", "focus_selected_window_element", "send_input_to_window", "capture_selected_window_screenshot"))
+            && HasAnyTool(toolNames, "describe_selected_window", "describe_selected_window_focus", "invoke_selected_window_element", "click_selected_window_element", "focus_selected_window_element", "send_input_to_window", "capture_selected_window_screenshot"))
         {
             selectedKeys.Add("browser-navigation-and-web-operations");
         }
@@ -282,7 +282,7 @@ internal static class AgentPromptComposer
 
         if (!matchesBrowserRequest
             && MatchesActionRequest(normalizedText)
-            && HasAnyTool(toolNames, "list_main_menu_items", "list_context_menu_items", "invoke_main_menu_item", "invoke_context_menu_item", "invoke_selected_window_element", "focus_selected_window_element", "send_input_to_window"))
+            && HasAnyTool(toolNames, "list_main_menu_items", "list_context_menu_items", "invoke_main_menu_item", "invoke_context_menu_item", "invoke_selected_window_element", "click_selected_window_element", "focus_selected_window_element", "send_input_to_window"))
         {
             selectedKeys.Add("action-discovery-and-invocation");
         }

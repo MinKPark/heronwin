@@ -127,6 +127,23 @@ public static class EyesAndHandsTools
         return WindowAutomation.Serialize(result);
     }
 
+    [McpServerTool, Description("Click a specific child element in the selected window by its UI Automation path. Prefer this when a visible result tile, play button, or other on-screen control is clearly the right target but direct UI Automation invocation is unavailable or unreliable. The tool resolves a concrete clickable descendant and clicks its visible screen point.")]
+    public static async Task<string> ClickSelectedWindowElement(
+        UiAutomationExecutor executor,
+        WindowSelectionState selectionState,
+        [Description("Slash-delimited child path from describe_selected_window. When using describe_selected_window_focus output, prefer the element's uiPath because path values there are relative to the focused subtree root. Use root to click the selected window itself.")]
+        string elementPath,
+        [Description("Mouse button to use. Supported values: left, right, primary, secondary.")]
+        string mouseButton = "left",
+        CancellationToken cancellationToken = default)
+    {
+        var result = await executor.RunAsync(
+            () => WindowAutomation.ClickSelectedWindowElement(selectionState, elementPath, mouseButton),
+            cancellationToken);
+
+        return WindowAutomation.Serialize(result);
+    }
+
     [McpServerTool, Description("Activate a specific child element in the selected window by its UI Automation path. The tool focuses the target directly when possible, otherwise it falls back to Tab and arrow-key navigation until the target element receives focus, then presses Enter. Use it for visible control activation requests such as click, press, open, select, or invoke.")]
     public static async Task<string> InvokeSelectedWindowElement(
         UiAutomationExecutor executor,
@@ -137,6 +154,23 @@ public static class EyesAndHandsTools
     {
         var result = await executor.RunAsync(
             () => WindowAutomation.InvokeSelectedWindowElement(selectionState, elementPath),
+            cancellationToken);
+
+        return WindowAutomation.Serialize(result);
+    }
+
+    [McpServerTool, Description("Set or replace the text value for a specific editable child element in the selected window by its UI Automation path. Prefer exact paths for visible Edit controls from describe_selected_window. The tool focuses the target element or a text-entry descendant first, then uses direct UI Automation value-setting when possible and only falls back to typed text if needed.")]
+    public static async Task<string> SetSelectedWindowElementValue(
+        UiAutomationExecutor executor,
+        WindowSelectionState selectionState,
+        [Description("Slash-delimited child path from describe_selected_window. When using describe_selected_window_focus output, prefer the element's uiPath because path values there are relative to the focused subtree root.")]
+        string elementPath,
+        [Description("Text to set on the target editable element.")]
+        string value,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await executor.RunAsync(
+            () => WindowAutomation.SetSelectedWindowElementValue(selectionState, elementPath, value),
             cancellationToken);
 
         return WindowAutomation.Serialize(result);

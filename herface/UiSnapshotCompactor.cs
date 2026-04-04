@@ -29,7 +29,7 @@ internal static class UiSnapshotCompactor
         "Document"
     };
 
-    private const int MaxIncludedNodes = 18;
+    private const int MaxIncludedNodes = 24;
 
     internal static string CompactToolTextForContext(
         string toolName,
@@ -182,6 +182,7 @@ internal static class UiSnapshotCompactor
         var className = TryGetJsonStringProperty(element, "className");
         var hasKeyboardFocus = TryGetJsonBooleanProperty(element, "hasKeyboardFocus") == true;
         var isSelected = TryGetJsonBooleanProperty(element, "isSelected") == true;
+        var isOffscreen = TryGetJsonBooleanProperty(element, "isOffscreen");
         var isKeyboardFocusable = TryGetJsonBooleanProperty(element, "isKeyboardFocusable") == true;
         var actions = GetActions(element);
         var hasInterestingAction = actions.Any(action => !string.Equals(action, "scroll_into_view", StringComparison.OrdinalIgnoreCase));
@@ -200,6 +201,14 @@ internal static class UiSnapshotCompactor
         if (depth <= 2 &&
             (HighValueControlTypes.Contains(controlType ?? string.Empty) || isKeyboardFocusable) &&
             (!string.IsNullOrWhiteSpace(name) || hasInterestingAction))
+        {
+            return true;
+        }
+
+        if (!focusMode &&
+            IsLikelyVisible(element) &&
+            hasInterestingAction &&
+            LooksLikeMeaningfulPageContent(name, controlType, className))
         {
             return true;
         }
@@ -362,6 +371,8 @@ internal static class UiSnapshotCompactor
         var name = NormalizeInlineText(TryGetJsonStringProperty(element, "name"));
         var controlType = TryGetJsonStringProperty(element, "controlType");
         var className = TryGetJsonStringProperty(element, "className");
+        var isOffscreen = TryGetJsonBooleanProperty(element, "isOffscreen");
+        var hasInterestingAction = GetActions(element).Any(action => !string.Equals(action, "scroll_into_view", StringComparison.OrdinalIgnoreCase));
 
         var priority = 0;
         if (TryGetJsonBooleanProperty(element, "hasKeyboardFocus") == true)
@@ -382,6 +393,13 @@ internal static class UiSnapshotCompactor
         if (LooksLikeMeaningfulPageContent(name, controlType, className))
         {
             priority += 220;
+        }
+
+        if (IsLikelyVisible(element) &&
+            hasInterestingAction &&
+            LooksLikeMeaningfulPageContent(name, controlType, className))
+        {
+            priority += 260;
         }
 
         if (LooksLikeBrowserChrome(name, controlType, className))
@@ -493,6 +511,9 @@ internal static class UiSnapshotCompactor
         var automationId = TryGetJsonStringProperty(element, "automationId");
         return string.Equals(automationId, "RootWebArea", StringComparison.OrdinalIgnoreCase);
     }
+
+    private static bool IsLikelyVisible(JsonElement element)
+        => TryGetJsonBooleanProperty(element, "isOffscreen") != true;
 
     private static bool LooksLikeMeaningfulPageContent(string? name, string? controlType, string? className)
     {

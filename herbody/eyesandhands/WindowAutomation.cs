@@ -476,6 +476,33 @@ internal static class WindowAutomation
             uiSettle);
     }
 
+    internal static ElementValueSetResult SetSelectedWindowElementValue(
+        WindowSelectionState selectionState,
+        string elementPath,
+        string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+
+        var handle = ResolveInteractionWindowHandle(selectionState);
+        using var settleObserver = UiSettleObserver.TryCreate(handle);
+        FocusWindow(handle);
+        selectionState.SetSelectedHandle(handle);
+
+        var normalizedPath = NormalizeElementPath(elementPath);
+        var windowElement = AutomationElement.FromHandle(handle);
+        var targetElement = ResolveElementPath(windowElement, normalizedPath);
+        var textEntryTarget = ResolveTextEntryElementOrDescendant(targetElement, normalizedPath);
+        var actionTaken = EnterTextIntoSearchInput(textEntryTarget.Element, value);
+        var uiSettle = WaitForUiToSettle(handle, settleObserver);
+
+        return new ElementValueSetResult(
+            BuildWindowDescriptor(handle),
+            BuildElementSnapshot(textEntryTarget.Element, textEntryTarget.Path, [], includeChildren: false),
+            value.Length,
+            actionTaken,
+            uiSettle);
+    }
+
     internal static KeyboardInputResult SendInputToWindow(
         WindowSelectionState selectionState,
         string? key,
@@ -2682,6 +2709,76 @@ internal static class WindowAutomation
         return null;
     }
 
+    private static (AutomationElement Element, string Path) ResolveTextEntryElementOrDescendant(
+        AutomationElement element,
+        string path)
+    {
+        if (CanAcceptTextEntry(element))
+        {
+            return (element, path);
+        }
+
+        var children = element.FindAll(TreeScope.Children, Condition.TrueCondition);
+        for (var i = 0; i < children.Count; i++)
+        {
+            var childPath = path == "root" ? $"{i}" : $"{path}/{i}";
+            try
+            {
+                return ResolveTextEntryElementOrDescendant(children[i], childPath);
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Target element path '{path}' does not expose an editable text-entry element through UI Automation.");
+    }
+
+    private static bool CanAcceptTextEntry(AutomationElement element)
+    {
+        if (!GetIsEnabled(element))
+        {
+            return false;
+        }
+
+        ControlType controlType;
+        try
+        {
+            controlType = element.Current.ControlType;
+        }
+        catch
+        {
+            return false;
+        }
+
+        if (controlType == ControlType.Edit)
+        {
+            return true;
+        }
+
+        if (!TryGetPattern<ValuePattern>(element, ValuePattern.Pattern, out var valuePattern) ||
+            valuePattern.Current.IsReadOnly)
+        {
+            return false;
+        }
+
+        var normalizedName = NormalizeLabel(GetElementName(element));
+        var normalizedAutomationId = NormalizeLabel(GetAutomationId(element));
+        var normalizedClassName = NormalizeLabel(GetAutomationClassName(element));
+
+        return GetHasKeyboardFocus(element) ||
+               normalizedName.Contains("search", StringComparison.Ordinal) ||
+               normalizedName.Contains("text", StringComparison.Ordinal) ||
+               normalizedName.Contains("input", StringComparison.Ordinal) ||
+               normalizedAutomationId.Contains("search", StringComparison.Ordinal) ||
+               normalizedAutomationId.Contains("text", StringComparison.Ordinal) ||
+               normalizedAutomationId.Contains("input", StringComparison.Ordinal) ||
+               normalizedAutomationId.Contains("edit", StringComparison.Ordinal) ||
+               normalizedClassName.Contains("textfield", StringComparison.Ordinal) ||
+               normalizedClassName.Contains("edit", StringComparison.Ordinal);
+    }
+
     private static string? TryInvokeAutomationElementDirectly(AutomationElement element)
     {
         var focusAction = TryFocusElement(element);
@@ -3692,6 +3789,13 @@ internal sealed record ElementInvocationResult(
     string Strategy,
     IReadOnlyList<string> NavigationKeys,
     int NavigationStepCount,
+    string ActionTaken,
+    UiSettleResult UiSettle);
+
+internal sealed record ElementValueSetResult(
+    WindowDescriptor Window,
+    UiElementSnapshot TargetElement,
+    int TextLength,
     string ActionTaken,
     UiSettleResult UiSettle);
 

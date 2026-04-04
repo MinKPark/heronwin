@@ -85,6 +85,24 @@ public sealed class AgentPromptComposerTests
     }
 
     [Fact]
+    public void Compose_ActivatesBrowserSkill_WhenClickToolCanDriveWebControls()
+    {
+        var catalog = CreateCatalog();
+
+        var actual = AgentPromptComposer.Compose(
+            catalog,
+            "Go to the Netflix website.",
+            [
+                new ToolDefinition("describe_selected_window", "desc", default),
+                new ToolDefinition("click_selected_window_element", "desc", default),
+                new ToolDefinition("capture_selected_window_screenshot", "desc", default)
+            ]);
+
+        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "browser-navigation-and-web-operations");
+        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "ui-refresh-and-evidence");
+    }
+
+    [Fact]
     public void Compose_ActivatesLaunchSkill_ForWebsiteOpenRequest_WhenLaunchToolsExist()
     {
         var catalog = CreateCatalog();
@@ -103,6 +121,65 @@ public sealed class AgentPromptComposerTests
         Assert.Contains(actual.ActiveSkills, skill => skill.Key == "browser-navigation-and-web-operations");
         Assert.Contains(actual.ActiveSkills, skill => skill.Key == "desktop-launch-and-first-look");
         Assert.DoesNotContain(actual.ActiveSkills, skill => skill.Key == "action-discovery-and-invocation");
+    }
+
+    [Fact]
+    public void Compose_ActivatesSearchSkill_ForInAppSearchRequests()
+    {
+        var catalog = CreateCatalog();
+
+        var actual = AgentPromptComposer.Compose(
+            catalog,
+            "Search for Boyfriend on Demand within Netflix using the visible Search control.",
+            [
+                new ToolDefinition("describe_selected_window", "desc", default),
+                new ToolDefinition("set_selected_window_element_value", "desc", default),
+                new ToolDefinition("send_input_to_window", "desc", default),
+                new ToolDefinition("capture_selected_window_screenshot", "desc", default)
+            ]);
+
+        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "search-and-enumeration");
+        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "ui-refresh-and-evidence");
+        Assert.DoesNotContain(actual.ActiveSkills, skill => skill.Key == "browser-navigation-and-web-operations");
+    }
+
+    [Fact]
+    public void Compose_ActivatesBrowserAndSearchSkills_ForWebsiteSearchRequests()
+    {
+        var catalog = CreateCatalog();
+
+        var actual = AgentPromptComposer.Compose(
+            catalog,
+            "Search for Boyfriend on Demand within the Netflix website.",
+            [
+                new ToolDefinition("describe_selected_window", "desc", default),
+                new ToolDefinition("invoke_selected_window_element", "desc", default),
+                new ToolDefinition("set_selected_window_element_value", "desc", default),
+                new ToolDefinition("send_input_to_window", "desc", default),
+                new ToolDefinition("capture_selected_window_screenshot", "desc", default)
+            ]);
+
+        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "browser-navigation-and-web-operations");
+        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "search-and-enumeration");
+        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "ui-refresh-and-evidence");
+    }
+
+    [Fact]
+    public void Compose_ActivatesActionSkill_WhenClickToolCanActivateVisibleControl()
+    {
+        var catalog = CreateCatalog();
+
+        var actual = AgentPromptComposer.Compose(
+            catalog,
+            "Click the visible Boyfriend on Demand result.",
+            [
+                new ToolDefinition("click_selected_window_element", "desc", default),
+                new ToolDefinition("describe_selected_window", "desc", default)
+            ]);
+
+        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "action-discovery-and-invocation");
+        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "ui-refresh-and-evidence");
+        Assert.DoesNotContain(actual.ActiveSkills, skill => skill.Key == "browser-navigation-and-web-operations");
     }
 
     private static AgentPromptCatalog CreateCatalog()

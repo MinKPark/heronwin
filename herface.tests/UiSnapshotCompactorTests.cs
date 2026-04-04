@@ -238,6 +238,175 @@ public sealed class UiSnapshotCompactorTests
     }
 
     [Fact]
+    public void CompactToolTextForContext_PreservesDeepVisibleActionableResultNodes()
+    {
+        var filler = new string('x', 500);
+        var snapshot = $$"""
+        {
+          "Window": {
+            "Handle": "0x00070EC4",
+            "Title": "Netflix - Personal - Microsoft Edge",
+            "ClassName": "Chrome_WidgetWin_1"
+          },
+          "ElementTree": {
+            "Path": "root",
+            "UiPath": "root",
+            "Name": "Netflix - Personal - Microsoft Edge",
+            "ControlType": "Window",
+            "Children": [
+              {
+                "Path": "1/0",
+                "UiPath": "1/0",
+                "Name": "Netflix",
+                "ControlType": "Document",
+                "AutomationId": "RootWebArea",
+                "Children": [
+                  {
+                    "Path": "1/0/0",
+                    "UiPath": "1/0/0",
+                    "ControlType": "Pane",
+                    "Children": [
+                      {
+                        "Path": "1/0/0/0",
+                        "UiPath": "1/0/0/0",
+                        "Name": "Search",
+                        "ControlType": "Edit",
+                        "AutomationId": "searchInput",
+                        "AvailableActions": [ "focus", "set_value" ]
+                      },
+                      {
+                        "Path": "1/0/0/1",
+                        "UiPath": "1/0/0/1",
+                        "ControlType": "Pane",
+                        "Children": [
+                          {
+                            "Path": "1/0/0/1/0",
+                            "UiPath": "1/0/0/1/0",
+                            "ControlType": "Pane",
+                            "Children": [
+                              {
+                                "Path": "1/0/0/1/0/0",
+                                "UiPath": "1/0/0/1/0/0",
+                                "Name": "Boyfriend on Demand",
+                                "ControlType": "Hyperlink",
+                                "IsOffscreen": false,
+                                "AvailableActions": [ "focus", "invoke" ]
+                              },
+                              {
+                                "Path": "1/0/0/1/0/1",
+                                "UiPath": "1/0/0/1/0/1",
+                                "Name": "{{filler}}",
+                                "ControlType": "Text"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+        """;
+
+        var profile = new LlmModelProfile(
+            LlmProviderId.OpenAiApi,
+            "gpt-5.4-mini",
+            ContextCompressionTriggerRatio: 0.55,
+            WindowSnapshotCharBudget: 1_400,
+            FocusSnapshotCharBudget: 320,
+            MaxThrottleRetries: 2);
+
+        var actual = UiSnapshotCompactor.CompactToolTextForContext(
+            "describe_selected_window",
+            snapshot,
+            profile);
+
+        Assert.Contains("Boyfriend on Demand", actual, StringComparison.Ordinal);
+        Assert.Contains("1/0/0/1/0/0", actual, StringComparison.Ordinal);
+        Assert.True(actual.Length <= profile.WindowSnapshotCharBudget);
+    }
+
+    [Fact]
+    public void CompactToolTextForContext_PreservesNamedActionableResultNodes_WhenVisibilityFlagIsMissing()
+    {
+        var snapshot = """
+        {
+          "Window": {
+            "Handle": "0x00070EC4",
+            "Title": "Netflix - Personal - Microsoft Edge",
+            "ClassName": "Chrome_WidgetWin_1"
+          },
+          "ElementTree": {
+            "Path": "root",
+            "UiPath": "root",
+            "Name": "Netflix - Personal - Microsoft Edge",
+            "ControlType": "Window",
+            "Children": [
+              {
+                "Path": "1/0",
+                "UiPath": "1/0",
+                "Name": "Netflix",
+                "ControlType": "Document",
+                "AutomationId": "RootWebArea",
+                "Children": [
+                  {
+                    "Path": "1/0/0",
+                    "UiPath": "1/0/0",
+                    "ControlType": "Pane",
+                    "Children": [
+                      {
+                        "Path": "1/0/0/0",
+                        "UiPath": "1/0/0/0",
+                        "ControlType": "Pane",
+                        "Children": [
+                          {
+                            "Path": "1/0/0/0/0",
+                            "UiPath": "1/0/0/0/0",
+                            "Name": "Boyfriend on Demand",
+                            "ControlType": "Hyperlink",
+                            "AvailableActions": [ "focus", "invoke" ]
+                          },
+                          {
+                            "Path": "1/0/0/0/1",
+                            "UiPath": "1/0/0/0/1",
+                            "Name": "Anaconda",
+                            "ControlType": "Hyperlink",
+                            "AvailableActions": [ "focus", "invoke" ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+        """;
+
+        var profile = new LlmModelProfile(
+            LlmProviderId.OpenAiApi,
+            "gpt-5.4-mini",
+            ContextCompressionTriggerRatio: 0.55,
+            WindowSnapshotCharBudget: 1_200,
+            FocusSnapshotCharBudget: 320,
+            MaxThrottleRetries: 2);
+
+        var actual = UiSnapshotCompactor.CompactToolTextForContext(
+            "describe_selected_window",
+            snapshot,
+            profile);
+
+        Assert.Contains("Boyfriend on Demand", actual, StringComparison.Ordinal);
+        Assert.Contains("1/0/0/0/0", actual, StringComparison.Ordinal);
+        Assert.Contains("Anaconda", actual, StringComparison.Ordinal);
+        Assert.True(actual.Length <= profile.WindowSnapshotCharBudget);
+    }
+
+    [Fact]
     public void Create_ReturnsMoreAggressiveCompression_ForMiniModel()
     {
         var mini = LlmModelProfiles.Create(LlmProviderId.OpenAiApi, "gpt-5.4-mini");

@@ -4,8 +4,10 @@ summary: "Operate browser chrome and navigate directly to websites without turni
 preferred_tools:
   - eyesandhands/describe_selected_window
   - eyesandhands/describe_selected_window_focus
+  - eyesandhands/click_selected_window_element
   - eyesandhands/invoke_selected_window_element
   - eyesandhands/focus_selected_window_element
+  - eyesandhands/set_selected_window_element_value
   - eyesandhands/send_input_to_window
   - eyesandhands/capture_selected_window_screenshot
 applies_when:
@@ -55,10 +57,14 @@ applies_when:
 - If the user explicitly asks to search the web, then use search behavior.
 - If the user asks for a specific website or URL, do not convert that into a search query.
 - If the user asks to search for a title, show, movie, article, or other content within the current website, do not switch to Windows taskbar search and do not replace the site flow with a browser-level web search unless the user explicitly asked for that.
+- If the current website is temporarily showing fullscreen playback, a preview overlay, or another mode that hides the site search UI, first recover the site’s normal browsing surface with site-native controls such as Back, Back to Browse, Escape, or the site header before attempting the in-site search.
 - For site-native search, first identify the visible site search control or search affordance from the refreshed page state before typing.
 - When a site search control is exposed in the UI tree, copy its exact full `path` or `uiPath` from the latest evidence. Do not shorten or approximate that identifier.
+- When a visible site search field is editable and the tools include `eyesandhands/set_selected_window_element_value`, prefer setting that exact field value directly before using generic typing.
+- When a visible site result tile, poster, or play control is clearly the requested target and the tools include `eyesandhands/click_selected_window_element`, prefer that exact-path click over guessed keyboard navigation if direct invocation is unavailable or unreliable.
 - If a site search control path fails once, refresh the page state and select a fresh exact target from the newest evidence instead of mutating the old path.
 - Do not claim a site search step succeeded until the search field, query text, or visible results for the requested title are actually on screen.
+- If the browser lands on a web search engine results page during a request to search within the current site, treat that as a wrong surface and repair back to the intended site-native flow.
 - If the browser lands on a search page for a malformed string such as a search term glued to a URL, report that the direct navigation did not succeed and repair it by returning to the address bar, replacing the full contents, and retrying with a clean URL.
 
 ## Verification Rules
