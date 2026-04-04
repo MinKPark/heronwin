@@ -107,6 +107,7 @@ public sealed class AgentRunnerDecisionTests
         Assert.Contains("select_taskbar_app", actual, StringComparison.Ordinal);
         Assert.Contains("launch_app_via_taskbar_search", actual, StringComparison.Ordinal);
         Assert.Contains("ask the user to launch the app manually", actual, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("windowHandle", actual, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -177,6 +178,126 @@ public sealed class AgentRunnerDecisionTests
             """{"SelectedWindow":null}""");
 
         Assert.Null(actual);
+    }
+
+    [Fact]
+    public void TryRewriteSelectWindowArguments_UsesUniqueHandleFromRecentWindowList()
+    {
+        var recentListWindowsOutput =
+            """
+            {
+              "SelectedWindowHandle": null,
+              "Windows": [
+                {
+                  "Handle": "0x00060A88",
+                  "Title": "Netflix - Microsoft Edge",
+                  "ClassName": "Chrome_WidgetWin_1",
+                  "ProcessId": 43600,
+                  "Bounds": { "Left": -1928, "Top": -8, "Width": 1936, "Height": 1048 },
+                  "IsSelected": false
+                },
+                {
+                  "Handle": "0x006E0A06",
+                  "Title": "Microsoft Edge",
+                  "ClassName": "ApplicationFrameWindow",
+                  "ProcessId": 25624,
+                  "Bounds": { "Left": -32000, "Top": -32000, "Width": 160, "Height": 28 },
+                  "IsSelected": false
+                }
+              ]
+            }
+            """;
+
+        var rewritten = AgentRunner.TryRewriteSelectWindowArguments(
+            new Dictionary<string, object?> { ["titleContains"] = "Microsoft Edge" },
+            recentListWindowsOutput,
+            out var actualArgs);
+
+        Assert.True(rewritten);
+        Assert.Equal("0x00060A88", actualArgs["windowHandle"]);
+        Assert.False(actualArgs.ContainsKey("titleContains"));
+    }
+
+    [Fact]
+    public void TryRewriteSelectWindowArguments_DoesNotRewriteWhenMultipleUsableMatchesRemain()
+    {
+        var recentListWindowsOutput =
+            """
+            {
+              "SelectedWindowHandle": null,
+              "Windows": [
+                {
+                  "Handle": "0x00060A88",
+                  "Title": "Netflix - Microsoft Edge",
+                  "ClassName": "Chrome_WidgetWin_1",
+                  "ProcessId": 43600,
+                  "Bounds": { "Left": -1928, "Top": -8, "Width": 1936, "Height": 1048 },
+                  "IsSelected": false
+                },
+                {
+                  "Handle": "0x00070A90",
+                  "Title": "Docs - Microsoft Edge",
+                  "ClassName": "Chrome_WidgetWin_1",
+                  "ProcessId": 43601,
+                  "Bounds": { "Left": 0, "Top": 0, "Width": 1936, "Height": 1048 },
+                  "IsSelected": false
+                }
+              ]
+            }
+            """;
+
+        var rewritten = AgentRunner.TryRewriteSelectWindowArguments(
+            new Dictionary<string, object?> { ["titleContains"] = "Microsoft Edge" },
+            recentListWindowsOutput,
+            out var actualArgs);
+
+        Assert.False(rewritten);
+        Assert.Equal("Microsoft Edge", actualArgs["titleContains"]);
+        Assert.False(actualArgs.ContainsKey("windowHandle"));
+    }
+
+    [Fact]
+    public void ShouldPrimeBrowserAddressBarForUrlEntry_ReturnsTrue_ForBrowserWindowContext()
+    {
+        var actual = AgentRunner.ShouldPrimeBrowserAddressBarForUrlEntry(
+            new Dictionary<string, object?> { ["text"] = "https://www.netflix.com" },
+            """{"Window":{"Handle":"0x00060A88","Title":"Netflix - Microsoft Edge","ClassName":"Chrome_WidgetWin_1"}}""",
+            null);
+
+        Assert.True(actual);
+    }
+
+    [Fact]
+    public void ShouldPrimeBrowserAddressBarForUrlEntry_ReturnsTrue_ForFocusedAddressBar()
+    {
+        var actual = AgentRunner.ShouldPrimeBrowserAddressBarForUrlEntry(
+            new Dictionary<string, object?> { ["text"] = "https://www.netflix.com" },
+            null,
+            """{"FocusedElement":{"Path":"1/0","Name":"Address and search bar","ControlType":"Edit","ClassName":"OmniboxViewViews"}}""");
+
+        Assert.True(actual);
+    }
+
+    [Fact]
+    public void ShouldPrimeBrowserAddressBarForUrlEntry_ReturnsFalse_ForNonUrlText()
+    {
+        var actual = AgentRunner.ShouldPrimeBrowserAddressBarForUrlEntry(
+            new Dictionary<string, object?> { ["text"] = "netflix" },
+            """{"Window":{"Handle":"0x00060A88","Title":"Netflix - Microsoft Edge","ClassName":"Chrome_WidgetWin_1"}}""",
+            null);
+
+        Assert.False(actual);
+    }
+
+    [Fact]
+    public void ShouldPrimeBrowserAddressBarForUrlEntry_ReturnsFalse_WhenFocusedElementIsNotAddressBar()
+    {
+        var actual = AgentRunner.ShouldPrimeBrowserAddressBarForUrlEntry(
+            new Dictionary<string, object?> { ["text"] = "https://www.netflix.com" },
+            """{"Window":{"Handle":"0x00060A88","Title":"Netflix - Microsoft Edge","ClassName":"Chrome_WidgetWin_1"}}""",
+            """{"FocusedElement":{"Path":"focused","Name":"Search box","ControlType":"Edit","ClassName":"SearchBox"}}""");
+
+        Assert.False(actual);
     }
 
     [Fact]

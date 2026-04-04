@@ -98,6 +98,9 @@ internal static class AgentRunner
         var performedDesktopAction = false;
         var performedConfidenceEvidenceRetry = false;
         var llmAttempt = 0;
+        string? recentListWindowsOutput = null;
+        string? recentWindowContext = null;
+        string? recentFocusContext = null;
 
         while (true)
         {
@@ -283,13 +286,77 @@ internal static class AgentRunner
                     }
                 }
 
-                Display.ToolCall(toolCall.Name, toolCall.Arguments);
+                var executableArgs = CloneArguments(parsedArgsDictionary);
+                var effectiveArgumentsText = toolCall.Arguments;
+
+                if (toolCall.Name == "select_window" &&
+                    TryRewriteSelectWindowArguments(executableArgs, recentListWindowsOutput, out var rewrittenSelectArgs))
+                {
+                    executableArgs = rewrittenSelectArgs;
+                    effectiveArgumentsText = JsonSerializer.Serialize(executableArgs, JsonSerializerOptionsCache.Default);
+                    DebugTrace.WriteStructuredEvent(
+                        "agent.tool_call_arguments_rewritten",
+                        new Dictionary<string, object?>
+                        {
+                            ["turn"] = turnId,
+                            ["toolCallId"] = toolCall.Id,
+                            ["tool"] = toolCall.Name,
+                            ["reason"] = "recent_list_windows_handle_preferred",
+                            ["originalArgumentsPreview"] = DebugTrace.Preview(toolCall.Arguments, 600),
+                            ["rewrittenArgumentsPreview"] = DebugTrace.Preview(effectiveArgumentsText, 600),
+                        });
+                }
+
+                if (toolCall.Name == "send_input_to_window" &&
+                    ShouldPrimeBrowserAddressBarForUrlEntry(executableArgs, recentWindowContext, recentFocusContext))
+                {
+                    var primeArgs = new Dictionary<string, object?>
+                    {
+                        ["key"] = "L",
+                        ["modifiers"] = new[] { "Control" },
+                    };
+
+                    try
+                    {
+                        var primeStopwatch = Stopwatch.StartNew();
+                        var primeResult = await mcpManager.CallToolAsync("send_input_to_window", primeArgs, cancellationToken);
+                        DebugTrace.WriteStructuredEvent(
+                            "agent.browser_url_entry_prime_completed",
+                            new Dictionary<string, object?>
+                            {
+                                ["turn"] = turnId,
+                                ["toolCallId"] = toolCall.Id,
+                                ["elapsedMs"] = (int)Math.Round(primeStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
+                                ["isError"] = primeResult.IsError,
+                                ["resultPreview"] = DebugTrace.Preview(primeResult.Text, 600),
+                            });
+
+                        if (!primeResult.IsError &&
+                            DescribePrimaryWindowFromToolOutput(primeResult.Text) is not null)
+                        {
+                            recentWindowContext = primeResult.Text;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugTrace.WriteStructuredEvent(
+                            "agent.browser_url_entry_prime_failed",
+                            new Dictionary<string, object?>
+                            {
+                                ["turn"] = turnId,
+                                ["toolCallId"] = toolCall.Id,
+                                ["error"] = DebugTrace.Preview(ex.ToString(), 700),
+                            });
+                    }
+                }
+
+                Display.ToolCall(toolCall.Name, effectiveArgumentsText);
 
                 var toolCallStopwatch = Stopwatch.StartNew();
                 ToolCallOutcome toolOutput;
                 try
                 {
-                    toolOutput = await mcpManager.CallToolAsync(toolCall.Name, parsedArgs, cancellationToken);
+                    toolOutput = await mcpManager.CallToolAsync(toolCall.Name, executableArgs, cancellationToken);
                 }
                 catch (Exception ex)
                 {
@@ -310,6 +377,25 @@ internal static class AgentRunner
                         ["resultPreview"] = DebugTrace.Preview(toolOutput.Text, 900),
                     });
                 messages.Add(new AgentMessage.ToolResult(toolCall.Id, toolCall.Name, toolOutput.Text, toolOutput.Images));
+
+                if (!toolOutput.IsError)
+                {
+                    if (toolCall.Name == "list_windows")
+                    {
+                        recentListWindowsOutput = toolOutput.Text;
+                    }
+
+                    if (DescribePrimaryWindowFromToolOutput(toolOutput.Text) is not null)
+                    {
+                        recentWindowContext = toolOutput.Text;
+                    }
+
+                    if (toolCall.Name is "focus_selected_window_element" or "describe_selected_window_focus")
+                    {
+                        recentFocusContext = toolOutput.Text;
+                    }
+                }
+
                 if (toolOutput.Images.Count > 0)
                 {
                     followUpEvidence.Add(new AgentMessage.VisualContext(
@@ -405,6 +491,7 @@ internal static class AgentRunner
                             new Dictionary<string, object?> { ["maxDepth"] = 4 },
                             cancellationToken);
                         Display.ToolResult("describe_selected_window", postActionSnapshot.Text, postActionSnapshot.Images.Count);
+                        recentWindowContext = postActionSnapshot.Text;
                         followUpEvidence.Add(new AgentMessage.User(
                             $"Post-action visible UI snapshot after tool \"{toolCall.Name}\":\n{postActionSnapshot.Text}\nUse this UI Automation tree first. If it is too sparse or ambiguous to describe the visible screen confidently, call capture_selected_window_screenshot before answering."));
                         if (postActionSnapshot.Images.Count > 0)
@@ -443,6 +530,7 @@ internal static class AgentRunner
                                 new Dictionary<string, object?> { ["maxDepth"] = 3 },
                                 cancellationToken);
                             Display.ToolResult("describe_selected_window_focus", focusSnapshot.Text, focusSnapshot.Images.Count);
+                            recentFocusContext = focusSnapshot.Text;
                             followUpEvidence.Add(new AgentMessage.User(
                                 $"Post-action focused element snapshot after tool \"{toolCall.Name}\":\n{focusSnapshot.Text}\nTreat this focused subtree as fresher evidence than any older focus assumptions before sending more navigation keys."));
                             DebugTrace.WriteStructuredEvent(
@@ -507,6 +595,12 @@ internal static class AgentRunner
             parts.Add(
                 "For requests to start or open an application, do not stop after saying you are checking whether it is already open. First call list_windows. If a likely matching window already exists, select_window it instead of launching a second instance.");
 
+            if (hasWindowSelection)
+            {
+                parts.Add(
+                    "After list_windows, prefer a specific windowHandle returned there when calling select_window. Avoid broad titleContains matches when a handle is available.");
+            }
+
             if (hasTaskbarListing && hasTaskbarSelection)
             {
                 parts.Add(
@@ -536,6 +630,8 @@ internal static class AgentRunner
         {
             parts.Add(
                 "Use send_input_to_window only when the user explicitly asks for a specific key, shortcut, or text entry, not as a generic fallback for activating visible controls.");
+            parts.Add(
+                "When entering a replacement URL in a browser, replace or clear the full address-bar contents before typing the new URL.");
         }
 
         if (toolNames.Contains("invoke_selected_window_element") &&
@@ -1218,6 +1314,273 @@ internal static class AgentRunner
         return null;
     }
 
+    internal static bool TryRewriteSelectWindowArguments(
+        IReadOnlyDictionary<string, object?> args,
+        string? recentListWindowsOutput,
+        out Dictionary<string, object?> rewrittenArgs)
+    {
+        rewrittenArgs = CloneArguments(args);
+
+        if (!string.IsNullOrWhiteSpace(TryGetStringArgument(args, "windowHandle")))
+        {
+            return false;
+        }
+
+        var titleContains = TryGetStringArgument(args, "titleContains");
+        if (string.IsNullOrWhiteSpace(titleContains) ||
+            !TryResolveWindowHandleFromRecentWindowList(recentListWindowsOutput, titleContains, out var handle))
+        {
+            return false;
+        }
+
+        rewrittenArgs["windowHandle"] = handle;
+        rewrittenArgs.Remove("titleContains");
+        return true;
+    }
+
+    internal static bool ShouldPrimeBrowserAddressBarForUrlEntry(
+        IReadOnlyDictionary<string, object?> args,
+        string? recentWindowContext,
+        string? recentFocusContext)
+    {
+        var text = TryGetStringArgument(args, "text");
+        if (!LooksLikeUrl(text ?? string.Empty))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(recentFocusContext))
+        {
+            return SnapshotContainsBrowserAddressBar(recentFocusContext);
+        }
+
+        return SnapshotLooksLikeBrowserWindow(recentWindowContext);
+    }
+
+    private static Dictionary<string, object?> CloneArguments(IReadOnlyDictionary<string, object?> args)
+        => args.ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal);
+
+    private static bool TryResolveWindowHandleFromRecentWindowList(
+        string? recentListWindowsOutput,
+        string titleContains,
+        out string handle)
+    {
+        handle = string.Empty;
+        if (string.IsNullOrWhiteSpace(recentListWindowsOutput) ||
+            string.IsNullOrWhiteSpace(titleContains))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(recentListWindowsOutput);
+            if (!TryGetJsonProperty(document.RootElement, "windows", out var windowsElement) ||
+                windowsElement.ValueKind != JsonValueKind.Array)
+            {
+                return false;
+            }
+
+            var matches = windowsElement
+                .EnumerateArray()
+                .Select(window => new WindowListMatch(
+                    TryGetJsonStringProperty(window, "handle"),
+                    TryGetJsonStringProperty(window, "title"),
+                    TryGetJsonBooleanProperty(window, "isSelected") == true,
+                    HasUsableWindowBounds(window)))
+                .Where(match => !string.IsNullOrWhiteSpace(match.Handle) &&
+                                !string.IsNullOrWhiteSpace(match.Title) &&
+                                match.Title.Contains(titleContains, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+
+            var selectedMatches = matches.Where(match => match.IsSelected).ToArray();
+            if (selectedMatches.Length == 1)
+            {
+                handle = selectedMatches[0].Handle!;
+                return true;
+            }
+
+            var usableMatches = matches.Where(match => match.HasUsableBounds).ToArray();
+            if (usableMatches.Length == 1)
+            {
+                handle = usableMatches[0].Handle!;
+                return true;
+            }
+
+            var exactUsableMatches = matches
+                .Where(match => match.HasUsableBounds &&
+                                string.Equals(match.Title, titleContains, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            if (exactUsableMatches.Length == 1)
+            {
+                handle = exactUsableMatches[0].Handle!;
+                return true;
+            }
+
+            var exactMatches = matches
+                .Where(match => string.Equals(match.Title, titleContains, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            if (exactMatches.Length == 1)
+            {
+                handle = exactMatches[0].Handle!;
+                return true;
+            }
+
+            if (matches.Length == 1)
+            {
+                handle = matches[0].Handle!;
+                return true;
+            }
+        }
+        catch
+        {
+            return false;
+        }
+
+        return false;
+    }
+
+    private static bool SnapshotContainsBrowserAddressBar(string? snapshotText)
+    {
+        if (string.IsNullOrWhiteSpace(snapshotText))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(snapshotText);
+            if (TryGetJsonProperty(document.RootElement, "focusedElement", out var focusedElement) &&
+                ElementLooksLikeBrowserAddressBar(focusedElement))
+            {
+                return true;
+            }
+
+            return TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree) &&
+                   ContainsMatchingElement(elementTree, ElementLooksLikeBrowserAddressBar);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool SnapshotLooksLikeBrowserWindow(string? snapshotText)
+    {
+        if (string.IsNullOrWhiteSpace(snapshotText))
+        {
+            return false;
+        }
+
+        if (TryGetWindowProperty(snapshotText, "window", out var window) &&
+            WindowLooksLikeBrowser(window))
+        {
+            return true;
+        }
+
+        if (TryGetWindowProperty(snapshotText, "selectedWindow", out var selectedWindow) &&
+            WindowLooksLikeBrowser(selectedWindow))
+        {
+            return true;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(snapshotText);
+            return TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree) &&
+                   ContainsMatchingElement(elementTree, ElementLooksLikeBrowserAddressBar);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool ContainsMatchingElement(
+        JsonElement element,
+        Func<JsonElement, bool> predicate)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        if (predicate(element))
+        {
+            return true;
+        }
+
+        if (!TryGetJsonProperty(element, "children", out var children) ||
+            children.ValueKind != JsonValueKind.Array)
+        {
+            return false;
+        }
+
+        foreach (var child in children.EnumerateArray())
+        {
+            if (ContainsMatchingElement(child, predicate))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool ElementLooksLikeBrowserAddressBar(JsonElement element)
+    {
+        var name = TryGetJsonStringProperty(element, "name");
+        if (!string.IsNullOrWhiteSpace(name) &&
+            name.Contains("Address and search bar", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var className = TryGetJsonStringProperty(element, "className");
+        return !string.IsNullOrWhiteSpace(className) &&
+               string.Equals(className, "OmniboxViewViews", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool WindowLooksLikeBrowser(JsonElement window)
+    {
+        var className = TryGetJsonStringProperty(window, "className");
+        if (!string.IsNullOrWhiteSpace(className) &&
+            string.Equals(className, "Chrome_WidgetWin_1", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var title = TryGetJsonStringProperty(window, "title");
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return false;
+        }
+
+        return title.Contains("Microsoft Edge", StringComparison.OrdinalIgnoreCase) ||
+               title.Contains("Google Chrome", StringComparison.OrdinalIgnoreCase) ||
+               title.Contains("Mozilla Firefox", StringComparison.OrdinalIgnoreCase) ||
+               title.Contains("Brave", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HasUsableWindowBounds(JsonElement window)
+    {
+        if (!TryGetJsonProperty(window, "bounds", out var bounds) ||
+            bounds.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        var width = TryGetJsonIntProperty(bounds, "width");
+        var height = TryGetJsonIntProperty(bounds, "height");
+        var left = TryGetJsonIntProperty(bounds, "left");
+        var top = TryGetJsonIntProperty(bounds, "top");
+
+        return width is >= 300 &&
+               height is >= 100 &&
+               left is > -10000 &&
+               top is > -10000;
+    }
+
     private static string? TryGetStringArgument(IReadOnlyDictionary<string, object?> args, string key)
     {
         if (!args.TryGetValue(key, out var value) || value is null)
@@ -1313,6 +1676,33 @@ internal static class AgentRunner
         return string.IsNullOrWhiteSpace(value) ? null : value;
     }
 
+    private static bool? TryGetJsonBooleanProperty(JsonElement element, string propertyName)
+    {
+        if (!TryGetJsonProperty(element, propertyName, out var property))
+        {
+            return null;
+        }
+
+        return property.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => null
+        };
+    }
+
+    private static int? TryGetJsonIntProperty(JsonElement element, string propertyName)
+    {
+        if (!TryGetJsonProperty(element, propertyName, out var property) ||
+            property.ValueKind != JsonValueKind.Number ||
+            !property.TryGetInt32(out var value))
+        {
+            return null;
+        }
+
+        return value;
+    }
+
     private static bool TryGetJsonProperty(JsonElement element, string propertyName, out JsonElement property)
     {
         property = default;
@@ -1339,6 +1729,12 @@ internal static class AgentRunner
 
         return false;
     }
+
+    private sealed record WindowListMatch(
+        string? Handle,
+        string? Title,
+        bool IsSelected,
+        bool HasUsableBounds);
 
 }
 
