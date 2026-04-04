@@ -289,7 +289,7 @@ while (!cancellationSource.IsCancellationRequested)
     Display.Transcript(userText);
     DebugTrace.WriteEvent("user.transcript", $"text={DebugTrace.Preview(userText, 500)}");
 
-    if (ShouldExitApp(userText))
+    if (SpeechGate.ShouldExitApp(userText))
     {
         DebugTrace.WriteEvent("session.exit_phrase_detected", $"text={DebugTrace.Preview(userText, 300)}");
         cancellationSource.Cancel();
@@ -298,7 +298,7 @@ while (!cancellationSource.IsCancellationRequested)
 
     if (!isActive)
     {
-        if (!ContainsWakeWord(userText, config.WakeWord))
+        if (!SpeechGate.ContainsWakeWord(userText, config.WakeWord))
         {
             DebugTrace.WriteEvent(
                 "session.standby_ignored",
@@ -370,35 +370,6 @@ static void CleanupRecording(RecordingResult? recording)
     {
         // Ignore cleanup failures.
     }
-}
-
-static bool ContainsWakeWord(string text, string wakeWord)
-{
-    if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(wakeWord))
-    {
-        return false;
-    }
-
-    return Regex.IsMatch(text, $@"\b{Regex.Escape(wakeWord)}\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-}
-
-static bool ShouldExitApp(string text)
-{
-    if (string.IsNullOrWhiteSpace(text))
-    {
-        return false;
-    }
-
-    var normalized = Regex.Replace(text, @"[^\p{L}\p{N}\s-]", " ")
-        .ToLowerInvariant()
-        .Trim();
-
-    return normalized == "bye"
-           || normalized == "bye-bye"
-           || normalized == "bye bye"
-           || normalized.EndsWith(" bye", StringComparison.Ordinal)
-           || normalized.EndsWith(" bye-bye", StringComparison.Ordinal)
-           || normalized.EndsWith(" bye bye", StringComparison.Ordinal);
 }
 
 static async Task SpeakAsync(ISpeechSynthesizer? speechSynthesizer, string text, CancellationToken cancellationToken)
