@@ -12,107 +12,49 @@ internal sealed class McpClientManager : IAsyncDisposable
 {
     private const int MaxVisionImageDimension = 1280;
     private const long VisionJpegQuality = 75L;
+    private const int DefaultToolCallTimeoutMs = 20_000;
 
     private readonly Dictionary<string, McpClient> _clients = new();
+    private readonly Dictionary<string, McpServerConfig> _serverConfigsByName = new(StringComparer.Ordinal);
     private readonly Dictionary<string, HashSet<string>> _toolNamesByServer = new(StringComparer.Ordinal);
     private readonly Func<CancellationToken, Task<IReadOnlyList<ToolDefinition>>>? _listAllToolsOverride;
+    private readonly TimeSpan _toolCallTimeout;
     private IReadOnlyList<ToolDefinition> _cachedToolDefinitions = [];
     private bool _hasCachedToolDefinitions;
+    private string _envBaseDir = Directory.GetCurrentDirectory();
 
     public McpClientManager()
-        : this(null)
+        : this(null, null)
     {
     }
 
-    internal McpClientManager(Func<CancellationToken, Task<IReadOnlyList<ToolDefinition>>>? listAllToolsOverride)
+    internal McpClientManager(
+        Func<CancellationToken, Task<IReadOnlyList<ToolDefinition>>>? listAllToolsOverride,
+        TimeSpan? toolCallTimeoutOverride)
     {
         _listAllToolsOverride = listAllToolsOverride;
+        _toolCallTimeout = toolCallTimeoutOverride ?? GetConfiguredToolCallTimeout();
     }
 
     public async Task ConnectAsync(IReadOnlyList<McpServerConfig> servers, CancellationToken cancellationToken)
     {
+        foreach (var client in _clients.Values)
+        {
+            await client.DisposeAsync();
+        }
+
+        _clients.Clear();
+        _serverConfigsByName.Clear();
+        _toolNamesByServer.Clear();
         _cachedToolDefinitions = [];
         _hasCachedToolDefinitions = false;
-        var envBaseDir = Environment.GetEnvironmentVariable("HERFACE_ENV_DIR")
-                         ?? Directory.GetCurrentDirectory();
+        _envBaseDir = Environment.GetEnvironmentVariable("HERFACE_ENV_DIR")
+                      ?? Directory.GetCurrentDirectory();
 
         foreach (var server in servers)
         {
-            DebugTrace.WriteBlock(
-                "mcp.connect.start",
-                [
-                    $"server={server.Name}",
-                    $"command={ResolveMaybeRelativePath(server.Command, envBaseDir)}",
-                    $"args={DebugTrace.SerializeObject(server.Args ?? [])}"
-                ]);
-
-            var environment = Environment.GetEnvironmentVariables()
-                .Cast<System.Collections.DictionaryEntry>()
-                .ToDictionary(entry => (string)entry.Key, entry => entry.Value?.ToString() ?? string.Empty);
-
-            if (server.Env is not null)
-            {
-                foreach (var kvp in server.Env)
-                {
-                    environment[kvp.Key] = kvp.Value;
-                }
-            }
-
-            ApplyServerDebugEnvironment(server, environment);
-            var resolvedCommand = ResolveMaybeRelativePath(server.Command, envBaseDir);
-            var resolvedArguments = server.Args?.Select(arg => ResolveMaybeRelativePath(arg, envBaseDir)).ToArray() ?? [];
-
-            DebugTrace.WriteStructuredEvent(
-                "mcp.connect.start",
-                new Dictionary<string, object?>
-                {
-                    ["server"] = server.Name,
-                    ["command"] = resolvedCommand,
-                    ["arguments"] = resolvedArguments,
-                    ["workingDirectory"] = envBaseDir,
-                    ["serverEnvKeys"] = server.Env?.Keys.OrderBy(static key => key, StringComparer.OrdinalIgnoreCase).ToArray() ?? [],
-                    ["stderrCaptureEnabled"] = true,
-                    ["eyesAndHandsDebugEnabled"] = IsEyesAndHandsServer(server) && DebugTrace.IsEnabled,
-                });
-
-            var transport = new StdioClientTransport(new StdioClientTransportOptions
-            {
-                Name = server.Name,
-                Command = resolvedCommand,
-                Arguments = resolvedArguments,
-                WorkingDirectory = envBaseDir,
-                EnvironmentVariables = environment.ToDictionary(
-                    kvp => kvp.Key,
-                    kvp => (string?)kvp.Value),
-                StandardErrorLines = line =>
-                {
-                    if (string.IsNullOrWhiteSpace(line))
-                    {
-                        return;
-                    }
-
-                    DebugTrace.WriteStructuredEvent(
-                        "mcp.stderr",
-                        new Dictionary<string, object?>
-                        {
-                            ["server"] = server.Name,
-                            ["line"] = line,
-                        });
-                }
-            });
-
-            var client = await McpClient.CreateAsync(transport, cancellationToken: cancellationToken);
-            _clients[server.Name] = client;
-            _toolNamesByServer[server.Name] = new HashSet<string>(StringComparer.Ordinal);
-            DebugTrace.WriteStructuredEvent(
-                "mcp.connect.complete",
-                new Dictionary<string, object?>
-                {
-                    ["server"] = server.Name,
-                    ["workingDirectory"] = envBaseDir,
-                    ["command"] = resolvedCommand,
-                    ["arguments"] = resolvedArguments,
-                });
+            _serverConfigsByName[server.Name] = server;
+            await ConnectServerAsync(server, cancellationToken);
         }
     }
 
@@ -135,7 +77,7 @@ internal sealed class McpClientManager : IAsyncDisposable
 
         var result = new List<ToolDefinition>();
 
-        foreach (var (serverName, client) in _clients)
+        foreach (var (serverName, client) in _clients.ToArray())
         {
             var tools = await client.ListToolsAsync(cancellationToken: cancellationToken);
             var toolNames = new HashSet<string>(tools.Select(tool => tool.Name), StringComparer.Ordinal);
@@ -165,7 +107,7 @@ internal sealed class McpClientManager : IAsyncDisposable
                                  JsonSerializerOptionsCache.Default) ??
                              new Dictionary<string, object?>();
 
-        foreach (var (serverName, client) in _clients)
+        foreach (var (serverName, client) in _clients.ToArray())
         {
             if (!_toolNamesByServer.TryGetValue(serverName, out var toolNames) ||
                 !toolNames.Contains(toolName))
@@ -185,7 +127,37 @@ internal sealed class McpClientManager : IAsyncDisposable
 
             try
             {
-                var result = await client.CallToolAsync(toolName, dictionaryArgs, cancellationToken: cancellationToken);
+                CallToolResult result;
+                try
+                {
+                    result = await RunWithTimeoutAsync<CallToolResult>(
+                        innerCancellationToken => client.CallToolAsync(
+                            toolName,
+                            dictionaryArgs,
+                            cancellationToken: innerCancellationToken).AsTask(),
+                        _toolCallTimeout,
+                        cancellationToken);
+                }
+                catch (TimeoutException ex)
+                {
+                    DebugTrace.WriteStructuredEvent(
+                        "mcp.call.timeout",
+                        new Dictionary<string, object?>
+                        {
+                            ["server"] = serverName,
+                            ["tool"] = toolName,
+                            ["arguments"] = dictionaryArgs,
+                            ["elapsedMs"] = (int)Math.Round(stopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
+                            ["timeoutMs"] = (int)Math.Round(_toolCallTimeout.TotalMilliseconds, MidpointRounding.AwayFromZero),
+                        });
+
+                    await RecoverServerAfterTimeoutAsync(serverName, cancellationToken);
+
+                    throw new TimeoutException(
+                        $"Tool \"{toolName}\" on server \"{serverName}\" timed out after {(int)Math.Round(_toolCallTimeout.TotalMilliseconds, MidpointRounding.AwayFromZero)} ms.",
+                        ex);
+                }
+
                 var structuredContentPreview = TrySerializeStructuredContent(result.StructuredContent);
                 var text = BuildToolText(result, structuredContentPreview);
                 var images = ExtractImages(result.Content, text);
@@ -258,9 +230,44 @@ internal sealed class McpClientManager : IAsyncDisposable
         }
 
         _clients.Clear();
+        _serverConfigsByName.Clear();
         _toolNamesByServer.Clear();
         _cachedToolDefinitions = [];
         _hasCachedToolDefinitions = false;
+    }
+
+    internal static async Task<T> RunWithTimeoutAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        if (timeout <= TimeSpan.Zero)
+        {
+            return await operation(cancellationToken);
+        }
+
+        using var timeoutCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var operationTask = operation(timeoutCancellation.Token);
+        if (operationTask.IsCompleted)
+        {
+            return await operationTask;
+        }
+
+        var timeoutTask = Task.Delay(timeout, cancellationToken);
+        var completedTask = await Task.WhenAny(operationTask, timeoutTask);
+        if (completedTask == operationTask)
+        {
+            return await operationTask;
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(cancellationToken);
+        }
+
+        timeoutCancellation.Cancel();
+        throw new TimeoutException(
+            $"Operation timed out after {(int)Math.Round(timeout.TotalMilliseconds, MidpointRounding.AwayFromZero)} ms.");
     }
 
     private static JsonElement ExtractParameters(object tool)
@@ -576,6 +583,167 @@ internal sealed class McpClientManager : IAsyncDisposable
                 ["innerMessage"] = ex.InnerException?.Message,
                 ["exceptionPreview"] = DebugTrace.Preview(ex.ToString(), 1400),
             });
+    }
+
+    private async Task ConnectServerAsync(McpServerConfig server, CancellationToken cancellationToken)
+    {
+        DebugTrace.WriteBlock(
+            "mcp.connect.start",
+            [
+                $"server={server.Name}",
+                $"command={ResolveMaybeRelativePath(server.Command, _envBaseDir)}",
+                $"args={DebugTrace.SerializeObject(server.Args ?? [])}"
+            ]);
+
+        var environment = Environment.GetEnvironmentVariables()
+            .Cast<System.Collections.DictionaryEntry>()
+            .ToDictionary(entry => (string)entry.Key, entry => entry.Value?.ToString() ?? string.Empty);
+
+        if (server.Env is not null)
+        {
+            foreach (var kvp in server.Env)
+            {
+                environment[kvp.Key] = kvp.Value;
+            }
+        }
+
+        ApplyServerDebugEnvironment(server, environment);
+        var resolvedCommand = ResolveMaybeRelativePath(server.Command, _envBaseDir);
+        var resolvedArguments = server.Args?.Select(arg => ResolveMaybeRelativePath(arg, _envBaseDir)).ToArray() ?? [];
+
+        DebugTrace.WriteStructuredEvent(
+            "mcp.connect.start",
+            new Dictionary<string, object?>
+            {
+                ["server"] = server.Name,
+                ["command"] = resolvedCommand,
+                ["arguments"] = resolvedArguments,
+                ["workingDirectory"] = _envBaseDir,
+                ["serverEnvKeys"] = server.Env?.Keys.OrderBy(static key => key, StringComparer.OrdinalIgnoreCase).ToArray() ?? [],
+                ["stderrCaptureEnabled"] = true,
+                ["eyesAndHandsDebugEnabled"] = IsEyesAndHandsServer(server) && DebugTrace.IsEnabled,
+            });
+
+        var transport = new StdioClientTransport(new StdioClientTransportOptions
+        {
+            Name = server.Name,
+            Command = resolvedCommand,
+            Arguments = resolvedArguments,
+            WorkingDirectory = _envBaseDir,
+            EnvironmentVariables = environment.ToDictionary(
+                kvp => kvp.Key,
+                kvp => (string?)kvp.Value),
+            StandardErrorLines = line =>
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    return;
+                }
+
+                DebugTrace.WriteStructuredEvent(
+                    "mcp.stderr",
+                    new Dictionary<string, object?>
+                    {
+                        ["server"] = server.Name,
+                        ["line"] = line,
+                    });
+            }
+        });
+
+        var client = await McpClient.CreateAsync(transport, cancellationToken: cancellationToken);
+        _clients[server.Name] = client;
+        _toolNamesByServer[server.Name] = new HashSet<string>(StringComparer.Ordinal);
+        DebugTrace.WriteStructuredEvent(
+            "mcp.connect.complete",
+            new Dictionary<string, object?>
+            {
+                ["server"] = server.Name,
+                ["workingDirectory"] = _envBaseDir,
+                ["command"] = resolvedCommand,
+                ["arguments"] = resolvedArguments,
+            });
+    }
+
+    private async Task RecoverServerAfterTimeoutAsync(string serverName, CancellationToken cancellationToken)
+    {
+        if (!_serverConfigsByName.TryGetValue(serverName, out var server))
+        {
+            return;
+        }
+
+        var preservedToolNames = _toolNamesByServer.TryGetValue(serverName, out var toolNames)
+            ? new HashSet<string>(toolNames, StringComparer.Ordinal)
+            : new HashSet<string>(StringComparer.Ordinal);
+
+        DebugTrace.WriteStructuredEvent(
+            "mcp.reconnect.start",
+            new Dictionary<string, object?>
+            {
+                ["server"] = serverName,
+                ["reason"] = "tool_call_timeout",
+                ["knownToolCount"] = preservedToolNames.Count,
+            });
+
+        if (_clients.Remove(serverName, out var existingClient))
+        {
+            try
+            {
+                await existingClient.DisposeAsync();
+            }
+            catch (Exception ex)
+            {
+                DebugTrace.WriteStructuredEvent(
+                    "mcp.reconnect.dispose_failed",
+                    new Dictionary<string, object?>
+                    {
+                        ["server"] = serverName,
+                        ["error"] = DebugTrace.Preview(ex.ToString(), 700),
+                    });
+            }
+        }
+
+        _toolNamesByServer[serverName] = preservedToolNames;
+        _cachedToolDefinitions = [];
+        _hasCachedToolDefinitions = false;
+
+        try
+        {
+            await ConnectServerAsync(server, cancellationToken);
+            if (preservedToolNames.Count > 0)
+            {
+                _toolNamesByServer[serverName] = preservedToolNames;
+            }
+
+            DebugTrace.WriteStructuredEvent(
+                "mcp.reconnect.complete",
+                new Dictionary<string, object?>
+                {
+                    ["server"] = serverName,
+                    ["knownToolCount"] = _toolNamesByServer[serverName].Count,
+                });
+        }
+        catch (Exception ex)
+        {
+            DebugTrace.WriteStructuredEvent(
+                "mcp.reconnect.failed",
+                new Dictionary<string, object?>
+                {
+                    ["server"] = serverName,
+                    ["error"] = DebugTrace.Preview(ex.ToString(), 900),
+                });
+            throw;
+        }
+    }
+
+    private static TimeSpan GetConfiguredToolCallTimeout()
+    {
+        var rawValue = Environment.GetEnvironmentVariable("MCP_TOOL_TIMEOUT_MS");
+        if (!int.TryParse(rawValue, out var timeoutMs) || timeoutMs <= 0)
+        {
+            timeoutMs = DefaultToolCallTimeoutMs;
+        }
+
+        return TimeSpan.FromMilliseconds(timeoutMs);
     }
 
     private static void ApplyServerDebugEnvironment(McpServerConfig server, Dictionary<string, string> environment)

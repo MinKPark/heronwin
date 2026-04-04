@@ -29,6 +29,7 @@ applies_when:
 
 - When the user asks to search within Explorer or another app, first identify the visible search-related UI element if possible.
 - If the current app already exposes a visible search affordance such as a button, field, or search tab, prefer that site-native or app-native path over generic keyboard wandering.
+- If the currently selected window already appears to be the correct app or site for the request, inspect that current window first. Do not begin an in-site search by calling `list_windows` or `list_taskbar_elements` unless fresh evidence suggests the selected window is no longer the intended surface.
 - If the currently selected window is already the correct app or site, do not call `select_window` again with a broad title match before using the in-page search controls.
 - If the user explicitly asked to search within the current site or app, do not use the browser address bar or an external search engine page to satisfy that request.
 - If the current site is temporarily in fullscreen playback, a preview overlay, or another transient mode that hides the in-site search surface, first return to a normal in-site browsing state with site-native controls before searching.

@@ -17,7 +17,7 @@ public sealed class McpClientManagerTests
                 CreateToolDefinition("describe_selected_window"),
                 CreateToolDefinition("click_selected_window_element")
             ]);
-        });
+        }, null);
 
         var first = await manager.ListAllToolsAsync(CancellationToken.None);
         var second = await manager.ListAllToolsAsync(CancellationToken.None);
@@ -38,7 +38,7 @@ public sealed class McpClientManagerTests
         {
             callCount++;
             return Task.FromResult<IReadOnlyList<ToolDefinition>>([]);
-        });
+        }, null);
 
         var first = await manager.ListAllToolsAsync(CancellationToken.None);
         var second = await manager.ListAllToolsAsync(CancellationToken.None);
@@ -46,6 +46,51 @@ public sealed class McpClientManagerTests
         Assert.Equal(1, callCount);
         Assert.Same(first, second);
         Assert.Empty(second);
+    }
+
+    [Fact]
+    public async Task RunWithTimeoutAsync_ReturnsResult_WhenOperationCompletesInTime()
+    {
+        var actual = await McpClientManager.RunWithTimeoutAsync(
+            async cancellationToken =>
+            {
+                await Task.Delay(10, cancellationToken);
+                return "ok";
+            },
+            TimeSpan.FromMilliseconds(200),
+            CancellationToken.None);
+
+        Assert.Equal("ok", actual);
+    }
+
+    [Fact]
+    public async Task RunWithTimeoutAsync_ThrowsTimeoutException_WhenOperationNeverCompletes()
+    {
+        var pending = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var exception = await Assert.ThrowsAsync<TimeoutException>(() =>
+            McpClientManager.RunWithTimeoutAsync(
+                _ => pending.Task,
+                TimeSpan.FromMilliseconds(50),
+                CancellationToken.None));
+
+        Assert.Contains("50", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RunWithTimeoutAsync_PreservesCallerCancellation()
+    {
+        using var cancellationSource = new CancellationTokenSource(50);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            McpClientManager.RunWithTimeoutAsync(
+                async cancellationToken =>
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+                    return "never";
+                },
+                TimeSpan.FromSeconds(5),
+                cancellationSource.Token));
     }
 
     private static ToolDefinition CreateToolDefinition(string name)

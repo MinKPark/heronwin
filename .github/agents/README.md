@@ -78,6 +78,11 @@ Skills can prefer MCP tools from `eyesandhands`, but they should not redefine th
 - `ui-refresh-and-evidence.skill.md` is activated whenever the relevant evidence tools are present.
 - `her.agent.md` remains the compatibility fallback during rollout.
 
+## Debugging Note
+
+- When debugging `herface` on Windows, prefer tests, normal app runs, and debug traces over ad hoc PowerShell reflection against built assemblies.
+- Reflection-style one-liners that load `.dll` files in memory can trigger Windows Defender even during local investigation, so they should not be part of the normal team workflow.
+
 ## Good Next Step
 
 The next improvement would be making skill activation more data-driven by reading structured skill metadata instead of relying only on code-side heuristics.
