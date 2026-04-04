@@ -43,6 +43,29 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void HasExplicitlyUnresolvedOutcome_ReturnsTrue_ForIncompleteRequest()
+    {
+        var actual = AgentRunner.HasExplicitlyUnresolvedOutcome(
+            "The address bar is visible and the original request is not complete yet.");
+
+        Assert.True(actual);
+    }
+
+    [Fact]
+    public void AlignReplyOutcomeConsistency_UsesLogSummary_WhenSayContradictsLog()
+    {
+        var reply = new AgentReply(
+            LogText: "The screenshot shows Edge on a new tab page. The original request is not complete yet.",
+            SpokenText: "Netflix is open in Edge now.",
+            RawText: "{}");
+
+        var actual = AgentRunner.AlignReplyOutcomeConsistency(reply);
+
+        Assert.Equal("The screenshot shows Edge on a new tab page.", actual.SpokenText);
+        Assert.Equal(reply.LogText, actual.LogText);
+    }
+
+    [Fact]
     public void ShouldCollectFocusSnapshotAfterAction_ReturnsTrue_ForNavigationKeys()
     {
         var actual = AgentRunner.ShouldCollectFocusSnapshotAfterAction(
@@ -103,7 +126,7 @@ public sealed class AgentRunnerDecisionTests
     {
         var actual = AgentRunner.BuildToolSpecificGuidance(
             "select_taskbar_app",
-            """{"selectedWindow":null}""",
+            """{"SelectedWindow":null}""",
             new Dictionary<string, object?>());
 
         Assert.NotNull(actual);
@@ -116,7 +139,7 @@ public sealed class AgentRunnerDecisionTests
     {
         var actual = AgentRunner.BuildToolSpecificGuidance(
             "launch_app_via_taskbar_search",
-            """{"selectedWindow":null}""",
+            """{"SelectedWindow":null}""",
             new Dictionary<string, object?>());
 
         Assert.NotNull(actual);
@@ -129,7 +152,7 @@ public sealed class AgentRunnerDecisionTests
     public void TryBuildLaunchFollowUpSelectionArguments_UsesWindowHandle_WhenAvailable()
     {
         var actual = AgentRunner.TryBuildLaunchFollowUpSelectionArguments(
-            """{"selectedWindow":{"handle":"0x00123456","title":"Netflix - Microsoft Edge"}}""");
+            """{"SelectedWindow":{"Handle":"0x00123456","Title":"Netflix - Microsoft Edge"}}""");
 
         Assert.NotNull(actual);
         Assert.Equal("0x00123456", actual!["windowHandle"]);
@@ -140,7 +163,7 @@ public sealed class AgentRunnerDecisionTests
     public void TryBuildLaunchFollowUpSelectionArguments_FallsBackToTitle_WhenHandleIsMissing()
     {
         var actual = AgentRunner.TryBuildLaunchFollowUpSelectionArguments(
-            """{"selectedWindow":{"title":"Netflix - Microsoft Edge"}}""");
+            """{"SelectedWindow":{"Title":"Netflix - Microsoft Edge"}}""");
 
         Assert.NotNull(actual);
         Assert.Equal("Netflix - Microsoft Edge", actual!["titleContains"]);
@@ -151,7 +174,7 @@ public sealed class AgentRunnerDecisionTests
     public void TryBuildLaunchFollowUpSelectionArguments_ReturnsNull_WhenSelectedWindowIsNull()
     {
         var actual = AgentRunner.TryBuildLaunchFollowUpSelectionArguments(
-            """{"selectedWindow":null}""");
+            """{"SelectedWindow":null}""");
 
         Assert.Null(actual);
     }
@@ -160,7 +183,7 @@ public sealed class AgentRunnerDecisionTests
     public void DescribeLaunchFollowUpSelectionTarget_FormatsTitleAndHandle()
     {
         var actual = AgentRunner.DescribeLaunchFollowUpSelectionTarget(
-            """{"selectedWindow":{"handle":"0x00123456","title":"Netflix - Microsoft Edge"}}""");
+            """{"SelectedWindow":{"Handle":"0x00123456","Title":"Netflix - Microsoft Edge"}}""");
 
         Assert.Equal("Netflix - Microsoft Edge (0x00123456)", actual);
     }

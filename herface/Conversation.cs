@@ -137,6 +137,8 @@ internal static class AgentRunner
                     }
                 }
 
+                parsedReply = AlignReplyOutcomeConsistency(parsedReply);
+
                 if (performedDesktopAction
                     && !performedConfidenceEvidenceRetry
                     && NeedsAdditionalDesktopEvidence(parsedReply))
@@ -531,7 +533,7 @@ internal static class AgentRunner
         try
         {
             using var document = JsonDocument.Parse(toolOutputText);
-            if (!document.RootElement.TryGetProperty("selectedWindow", out var selectedWindow))
+            if (!TryGetJsonProperty(document.RootElement, "selectedWindow", out var selectedWindow))
             {
                 return false;
             }
@@ -808,7 +810,30 @@ internal static class AgentRunner
             return true;
         }
 
+        if (performedDesktopAction &&
+            HasExplicitlyUnresolvedOutcome(reply.LogText) &&
+            !HasExplicitlyUnresolvedOutcome(reply.SpokenText))
+        {
+            return true;
+        }
+
         return usedAnyTools && string.IsNullOrWhiteSpace(reply.LogText);
+    }
+
+    internal static AgentReply AlignReplyOutcomeConsistency(AgentReply reply)
+    {
+        if (string.IsNullOrWhiteSpace(reply.LogText) ||
+            string.IsNullOrWhiteSpace(reply.SpokenText) ||
+            !HasExplicitlyUnresolvedOutcome(reply.LogText) ||
+            HasExplicitlyUnresolvedOutcome(reply.SpokenText))
+        {
+            return reply;
+        }
+
+        var normalizedSay = AssistantResponseParser.BuildSpeechFallback(reply.LogText);
+        return string.IsNullOrWhiteSpace(normalizedSay)
+            ? reply
+            : reply with { SpokenText = normalizedSay };
     }
 
     internal static bool NeedsAdditionalDesktopEvidence(AgentReply reply)
@@ -832,6 +857,30 @@ internal static class AgentRunner
             || combined.Contains("i am not inferring", StringComparison.Ordinal)
             || combined.Contains("do not infer", StringComparison.Ordinal)
             || combined.Contains("cannot be inferred", StringComparison.Ordinal);
+    }
+
+    internal static bool HasExplicitlyUnresolvedOutcome(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        var combined = text.ToLowerInvariant();
+        return combined.Contains("not complete", StringComparison.Ordinal)
+            || combined.Contains("not completed", StringComparison.Ordinal)
+            || combined.Contains("not done", StringComparison.Ordinal)
+            || combined.Contains("did not", StringComparison.Ordinal)
+            || combined.Contains("didn't", StringComparison.Ordinal)
+            || combined.Contains("failed", StringComparison.Ordinal)
+            || combined.Contains("unable", StringComparison.Ordinal)
+            || combined.Contains("could not", StringComparison.Ordinal)
+            || combined.Contains("not open", StringComparison.Ordinal)
+            || combined.Contains("not opened", StringComparison.Ordinal)
+            || combined.Contains("not loaded", StringComparison.Ordinal)
+            || combined.Contains("not yet", StringComparison.Ordinal)
+            || combined.Contains("still showing", StringComparison.Ordinal)
+            || combined.Contains("still on", StringComparison.Ordinal);
     }
 
     private static async Task<IReadOnlyList<AgentMessage>> CollectAdditionalConfidenceEvidenceAsync(
@@ -898,7 +947,7 @@ internal static class AgentRunner
 
     private static string BuildRepairInstruction(bool performedDesktopAction)
         => performedDesktopAction
-            ? "Rewrite your previous answer as strict JSON only: {\"say\":\"...\",\"log\":\"...\"}. Use the post-action UI Automation tree first. If the current evidence is too sparse or ambiguous to describe the visible screen confidently, do not guess. In say, include the action outcome, the current visible screen state if it is supported by evidence, and 2 or 3 likely next actions. In log, include the fuller evidence-based description and briefly note any uncertainty."
+            ? "Rewrite your previous answer as strict JSON only: {\"say\":\"...\",\"log\":\"...\"}. Use the post-action UI Automation tree first. If the current evidence is too sparse or ambiguous to describe the visible screen confidently, do not guess. `say` and `log` must not contradict each other. If the evidence shows the request is incomplete or failed, `say` must also say that clearly. In say, include the action outcome, the current visible screen state if it is supported by evidence, and 2 or 3 likely next actions. In log, include the fuller evidence-based description and briefly note any uncertainty."
             : "Rewrite your previous answer as strict JSON only: {\"say\":\"...\",\"log\":\"...\"}. Keep say short and spoken-friendly. Put fuller detail in log.";
 
     internal static IReadOnlyDictionary<string, object?>? TryBuildLaunchFollowUpSelectionArguments(string toolOutputText)
@@ -978,7 +1027,7 @@ internal static class AgentRunner
         try
         {
             using var document = JsonDocument.Parse(toolOutputText);
-            if (!document.RootElement.TryGetProperty("selectedWindow", out var property))
+            if (!TryGetJsonProperty(document.RootElement, "selectedWindow", out var property))
             {
                 return false;
             }
@@ -994,7 +1043,7 @@ internal static class AgentRunner
 
     private static string? TryGetJsonStringProperty(JsonElement element, string propertyName)
     {
-        if (!element.TryGetProperty(propertyName, out var property) ||
+        if (!TryGetJsonProperty(element, propertyName, out var property) ||
             property.ValueKind != JsonValueKind.String)
         {
             return null;
@@ -1002,6 +1051,33 @@ internal static class AgentRunner
 
         var value = property.GetString()?.Trim();
         return string.IsNullOrWhiteSpace(value) ? null : value;
+    }
+
+    private static bool TryGetJsonProperty(JsonElement element, string propertyName, out JsonElement property)
+    {
+        property = default;
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        if (element.TryGetProperty(propertyName, out property))
+        {
+            return true;
+        }
+
+        foreach (var candidate in element.EnumerateObject())
+        {
+            if (!string.Equals(candidate.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            property = candidate.Value.Clone();
+            return true;
+        }
+
+        return false;
     }
 
 }
@@ -1235,7 +1311,7 @@ internal static class AssistantResponseParser
         return new AgentReply(rawText, BuildSpeechFallback(rawText), rawText);
     }
 
-    private static string BuildSpeechFallback(string rawText)
+    internal static string BuildSpeechFallback(string rawText)
     {
         if (string.IsNullOrWhiteSpace(rawText))
         {
