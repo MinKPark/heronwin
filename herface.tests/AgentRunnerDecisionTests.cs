@@ -121,7 +121,48 @@ public sealed class AgentRunnerDecisionTests
 
         Assert.NotNull(actual);
         Assert.Contains("Do not imply that the app opened successfully", actual!, StringComparison.Ordinal);
+        Assert.Contains("do not assume a same-title app window exists", actual, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("launch failed", actual, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void TryBuildLaunchFollowUpSelectionArguments_UsesWindowHandle_WhenAvailable()
+    {
+        var actual = AgentRunner.TryBuildLaunchFollowUpSelectionArguments(
+            """{"selectedWindow":{"handle":"0x00123456","title":"Netflix - Microsoft Edge"}}""");
+
+        Assert.NotNull(actual);
+        Assert.Equal("0x00123456", actual!["windowHandle"]);
+        Assert.False(actual.ContainsKey("titleContains"));
+    }
+
+    [Fact]
+    public void TryBuildLaunchFollowUpSelectionArguments_FallsBackToTitle_WhenHandleIsMissing()
+    {
+        var actual = AgentRunner.TryBuildLaunchFollowUpSelectionArguments(
+            """{"selectedWindow":{"title":"Netflix - Microsoft Edge"}}""");
+
+        Assert.NotNull(actual);
+        Assert.Equal("Netflix - Microsoft Edge", actual!["titleContains"]);
+        Assert.False(actual.ContainsKey("windowHandle"));
+    }
+
+    [Fact]
+    public void TryBuildLaunchFollowUpSelectionArguments_ReturnsNull_WhenSelectedWindowIsNull()
+    {
+        var actual = AgentRunner.TryBuildLaunchFollowUpSelectionArguments(
+            """{"selectedWindow":null}""");
+
+        Assert.Null(actual);
+    }
+
+    [Fact]
+    public void DescribeLaunchFollowUpSelectionTarget_FormatsTitleAndHandle()
+    {
+        var actual = AgentRunner.DescribeLaunchFollowUpSelectionTarget(
+            """{"selectedWindow":{"handle":"0x00123456","title":"Netflix - Microsoft Edge"}}""");
+
+        Assert.Equal("Netflix - Microsoft Edge (0x00123456)", actual);
     }
 
     [Fact]

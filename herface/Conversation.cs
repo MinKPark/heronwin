@@ -255,32 +255,44 @@ internal static class AgentRunner
                             var appName = TryGetStringArgument(parsedArgsDictionary, "appName");
                             if (!string.IsNullOrWhiteSpace(appName))
                             {
-                                try
+                                var followUpSelectionArgs = TryBuildLaunchFollowUpSelectionArguments(toolOutput.Text);
+                                if (followUpSelectionArgs is not null)
                                 {
-                                    var selectResult = await mcpManager.CallToolAsync(
-                                        "select_window",
-                                        new Dictionary<string, object?> { ["titleContains"] = appName },
-                                        cancellationToken);
-                                    Display.ToolResult("select_window", selectResult.Text, selectResult.Images.Count);
-                                    followUpEvidence.Add(new AgentMessage.User(
-                                        $"Internal window re-selection after launching \"{appName}\":\n{selectResult.Text}"));
-                                    if (selectResult.Images.Count > 0)
+                                    try
                                     {
-                                        followUpEvidence.Add(new AgentMessage.VisualContext(
-                                            "Internal screenshot evidence after re-selecting the launched app window. Treat the screenshot as authoritative for the current visible screen.",
-                                            selectResult.Images));
+                                        var selectResult = await mcpManager.CallToolAsync(
+                                            "select_window",
+                                            followUpSelectionArgs,
+                                            cancellationToken);
+                                        Display.ToolResult("select_window", selectResult.Text, selectResult.Images.Count);
+                                        followUpEvidence.Add(new AgentMessage.User(
+                                            $"Internal window re-selection after launching \"{appName}\":\n{selectResult.Text}"));
+                                        if (selectResult.Images.Count > 0)
+                                        {
+                                            followUpEvidence.Add(new AgentMessage.VisualContext(
+                                                "Internal screenshot evidence after re-selecting the launched app window. Treat the screenshot as authoritative for the current visible screen.",
+                                                selectResult.Images));
+                                        }
+                                        DebugTrace.WriteEvent(
+                                            "agent.desktop_followup_select_window",
+                                            $"turn={turnId}, appName={DebugTrace.SerializeObject(appName)}, target={DebugTrace.SerializeObject(DescribeLaunchFollowUpSelectionTarget(toolOutput.Text) ?? appName)}, result={DebugTrace.Preview(selectResult.Text, 600)}, images={selectResult.Images.Count}");
                                     }
-                                    DebugTrace.WriteEvent(
-                                        "agent.desktop_followup_select_window",
-                                        $"turn={turnId}, appName={DebugTrace.SerializeObject(appName)}, result={DebugTrace.Preview(selectResult.Text, 600)}, images={selectResult.Images.Count}");
+                                    catch (Exception ex)
+                                    {
+                                        followUpEvidence.Add(new AgentMessage.User(
+                                            $"Attempt to re-select the launched app window for \"{appName}\" was unavailable: {ex.Message}"));
+                                        DebugTrace.WriteEvent(
+                                            "agent.desktop_followup_select_window_failed",
+                                            $"turn={turnId}, appName={DebugTrace.SerializeObject(appName)}, target={DebugTrace.SerializeObject(DescribeLaunchFollowUpSelectionTarget(toolOutput.Text) ?? appName)}, error={DebugTrace.Preview(ex.ToString(), 700)}");
+                                    }
                                 }
-                                catch (Exception ex)
+                                else
                                 {
                                     followUpEvidence.Add(new AgentMessage.User(
-                                        $"Attempt to re-select the launched app window by title \"{appName}\" was unavailable: {ex.Message}"));
+                                        $"Internal window re-selection after launching \"{appName}\" was skipped because the launch tool did not surface a launched app window. Treat the launch as unconfirmed and rely on the fresh UI snapshot before deciding what to do next."));
                                     DebugTrace.WriteEvent(
-                                        "agent.desktop_followup_select_window_failed",
-                                        $"turn={turnId}, appName={DebugTrace.SerializeObject(appName)}, error={DebugTrace.Preview(ex.ToString(), 700)}");
+                                        "agent.desktop_followup_select_window_skipped",
+                                        $"turn={turnId}, appName={DebugTrace.SerializeObject(appName)}, launchResult={DebugTrace.Preview(toolOutput.Text, 700)}");
                                 }
                             }
                         }
@@ -476,7 +488,7 @@ internal static class AgentRunner
                 "select_taskbar_app" =>
                     "The taskbar app activation did not surface a launched or selected app window. Do not imply that the app opened successfully. Try `launch_app_via_taskbar_search` next when it is available, and if that fallback is unavailable or also fails, explicitly tell the user that the launch failed.",
                 "launch_app_via_taskbar_search" =>
-                    "The taskbar search launch did not surface a launched app window. Do not imply that the app opened successfully. If earlier taskbar launch routes also failed or were unavailable, explicitly tell the user that the launch failed.",
+                    "The taskbar search launch did not surface a launched app window. Do not imply that the app opened successfully, and do not assume a same-title app window exists just because Search shows matching results. If earlier taskbar launch routes also failed or were unavailable, explicitly tell the user that the launch failed.",
                 _ => null
             };
         }
@@ -889,6 +901,57 @@ internal static class AgentRunner
             ? "Rewrite your previous answer as strict JSON only: {\"say\":\"...\",\"log\":\"...\"}. Use the post-action UI Automation tree first. If the current evidence is too sparse or ambiguous to describe the visible screen confidently, do not guess. In say, include the action outcome, the current visible screen state if it is supported by evidence, and 2 or 3 likely next actions. In log, include the fuller evidence-based description and briefly note any uncertainty."
             : "Rewrite your previous answer as strict JSON only: {\"say\":\"...\",\"log\":\"...\"}. Keep say short and spoken-friendly. Put fuller detail in log.";
 
+    internal static IReadOnlyDictionary<string, object?>? TryBuildLaunchFollowUpSelectionArguments(string toolOutputText)
+    {
+        if (!TryGetSelectedWindowProperty(toolOutputText, out var selectedWindow))
+        {
+            return null;
+        }
+
+        if (selectedWindow.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        if (selectedWindow.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        if (TryGetJsonStringProperty(selectedWindow, "handle") is { Length: > 0 } handle)
+        {
+            return new Dictionary<string, object?> { ["windowHandle"] = handle };
+        }
+
+        if (TryGetJsonStringProperty(selectedWindow, "title") is { Length: > 0 } title)
+        {
+            return new Dictionary<string, object?> { ["titleContains"] = title };
+        }
+
+        return null;
+    }
+
+    internal static string? DescribeLaunchFollowUpSelectionTarget(string toolOutputText)
+    {
+        if (!TryGetSelectedWindowProperty(toolOutputText, out var selectedWindow) ||
+            selectedWindow.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var handle = TryGetJsonStringProperty(selectedWindow, "handle");
+        var title = TryGetJsonStringProperty(selectedWindow, "title");
+
+        if (!string.IsNullOrWhiteSpace(title) && !string.IsNullOrWhiteSpace(handle))
+        {
+            return $"{title} ({handle})";
+        }
+
+        return !string.IsNullOrWhiteSpace(handle)
+            ? handle
+            : title;
+    }
+
     private static string? TryGetStringArgument(IReadOnlyDictionary<string, object?> args, string key)
     {
         if (!args.TryGetValue(key, out var value) || value is null)
@@ -902,6 +965,43 @@ internal static class AgentRunner
             JsonElement element when element.ValueKind == JsonValueKind.String => element.GetString(),
             _ => value.ToString()
         };
+    }
+
+    private static bool TryGetSelectedWindowProperty(string toolOutputText, out JsonElement selectedWindow)
+    {
+        selectedWindow = default;
+        if (string.IsNullOrWhiteSpace(toolOutputText))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(toolOutputText);
+            if (!document.RootElement.TryGetProperty("selectedWindow", out var property))
+            {
+                return false;
+            }
+
+            selectedWindow = property.Clone();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string? TryGetJsonStringProperty(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var property) ||
+            property.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        var value = property.GetString()?.Trim();
+        return string.IsNullOrWhiteSpace(value) ? null : value;
     }
 
 }

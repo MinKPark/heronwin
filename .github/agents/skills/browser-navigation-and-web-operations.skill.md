@@ -33,6 +33,8 @@ applies_when:
 
 - If the browser UI exposes the address bar as a visible element such as `Address and search bar`, prefer focusing or invoking that element first.
 - If direct element targeting is unavailable or fails, use the browser-standard address-bar shortcut such as `Ctrl+L` as the fallback.
+- Treat in-page fields such as a webpage `Search box`, site search field, or Bing results search box as page content, not as the browser address bar.
+- For direct website navigation, do not type the site domain or URL into an in-page `Search box` just because it currently has focus.
 - Before typing a replacement URL, replace the entire existing address-bar contents.
 - If the address bar may still contain old text, select all or otherwise clear it before entering the new URL.
 - After entering the URL, submit it with `Enter`, then refresh the browser state before answering.
