@@ -103,6 +103,21 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void BuildRuntimeToolPolicy_ReturnsBrowserShortcutGuidance_WhenInvokeAndInputToolsExist()
+    {
+        var actual = AgentRunner.BuildRuntimeToolPolicy(
+            [
+                new ToolDefinition("invoke_selected_window_element", "desc", default),
+                new ToolDefinition("focus_selected_window_element", "desc", default),
+                new ToolDefinition("send_input_to_window", "desc", default)
+            ]);
+
+        Assert.NotNull(actual);
+        Assert.Contains("Control+L", actual!, StringComparison.Ordinal);
+        Assert.Contains("Escape or F11", actual, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void BuildRuntimeToolPolicy_ReturnsLaunchContinuationGuidance_WhenLaunchToolsExist()
     {
         var actual = AgentRunner.BuildRuntimeToolPolicy(
@@ -342,6 +357,137 @@ public sealed class AgentRunnerDecisionTests
             "Open the Netflix website in the current tab.",
             new Dictionary<string, object?> { ["text"] = "https://www.netflix.com" },
             """{"Window":{"Handle":"0x00060A88","Title":"YouTube - Personal - Microsoft Edge","ClassName":"Chrome_WidgetWin_1"}}""");
+
+        Assert.False(actual);
+    }
+
+    [Fact]
+    public void TryRewriteBrowserAddressBarActionToShortcut_ReturnsTrue_ForBrowserAddressBarElement()
+    {
+        var actual = AgentRunner.TryRewriteBrowserAddressBarActionToShortcut(
+            "invoke_selected_window_element",
+            new Dictionary<string, object?> { ["elementPath"] = "1/0/0/0/0/0" },
+            """
+            {
+              "Window": {
+                "Handle": "0x00060A88",
+                "Title": "YouTube - Personal - Microsoft Edge",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "1/0/0/0/0/0",
+                    "UiPath": "1/0/0/0/0/0",
+                    "Name": "Address and search bar",
+                    "ControlType": "Edit",
+                    "ClassName": "OmniboxViewViews"
+                  }
+                ]
+              }
+            }
+            """,
+            out var rewrittenArgs);
+
+        Assert.True(actual);
+        Assert.Equal("L", rewrittenArgs["key"]);
+        Assert.Equal(new[] { "Control" }, rewrittenArgs["modifiers"]);
+    }
+
+    [Fact]
+    public void TryRewriteBrowserAddressBarActionToShortcut_ReturnsFalse_ForNonAddressBarElement()
+    {
+        var actual = AgentRunner.TryRewriteBrowserAddressBarActionToShortcut(
+            "invoke_selected_window_element",
+            new Dictionary<string, object?> { ["elementPath"] = "1/0/0/0/1/0/0/0/0/0/0" },
+            """
+            {
+              "Window": {
+                "Handle": "0x00060A88",
+                "Title": "YouTube - Personal - Microsoft Edge",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "1/0/0/0/1/0/0/0/0/0/0",
+                    "UiPath": "1/0/0/0/1/0/0/0/0/0/0",
+                    "Name": "YouTube",
+                    "ControlType": "Document"
+                  }
+                ]
+              }
+            }
+            """,
+            out _);
+
+        Assert.False(actual);
+    }
+
+    [Fact]
+    public void ShouldExitBrowserFullscreenBeforeBrowserShortcut_ReturnsTrue_ForFullscreenBrowserSnapshot()
+    {
+        var actual = AgentRunner.ShouldExitBrowserFullscreenBeforeBrowserShortcut(
+            """
+            {
+              "Window": {
+                "Handle": "0x00060A88",
+                "Title": "YouTube - Personal - Microsoft Edge",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "1/0/0/0/1/0/0/0/0/0/0/0/1/2/0",
+                    "UiPath": "1/0/0/0/1/0/0/0/0/0/0/0/1/2/0",
+                    "Name": "YouTube Video Player in Fullscreen",
+                    "ControlType": "Group",
+                    "ClassName": "ytp-fullscreen"
+                  }
+                ]
+              }
+            }
+            """);
+
+        Assert.True(actual);
+    }
+
+    [Fact]
+    public void ShouldExitBrowserFullscreenBeforeBrowserShortcut_ReturnsFalse_ForNormalBrowserSnapshot()
+    {
+        var actual = AgentRunner.ShouldExitBrowserFullscreenBeforeBrowserShortcut(
+            """
+            {
+              "Window": {
+                "Handle": "0x00060A88",
+                "Title": "Netflix - Microsoft Edge",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "1/0/0/0/0/0",
+                    "UiPath": "1/0/0/0/0/0",
+                    "Name": "Address and search bar",
+                    "ControlType": "Edit",
+                    "ClassName": "OmniboxViewViews"
+                  }
+                ]
+              }
+            }
+            """);
 
         Assert.False(actual);
     }

@@ -293,6 +293,59 @@ internal static class AgentRunner
 
                 var executableArgs = CloneArguments(parsedArgsDictionary);
                 var effectiveArgumentsText = toolCall.Arguments;
+                var executableToolName = toolCall.Name;
+                string? toolRewriteNote = null;
+                var attemptedBrowserFullscreenExit = false;
+
+                async Task MaybeExitBrowserFullscreenAsync(string reason)
+                {
+                    if (attemptedBrowserFullscreenExit ||
+                        !ShouldExitBrowserFullscreenBeforeBrowserShortcut(recentWindowContext))
+                    {
+                        return;
+                    }
+
+                    attemptedBrowserFullscreenExit = true;
+                    var exitArgs = new Dictionary<string, object?>
+                    {
+                        ["key"] = "Escape",
+                    };
+
+                    try
+                    {
+                        var exitStopwatch = Stopwatch.StartNew();
+                        var exitResult = await mcpManager.CallToolAsync("send_input_to_window", exitArgs, cancellationToken);
+                        DebugTrace.WriteStructuredEvent(
+                            "agent.browser_fullscreen_exit_completed",
+                            new Dictionary<string, object?>
+                            {
+                                ["turn"] = turnId,
+                                ["toolCallId"] = toolCall.Id,
+                                ["reason"] = reason,
+                                ["elapsedMs"] = (int)Math.Round(exitStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
+                                ["isError"] = exitResult.IsError,
+                                ["resultPreview"] = DebugTrace.Preview(exitResult.Text, 600),
+                            });
+
+                        if (!exitResult.IsError &&
+                            DescribePrimaryWindowFromToolOutput(exitResult.Text) is not null)
+                        {
+                            recentWindowContext = exitResult.Text;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugTrace.WriteStructuredEvent(
+                            "agent.browser_fullscreen_exit_failed",
+                            new Dictionary<string, object?>
+                            {
+                                ["turn"] = turnId,
+                                ["toolCallId"] = toolCall.Id,
+                                ["reason"] = reason,
+                                ["error"] = DebugTrace.Preview(ex.ToString(), 700),
+                            });
+                    }
+                }
 
                 if (toolCall.Name == "select_window" &&
                     TryRewriteSelectWindowArguments(executableArgs, recentListWindowsOutput, out var rewrittenSelectArgs))
@@ -312,7 +365,38 @@ internal static class AgentRunner
                         });
                 }
 
-                if (toolCall.Name == "send_input_to_window" &&
+                if (TryRewriteBrowserAddressBarActionToShortcut(
+                        toolCall.Name,
+                        executableArgs,
+                        recentWindowContext,
+                        out var rewrittenBrowserAddressBarArgs))
+                {
+                    await MaybeExitBrowserFullscreenAsync("browser_address_bar_shortcut_rewrite");
+                    executableToolName = "send_input_to_window";
+                    executableArgs = rewrittenBrowserAddressBarArgs;
+                    effectiveArgumentsText = JsonSerializer.Serialize(executableArgs, JsonSerializerOptionsCache.Default);
+                    toolRewriteNote =
+                        "Internal browser address-bar fallback used Control+L instead of UI Automation element activation because browser chrome can be hidden or offscreen during fullscreen content.";
+                    DebugTrace.WriteStructuredEvent(
+                        "agent.browser_address_bar_action_rewritten",
+                        new Dictionary<string, object?>
+                        {
+                            ["turn"] = turnId,
+                            ["toolCallId"] = toolCall.Id,
+                            ["requestedTool"] = toolCall.Name,
+                            ["executedTool"] = executableToolName,
+                            ["originalArgumentsPreview"] = DebugTrace.Preview(toolCall.Arguments, 600),
+                            ["rewrittenArgumentsPreview"] = DebugTrace.Preview(effectiveArgumentsText, 600),
+                        });
+                }
+
+                if (executableToolName == "send_input_to_window" &&
+                    LooksLikeUrl(TryGetStringArgument(executableArgs, "text") ?? string.Empty))
+                {
+                    await MaybeExitBrowserFullscreenAsync("browser_url_entry");
+                }
+
+                if (executableToolName == "send_input_to_window" &&
                     ShouldOpenNewTabBeforeBrowserUrlEntry(userText, executableArgs, recentWindowContext))
                 {
                     var newTabArgs = new Dictionary<string, object?>
@@ -355,7 +439,7 @@ internal static class AgentRunner
                     }
                 }
 
-                if (toolCall.Name == "send_input_to_window" &&
+                if (executableToolName == "send_input_to_window" &&
                     ShouldPrimeBrowserAddressBarForUrlEntry(executableArgs, recentWindowContext, recentFocusContext))
                 {
                     var primeArgs = new Dictionary<string, object?>
@@ -398,20 +482,20 @@ internal static class AgentRunner
                     }
                 }
 
-                Display.ToolCall(toolCall.Name, effectiveArgumentsText);
+                Display.ToolCall(executableToolName, effectiveArgumentsText);
 
                 var toolCallStopwatch = Stopwatch.StartNew();
                 ToolCallOutcome toolOutput;
                 try
                 {
-                    toolOutput = await mcpManager.CallToolAsync(toolCall.Name, executableArgs, cancellationToken);
+                    toolOutput = await mcpManager.CallToolAsync(executableToolName, executableArgs, cancellationToken);
                 }
                 catch (Exception ex)
                 {
                     toolOutput = new ToolCallOutcome($"Error: {ex.Message}", [], true);
                 }
 
-                Display.ToolResult(toolCall.Name, toolOutput.Text, toolOutput.Images.Count);
+                Display.ToolResult(executableToolName, toolOutput.Text, toolOutput.Images.Count);
                 DebugTrace.WriteStructuredEvent(
                     "agent.tool_call_completed",
                     new Dictionary<string, object?>
@@ -419,6 +503,7 @@ internal static class AgentRunner
                         ["turn"] = turnId,
                         ["toolCallId"] = toolCall.Id,
                         ["tool"] = toolCall.Name,
+                        ["executedTool"] = executableToolName,
                         ["elapsedMs"] = (int)Math.Round(toolCallStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
                         ["isError"] = toolOutput.IsError,
                         ["images"] = toolOutput.Images.Count,
@@ -605,6 +690,11 @@ internal static class AgentRunner
                                 });
                         }
 
+                        if (!string.IsNullOrWhiteSpace(toolRewriteNote))
+                        {
+                            followUpEvidence.Add(new AgentMessage.User(toolRewriteNote));
+                        }
+
                         var toolSpecificGuidance = BuildToolSpecificGuidance(toolCall.Name, toolOutput.Text, parsedArgsDictionary);
                         if (!string.IsNullOrWhiteSpace(toolSpecificGuidance))
                         {
@@ -694,6 +784,8 @@ internal static class AgentRunner
                 "When entering a replacement URL in a browser, replace or clear the full address-bar contents before typing the new URL.");
             parts.Add(
                 "For direct website navigation in Microsoft Edge, unless the user explicitly asks to reuse the current tab, open a new tab first, then enter the clean URL through the address bar.");
+            parts.Add(
+                "For browser address-bar activation, prefer send_input_to_window with Control+L over invoke_selected_window_element or focus_selected_window_element, because browser chrome can be hidden or offscreen. If browser content appears fullscreen, send Escape or F11 before URL entry.");
         }
 
         if (toolNames.Contains("invoke_selected_window_element") &&
@@ -1446,6 +1538,51 @@ internal static class AgentRunner
         return true;
     }
 
+    internal static bool TryRewriteBrowserAddressBarActionToShortcut(
+        string toolName,
+        IReadOnlyDictionary<string, object?> args,
+        string? recentWindowContext,
+        out Dictionary<string, object?> rewrittenArgs)
+    {
+        rewrittenArgs = new Dictionary<string, object?>(StringComparer.Ordinal);
+        if (toolName is not "invoke_selected_window_element" and not "focus_selected_window_element")
+        {
+            return false;
+        }
+
+        var elementPath = TryGetStringArgument(args, "elementPath") ?? TryGetStringArgument(args, "uiPath");
+        if (string.IsNullOrWhiteSpace(elementPath) ||
+            !TryFindElementByPath(recentWindowContext, elementPath, out var element) ||
+            !ElementLooksLikeBrowserAddressBar(element))
+        {
+            return false;
+        }
+
+        rewrittenArgs["key"] = "L";
+        rewrittenArgs["modifiers"] = new[] { "Control" };
+        return true;
+    }
+
+    internal static bool ShouldExitBrowserFullscreenBeforeBrowserShortcut(string? recentWindowContext)
+    {
+        if (!SnapshotLooksLikeBrowserWindow(recentWindowContext) ||
+            string.IsNullOrWhiteSpace(recentWindowContext))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(recentWindowContext);
+            return TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree) &&
+                   ContainsMatchingElement(elementTree, ElementLooksLikeFullscreenBrowserContent);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static Dictionary<string, object?> CloneArguments(IReadOnlyDictionary<string, object?> args)
         => args.ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal);
 
@@ -1654,6 +1791,67 @@ internal static class AgentRunner
         return false;
     }
 
+    private static bool TryFindElementByPath(
+        string? snapshotText,
+        string elementPath,
+        out JsonElement element)
+    {
+        element = default;
+        if (string.IsNullOrWhiteSpace(snapshotText) ||
+            string.IsNullOrWhiteSpace(elementPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(snapshotText);
+            return TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree) &&
+                   TryFindElementByPath(elementTree, elementPath, out element);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryFindElementByPath(
+        JsonElement element,
+        string elementPath,
+        out JsonElement match)
+    {
+        match = default;
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        var path = TryGetJsonStringProperty(element, "path");
+        var uiPath = TryGetJsonStringProperty(element, "uiPath");
+        if (string.Equals(path, elementPath, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(uiPath, elementPath, StringComparison.OrdinalIgnoreCase))
+        {
+            match = element.Clone();
+            return true;
+        }
+
+        if (!TryGetJsonProperty(element, "children", out var children) ||
+            children.ValueKind != JsonValueKind.Array)
+        {
+            return false;
+        }
+
+        foreach (var child in children.EnumerateArray())
+        {
+            if (TryFindElementByPath(child, elementPath, out match))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static bool ElementLooksLikeBrowserAddressBar(JsonElement element)
     {
         var name = TryGetJsonStringProperty(element, "name");
@@ -1666,6 +1864,27 @@ internal static class AgentRunner
         var className = TryGetJsonStringProperty(element, "className");
         return !string.IsNullOrWhiteSpace(className) &&
                string.Equals(className, "OmniboxViewViews", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool ElementLooksLikeFullscreenBrowserContent(JsonElement element)
+    {
+        var name = TryGetJsonStringProperty(element, "name");
+        if (!string.IsNullOrWhiteSpace(name) &&
+            name.Contains("fullscreen", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var className = TryGetJsonStringProperty(element, "className");
+        if (!string.IsNullOrWhiteSpace(className) &&
+            className.Contains("fullscreen", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var automationId = TryGetJsonStringProperty(element, "automationId");
+        return !string.IsNullOrWhiteSpace(automationId) &&
+               automationId.Contains("fullscreen", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool WindowLooksLikeBrowser(JsonElement window)
