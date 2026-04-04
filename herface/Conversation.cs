@@ -735,64 +735,17 @@ internal static class AgentRunner
     {
         var toolNames = tools.Select(tool => tool.Name).ToHashSet(StringComparer.Ordinal);
         var parts = new List<string>();
-        var hasWindowListing = toolNames.Contains("list_windows");
-        var hasWindowSelection = toolNames.Contains("select_window");
-        var hasTaskbarListing = toolNames.Contains("list_taskbar_elements");
-        var hasTaskbarSelection = toolNames.Contains("select_taskbar_app");
-        var hasTaskbarSearchLaunch = toolNames.Contains("launch_app_via_taskbar_search");
-        if (hasWindowListing && (hasWindowSelection || hasTaskbarSelection || hasTaskbarSearchLaunch))
+
+        if (toolNames.Contains("select_window"))
         {
             parts.Add(
-                "For requests to start or open an application, do not stop after saying you are checking whether it is already open. First call list_windows. If a likely matching window already exists, select_window it instead of launching a second instance.");
-
-            if (hasWindowSelection)
-            {
-                parts.Add(
-                    "After list_windows, prefer a specific windowHandle returned there when calling select_window. Avoid broad titleContains matches when a handle is available.");
-            }
-
-            if (hasTaskbarListing && hasTaskbarSelection)
-            {
-                parts.Add(
-                    "If the app does not appear to be open already, next inspect the taskbar with list_taskbar_elements and use select_taskbar_app when the app looks pinned or already present there.");
-            }
-
-            if (hasTaskbarSearchLaunch)
-            {
-                parts.Add(
-                    "If the app is not clearly available as a visible taskbar app button, use launch_app_via_taskbar_search in the same turn as the fallback launch attempt.");
-            }
-
-            if (hasTaskbarSelection || hasTaskbarSearchLaunch)
-            {
-                parts.Add(
-                    "Only ask the user to launch the app manually after those taskbar-based launch attempts are unavailable, ambiguous, or fail.");
-            }
-        }
-
-        if (toolNames.Contains("invoke_selected_window_element"))
-        {
-            parts.Add(
-                "For requests to click, press, open, select, or otherwise activate a visible UI control by element path, prefer invoke_selected_window_element.");
+                "When recent tool evidence already provides a stable target identifier such as `windowHandle`, prefer reusing that exact identifier over a broader text match.");
         }
 
         if (toolNames.Contains("send_input_to_window"))
         {
             parts.Add(
-                "Use send_input_to_window only when the user explicitly asks for a specific key, shortcut, or text entry, not as a generic fallback for activating visible controls.");
-            parts.Add(
-                "When entering a replacement URL in a browser, replace or clear the full address-bar contents before typing the new URL.");
-            parts.Add(
-                "For direct website navigation in Microsoft Edge, unless the user explicitly asks to reuse the current tab, open a new tab first, then enter the clean URL through the address bar.");
-            parts.Add(
-                "For browser address-bar activation, prefer send_input_to_window with Control+L over invoke_selected_window_element or focus_selected_window_element, because browser chrome can be hidden or offscreen. If browser content appears fullscreen, send Escape or F11 before URL entry.");
-        }
-
-        if (toolNames.Contains("invoke_selected_window_element") &&
-            toolNames.Contains("send_input_to_window"))
-        {
-            parts.Add(
-                "Do not replace invoke_selected_window_element with standalone Tab, arrow, or other ad hoc navigation keys when trying to activate a visible control.");
+                "Treat `send_input_to_window` as explicit keyboard or text input that still requires follow-up verification; key presses and text entry alone do not confirm that the intended visible UI result occurred.");
         }
 
         return parts.Count == 0 ? null : string.Join(" ", parts);
@@ -870,9 +823,9 @@ internal static class AgentRunner
             return toolName switch
             {
                 "select_taskbar_app" =>
-                    "The taskbar app activation did not surface a launched or selected app window. Do not imply that the app opened successfully. Try `launch_app_via_taskbar_search` next when it is available, and if that fallback is unavailable or also fails, explicitly tell the user that the launch failed.",
+                    "The taskbar app activation did not surface a launched or selected app window. Do not imply that the app opened successfully. Use fresh evidence before deciding what happened, and if another materially different launch route is available, prefer that over repeating the same route.",
                 "launch_app_via_taskbar_search" =>
-                    "The taskbar search launch did not surface a launched app window. Do not imply that the app opened successfully, and do not assume a same-title app window exists just because Search shows matching results. If earlier taskbar launch routes also failed or were unavailable, explicitly tell the user that the launch failed.",
+                    "The taskbar search launch did not surface a launched app window. Do not imply that the app opened successfully, and do not assume a same-title app window exists just because Search shows a matching result. Use fresh evidence before deciding what happened, and if another materially different launch route is available, prefer that next.",
                 _ => null
             };
         }
@@ -897,7 +850,7 @@ internal static class AgentRunner
             return null;
         }
 
-        return "Raw keyboard navigation is a weaker fallback for visible control activation. Before sending more standalone navigation keys, prefer `invoke_selected_window_element` on a candidate element path and use `send_input_to_window` only for explicit shortcut or text-entry requests.";
+        return "Standalone navigation keys are a weaker fallback for visible control activation. Refresh focus or window state before sending more navigation keys, and prefer a direct tool-supported target when one is available.";
     }
 
     private static bool IsLaunchAttemptWithoutSelectedWindow(string toolName, string toolOutputText)

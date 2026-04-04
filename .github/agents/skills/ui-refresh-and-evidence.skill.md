@@ -21,6 +21,7 @@ applies_when:
 ## Refresh Rules
 
 - After any action that can change the UI state, re-enumerate the selected window before deciding what happened.
+- Treat shortcuts, text entry, and other keyboard input as actions that still require follow-up verification.
 - Do not assume the previous focus path is still valid after search results, dialogs, overlays, or navigation updates.
 - When focus remains inside a search box or another text control, avoid relying on movement keys until the refreshed state has been inspected.
 - Prefer `eyesandhands/describe_selected_window` after state-changing actions so newly exposed elements can be discovered.

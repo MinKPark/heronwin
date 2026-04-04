@@ -37,6 +37,8 @@ applies_when:
 - If the browser UI exposes the address bar as a visible element such as `Address and search bar`, prefer focusing or invoking that element first.
 - If the user wants a new site in Microsoft Edge and a new-tab control is available, prefer invoking that control first. If direct element targeting is unavailable or fails, use the browser-standard new-tab shortcut such as `Ctrl+T`.
 - If direct element targeting is unavailable or fails, use the browser-standard address-bar shortcut such as `Ctrl+L` as the fallback.
+- If browser chrome may be hidden, offscreen, or temporarily unreliable, prefer browser-standard shortcuts such as `Ctrl+T` and `Ctrl+L` over repeated attempts to activate the address bar element through UI Automation.
+- If browser content is fullscreen, exit fullscreen with `Escape` or `F11` before trying to use the address bar or new-tab flow.
 - Treat in-page fields such as a webpage `Search box`, site search field, or Bing results search box as page content, not as the browser address bar.
 - For direct website navigation, do not type the site domain or URL into an in-page `Search box` just because it currently has focus.
 - Unless the user explicitly asked to edit the current address-bar text in place, clear the full address bar before entering a new address or replacement URL.
@@ -54,6 +56,7 @@ applies_when:
 ## Verification Rules
 
 - Verify direct navigation from refreshed evidence such as the tab title, page title, visible page content, or browser error state.
+- Do not stop after merely focusing the browser chrome or entering the URL. Continue until the requested site is confirmed, clearly failed, or still lacks sufficient evidence.
 - If the result is still a search page, say so directly.
 - If the result is a browser error page such as name resolution failure, say that directly and treat it as failed navigation, not as a successful site visit.
 - When UI Automation is too sparse to verify the destination page confidently, capture a screenshot and use it as the source of truth.

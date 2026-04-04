@@ -19,17 +19,20 @@ applies_when:
 
 1. First check whether a likely app window is already visible.
 2. If a matching window already exists, select it instead of launching a second instance.
-3. If the app does not appear to be open, prefer taskbar-based launch paths.
-4. After selecting or launching the app, verify that the selected window is the intended target before going deeper.
-5. Describe the first visible state from evidence before taking more actions.
+3. If the app does not appear to be open, continue into the available launch routes rather than stopping after the initial inspection.
+4. Prefer taskbar-based launch paths before asking the user to launch the app manually.
+5. After selecting or launching the app, verify that the selected window is the intended target before going deeper.
+6. Describe the first visible state from evidence before taking more actions.
 
 ## Tool Preference
 
 - Use `eyesandhands/list_windows` before launching.
 - If a likely window already exists, use `eyesandhands/select_window`.
+- If recent evidence already exposed a specific `windowHandle`, prefer that exact handle over a broader title match.
 - If the app is not open, inspect the taskbar with `eyesandhands/list_taskbar_elements`.
 - If the app looks pinned or already present on the taskbar, use `eyesandhands/select_taskbar_app`.
 - If it is not clearly available as a taskbar app button, use `eyesandhands/launch_app_via_taskbar_search`.
+- Ask the user to launch the app manually only after the available window-selection and taskbar-based launch routes are unavailable, ambiguous, or fail.
 
 ## First-Look Rules
 

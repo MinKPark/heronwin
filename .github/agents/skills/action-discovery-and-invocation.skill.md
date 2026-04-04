@@ -33,6 +33,7 @@ applies_when:
 
 - When the user explicitly asks to click, press, open, select, or invoke a visible UI element and you have an element path for it, use `eyesandhands/invoke_selected_window_element`.
 - If the visible control is exposed only through a sparse or generic subtree, still prefer `eyesandhands/invoke_selected_window_element` over ad hoc `Tab` or arrow-key retries.
+- When a visible control is already exposed in the tree, do not replace direct targeting with repeated standalone `Tab` or arrow-key exploration.
 - Re-check focus before using keyboard fallback when possible.
 
 ## Keyboard Rules
@@ -40,6 +41,7 @@ applies_when:
 - Use `eyesandhands/send_input_to_window` when the user explicitly asks for a shortcut, a named key press, or text entry.
 - Do not use it as the first fallback for activating visible controls.
 - Do not chain repeated standalone `Tab` presses without re-checking focus or the refreshed window tree after each navigation attempt.
+- After shortcuts, text entry, or other keyboard input that could change the UI, refresh state before claiming success.
 - Treat keyboard navigation as a materially different fallback from direct invocation or click paths.
 
 ## Stop Conditions

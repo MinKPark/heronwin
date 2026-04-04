@@ -76,66 +76,31 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
-    public void BuildRuntimeToolPolicy_ReturnsInvokePreference_WhenRelevantToolsExist()
+    public void BuildRuntimeToolPolicy_ReturnsIdentifierPreference_WhenWindowSelectionToolExists()
     {
         var actual = AgentRunner.BuildRuntimeToolPolicy(
             [
-                new ToolDefinition("invoke_selected_window_element", "desc", default),
+                new ToolDefinition("select_window", "desc", default)
+            ]);
+
+        Assert.NotNull(actual);
+        Assert.Contains("windowHandle", actual!, StringComparison.Ordinal);
+        Assert.DoesNotContain("list_windows", actual, StringComparison.Ordinal);
+        Assert.DoesNotContain("launch_app_via_taskbar_search", actual, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildRuntimeToolPolicy_ReturnsVerificationReminder_WhenInputToolExists()
+    {
+        var actual = AgentRunner.BuildRuntimeToolPolicy(
+            [
                 new ToolDefinition("send_input_to_window", "desc", default)
             ]);
 
         Assert.NotNull(actual);
-        Assert.Contains("invoke_selected_window_element", actual!, StringComparison.Ordinal);
-        Assert.Contains("send_input_to_window only", actual, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void BuildRuntimeToolPolicy_ReturnsBrowserNewTabGuidance_WhenInputToolExists()
-    {
-        var actual = AgentRunner.BuildRuntimeToolPolicy(
-            [
-                new ToolDefinition("send_input_to_window", "desc", default)
-            ]);
-
-        Assert.NotNull(actual);
-        Assert.Contains("open a new tab first", actual!, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("address bar", actual, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void BuildRuntimeToolPolicy_ReturnsBrowserShortcutGuidance_WhenInvokeAndInputToolsExist()
-    {
-        var actual = AgentRunner.BuildRuntimeToolPolicy(
-            [
-                new ToolDefinition("invoke_selected_window_element", "desc", default),
-                new ToolDefinition("focus_selected_window_element", "desc", default),
-                new ToolDefinition("send_input_to_window", "desc", default)
-            ]);
-
-        Assert.NotNull(actual);
-        Assert.Contains("Control+L", actual!, StringComparison.Ordinal);
-        Assert.Contains("Escape or F11", actual, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void BuildRuntimeToolPolicy_ReturnsLaunchContinuationGuidance_WhenLaunchToolsExist()
-    {
-        var actual = AgentRunner.BuildRuntimeToolPolicy(
-            [
-                new ToolDefinition("list_windows", "desc", default),
-                new ToolDefinition("select_window", "desc", default),
-                new ToolDefinition("list_taskbar_elements", "desc", default),
-                new ToolDefinition("select_taskbar_app", "desc", default),
-                new ToolDefinition("launch_app_via_taskbar_search", "desc", default)
-            ]);
-
-        Assert.NotNull(actual);
-        Assert.Contains("do not stop after saying you are checking whether it is already open", actual!, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("list_taskbar_elements", actual, StringComparison.Ordinal);
-        Assert.Contains("select_taskbar_app", actual, StringComparison.Ordinal);
-        Assert.Contains("launch_app_via_taskbar_search", actual, StringComparison.Ordinal);
-        Assert.Contains("ask the user to launch the app manually", actual, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("windowHandle", actual, StringComparison.Ordinal);
+        Assert.Contains("follow-up verification", actual!, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("open a new tab first", actual, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("address bar", actual, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -147,7 +112,8 @@ public sealed class AgentRunnerDecisionTests
             new Dictionary<string, object?> { ["key"] = "Tab" });
 
         Assert.NotNull(actual);
-        Assert.Contains("invoke_selected_window_element", actual!, StringComparison.Ordinal);
+        Assert.Contains("Refresh focus or window state", actual!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("direct tool-supported target", actual, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -160,7 +126,8 @@ public sealed class AgentRunnerDecisionTests
 
         Assert.NotNull(actual);
         Assert.Contains("Do not imply that the app opened successfully", actual!, StringComparison.Ordinal);
-        Assert.Contains("launch failed", actual, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("fresh evidence", actual, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("materially different launch route", actual, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -174,7 +141,7 @@ public sealed class AgentRunnerDecisionTests
         Assert.NotNull(actual);
         Assert.Contains("Do not imply that the app opened successfully", actual!, StringComparison.Ordinal);
         Assert.Contains("do not assume a same-title app window exists", actual, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("launch failed", actual, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("fresh evidence", actual, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
