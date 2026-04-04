@@ -167,149 +167,109 @@ internal static class HerfaceScenarioLoader
         return Parse(File.ReadAllText(fullPath), Path.GetFileName(fullPath));
     }
 
-    internal static HerfaceScenarioSuite Parse(string json, string sourceName)
+    internal static HerfaceScenarioSuite Parse(string yaml, string sourceName)
     {
-        if (string.IsNullOrWhiteSpace(json))
+        if (string.IsNullOrWhiteSpace(yaml))
         {
-            throw new InvalidOperationException("Scenario JSON was empty.");
+            throw new InvalidOperationException("Scenario YAML was empty.");
         }
 
-        using var document = JsonDocument.Parse(json);
-        var root = document.RootElement;
+        var root = HerfaceYamlParser.Parse(yaml);
 
-        if (root.ValueKind == JsonValueKind.Array)
+        if (root is HerfaceYamlSequence rootSequence)
         {
             return new HerfaceScenarioSuite(
                 sourceName,
-                root.EnumerateArray()
+                rootSequence.Items
                     .Select((element, index) => ParseScenario(element, $"Scenario {index + 1}"))
                     .ToArray());
         }
 
-        if (root.ValueKind != JsonValueKind.Object)
+        if (root is not HerfaceYamlMapping rootMapping)
         {
-            throw new InvalidOperationException("Scenario JSON must be an object or array.");
+            throw new InvalidOperationException("Scenario YAML must be a mapping or sequence.");
         }
 
-        if (TryGetProperty(root, "scenarios", out var scenariosElement) &&
-            scenariosElement.ValueKind == JsonValueKind.Array)
+        if (rootMapping.TryGetValue("scenarios", out var scenariosNode) &&
+            scenariosNode is HerfaceYamlSequence scenariosSequence)
         {
-            var suiteName = GetString(root, "name") ?? sourceName;
+            var suiteName = GetString(rootMapping, "name") ?? sourceName;
             return new HerfaceScenarioSuite(
                 suiteName,
-                scenariosElement.EnumerateArray()
+                scenariosSequence.Items
                     .Select((element, index) => ParseScenario(element, $"Scenario {index + 1}"))
                     .ToArray());
         }
 
-        return new HerfaceScenarioSuite(sourceName, [ParseScenario(root, sourceName)]);
+        return new HerfaceScenarioSuite(sourceName, [ParseScenario(rootMapping, sourceName)]);
     }
 
-    private static HerfaceScenarioDefinition ParseScenario(JsonElement element, string fallbackName)
+    private static HerfaceScenarioDefinition ParseScenario(HerfaceYamlNode node, string fallbackName)
     {
-        if (element.ValueKind != JsonValueKind.Object)
+        if (node is not HerfaceYamlMapping mapping)
         {
-            throw new InvalidOperationException("Each scenario entry must be a JSON object.");
+            throw new InvalidOperationException("Each scenario entry must be a YAML mapping.");
         }
 
-        var commands = TryGetProperty(element, "commands", out var commandsElement) &&
-                       commandsElement.ValueKind == JsonValueKind.Array
-            ? commandsElement.EnumerateArray()
-                .Where(static item => item.ValueKind == JsonValueKind.String)
-                .Select(static item => item.GetString()?.Trim() ?? string.Empty)
-                .Where(static command => command.Length > 0)
-                .ToArray()
-            : [];
+        var commands = ReadStringArray(mapping, "commands");
 
-        if (commands.Length == 0)
+        if (commands.Count == 0)
         {
             throw new InvalidOperationException(
-                $"Scenario \"{GetString(element, "name") ?? fallbackName}\" must provide at least one command.");
+                $"Scenario \"{GetString(mapping, "name") ?? fallbackName}\" must provide at least one command.");
         }
 
-        var assertions = TryGetProperty(element, "assertions", out var assertionsElement) &&
-                         assertionsElement.ValueKind == JsonValueKind.Object
-            ? ParseAssertions(assertionsElement)
+        var assertions = mapping.TryGetValue("assertions", out var assertionsNode) &&
+                         assertionsNode is HerfaceYamlMapping assertionsMapping
+            ? ParseAssertions(assertionsMapping)
             : HerfaceScenarioAssertions.Empty;
 
         return new HerfaceScenarioDefinition(
-            GetString(element, "name") ?? fallbackName,
+            GetString(mapping, "name") ?? fallbackName,
             commands,
             assertions);
     }
 
-    private static HerfaceScenarioAssertions ParseAssertions(JsonElement element)
+    private static HerfaceScenarioAssertions ParseAssertions(HerfaceYamlMapping mapping)
         => new(
-            ReadStringArray(element, "requiredCategories"),
-            ReadStringArray(element, "forbiddenCategories"),
-            ReadStringArray(element, "requiredFinalText"),
-            ReadStringArray(element, "forbiddenFinalText"),
-            GetBoolean(element, "allowToolErrors"),
-            GetBoolean(element, "allowReplyContradictions"),
-            GetBoolean(element, "allowExplicitlyUnresolvedOutcome"));
+            ReadStringArray(mapping, "requiredCategories"),
+            ReadStringArray(mapping, "forbiddenCategories"),
+            ReadStringArray(mapping, "requiredFinalText"),
+            ReadStringArray(mapping, "forbiddenFinalText"),
+            GetBoolean(mapping, "allowToolErrors"),
+            GetBoolean(mapping, "allowReplyContradictions"),
+            GetBoolean(mapping, "allowExplicitlyUnresolvedOutcome"));
 
-    private static IReadOnlyList<string> ReadStringArray(JsonElement element, string propertyName)
+    private static IReadOnlyList<string> ReadStringArray(HerfaceYamlMapping mapping, string propertyName)
     {
-        if (!TryGetProperty(element, propertyName, out var property) ||
-            property.ValueKind != JsonValueKind.Array)
+        if (!mapping.TryGetValue(propertyName, out var node) ||
+            node is not HerfaceYamlSequence sequence)
         {
             return [];
         }
 
-        return property.EnumerateArray()
-            .Where(static item => item.ValueKind == JsonValueKind.String)
-            .Select(static item => item.GetString()?.Trim() ?? string.Empty)
+        return sequence.Items
+            .OfType<HerfaceYamlScalar>()
+            .Select(static item => item.Value.Trim())
             .Where(static item => item.Length > 0)
             .ToArray();
     }
 
-    private static bool GetBoolean(JsonElement element, string propertyName)
+    private static bool GetBoolean(HerfaceYamlMapping mapping, string propertyName)
     {
-        if (!TryGetProperty(element, propertyName, out var property))
+        if (!mapping.TryGetValue(propertyName, out var node) ||
+            node is not HerfaceYamlScalar scalar)
         {
             return false;
         }
 
-        return property.ValueKind switch
-        {
-            JsonValueKind.True => true,
-            JsonValueKind.False => false,
-            JsonValueKind.String => bool.TryParse(property.GetString(), out var parsed) && parsed,
-            _ => false
-        };
+        return bool.TryParse(scalar.Value, out var parsed) && parsed;
     }
 
-    private static string? GetString(JsonElement element, string propertyName)
-        => TryGetProperty(element, propertyName, out var property) && property.ValueKind == JsonValueKind.String
-            ? property.GetString()
+    private static string? GetString(HerfaceYamlMapping mapping, string propertyName)
+        => mapping.TryGetValue(propertyName, out var node) && node is HerfaceYamlScalar scalar
+            ? scalar.Value
             : null;
-
-    private static bool TryGetProperty(JsonElement element, string propertyName, out JsonElement property)
-    {
-        property = default;
-        if (element.ValueKind != JsonValueKind.Object)
-        {
-            return false;
-        }
-
-        if (element.TryGetProperty(propertyName, out property))
-        {
-            return true;
-        }
-
-        foreach (var candidate in element.EnumerateObject())
-        {
-            if (!string.Equals(candidate.Name, propertyName, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            property = candidate.Value.Clone();
-            return true;
-        }
-
-        return false;
-    }
 }
 
 internal static class HerfaceTraceLogReader

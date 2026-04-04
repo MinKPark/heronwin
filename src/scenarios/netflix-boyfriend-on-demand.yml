@@ -1,0 +1,11 @@
+name: Netflix Boyfriend On Demand Smoke
+commands:
+  - "Go to the Netflix website."
+  - "If the first page is profile selection, select the profile named Min. If a passcode is required, type 3, then 5, then 7, then 9 one digit at a time."
+  - "Search for the show Boyfriend on Demand."
+  - "Open Boyfriend on Demand, then play the first episode."
+assertions:
+  requiredCategories:
+    - assistant.reply
+  forbiddenCategories:
+    - agent.reply_contradiction_detected

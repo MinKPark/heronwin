@@ -40,7 +40,7 @@ internal static class HerfaceConsoleMode
                     break;
 
                 case "--commands-file":
-                    commands.AddRange(LoadCommandsFile(RequireValue(args, ref index, arg)));
+                    commands.AddRange(HerfaceCommandFileLoader.LoadFromFile(RequireValue(args, ref index, arg)));
                     break;
 
                 case "--scenario":
@@ -75,12 +75,12 @@ internal static class HerfaceConsoleMode
         Console.WriteLine("  herface.exe --command \"open netflix\"     Run one scripted command");
         Console.WriteLine("  herface.exe --command \"...\" --command \"...\"");
         Console.WriteLine("                                           Run multiple scripted commands");
-        Console.WriteLine("  herface.exe --commands-file .\\steps.txt  Run scripted commands from a text file");
-        Console.WriteLine("  herface.exe --scenario .\\scenario.json   Run a scenario with log-based assertions");
+        Console.WriteLine("  herface.exe --commands-file .\\steps.yml  Run scripted commands from a YAML file");
+        Console.WriteLine("  herface.exe --scenario .\\scenario.yml    Run a YAML scenario with log-based assertions");
         Console.WriteLine("  herface.exe --help                        Show this help");
         Console.WriteLine();
         Console.WriteLine("Command file format:");
-        Console.WriteLine("  One command per line. Blank lines and lines starting with # are ignored.");
+        Console.WriteLine("  YAML sequence of strings, or a mapping with a commands: sequence.");
         Console.WriteLine();
         Console.WriteLine("Scripted mode notes:");
         Console.WriteLine("  Scripted mode bypasses microphone capture and voice playback.");
@@ -106,26 +106,5 @@ internal static class HerfaceConsoleMode
         }
 
         return value;
-    }
-
-    private static IReadOnlyList<string> LoadCommandsFile(string path)
-    {
-        var fullPath = Path.GetFullPath(path);
-        if (!File.Exists(fullPath))
-        {
-            throw new FileNotFoundException("Command file was not found.", fullPath);
-        }
-
-        var commands = File.ReadAllLines(fullPath)
-            .Select(static line => line.Trim())
-            .Where(static line => line.Length > 0 && !line.StartsWith('#'))
-            .ToArray();
-
-        if (commands.Length == 0)
-        {
-            throw new InvalidOperationException($"Command file \"{fullPath}\" did not contain any runnable commands.");
-        }
-
-        return commands;
     }
 }

@@ -23,10 +23,9 @@ public sealed class ScriptedModeTests
             File.WriteAllText(
                 commandsFilePath,
                 """
-                # comment
-
-                open netflix
-                play the trailer
+                commands:
+                  - "open netflix"
+                  - "play the trailer"
                 """);
 
             var actual = HerfaceConsoleMode.Parse(["--commands-file", commandsFilePath]);
@@ -41,9 +40,55 @@ public sealed class ScriptedModeTests
     }
 
     [Fact]
+    public void CommandFileLoader_LoadsRootYamlSequence_AndStripsComments()
+    {
+        var commandsFilePath = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(
+                commandsFilePath,
+                """
+                # comment
+                - "open netflix"
+                - "play the trailer" # inline comment
+                """);
+
+            var actual = HerfaceCommandFileLoader.LoadFromFile(commandsFilePath);
+
+            Assert.Equal(["open netflix", "play the trailer"], actual);
+        }
+        finally
+        {
+            File.Delete(commandsFilePath);
+        }
+    }
+
+    [Fact]
+    public void CommandFileLoader_PreservesHashInsideQuotedString()
+    {
+        var commandsFilePath = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(
+                commandsFilePath,
+                """
+                - "open #trending"
+                """);
+
+            var actual = HerfaceCommandFileLoader.LoadFromFile(commandsFilePath);
+
+            Assert.Equal(["open #trending"], actual);
+        }
+        finally
+        {
+            File.Delete(commandsFilePath);
+        }
+    }
+
+    [Fact]
     public void Parse_Throws_WhenScenarioAndInlineCommandsAreMixed()
     {
-        var scenarioPath = Path.Combine(Path.GetTempPath(), "sample-scenario.json");
+        var scenarioPath = Path.Combine(Path.GetTempPath(), "sample-scenario.yml");
 
         var ex = Assert.Throws<InvalidOperationException>(
             () => HerfaceConsoleMode.Parse(["--scenario", scenarioPath, "--command", "open netflix"]));
@@ -52,27 +97,26 @@ public sealed class ScriptedModeTests
     }
 
     [Fact]
-    public void ScenarioLoader_ParsesScenarioSuite_WithAssertions()
+    public void ScenarioLoader_ParsesYamlScenarioSuite_WithAssertions()
     {
-        const string json = """
-        {
-          "name": "Desktop smoke suite",
-          "scenarios": [
-            {
-              "name": "Open Netflix",
-              "commands": ["open netflix"],
-              "assertions": {
-                "requiredCategories": ["assistant.reply"],
-                "forbiddenCategories": ["agent.reply_contradiction_detected"],
-                "requiredFinalText": ["Netflix"],
-                "forbiddenFinalText": ["not complete"]
-              }
-            }
-          ]
-        }
+        const string yaml = """
+        name: Desktop smoke suite
+        scenarios:
+          - name: Open Netflix
+            commands:
+              - "open netflix"
+            assertions:
+              requiredCategories:
+                - assistant.reply
+              forbiddenCategories:
+                - agent.reply_contradiction_detected
+              requiredFinalText:
+                - Netflix
+              forbiddenFinalText:
+                - not complete
         """;
 
-        var actual = HerfaceScenarioLoader.Parse(json, "suite.json");
+        var actual = HerfaceScenarioLoader.Parse(yaml, "suite.yml");
 
         Assert.Equal("Desktop smoke suite", actual.Name);
         Assert.Single(actual.Scenarios);
@@ -80,6 +124,29 @@ public sealed class ScriptedModeTests
         Assert.Equal(["open netflix"], actual.Scenarios[0].Commands);
         Assert.Equal(["assistant.reply"], actual.Scenarios[0].Assertions.RequiredCategories);
         Assert.Equal(["Netflix"], actual.Scenarios[0].Assertions.RequiredFinalText);
+    }
+
+    [Fact]
+    public void ScenarioLoader_ParsesSingleYamlScenario_WithBooleanAssertions()
+    {
+        const string yaml = """
+        name: Open Netflix
+        commands:
+          - "open netflix"
+        assertions:
+          allowToolErrors: true
+          allowReplyContradictions: false
+          allowExplicitlyUnresolvedOutcome: true
+        """;
+
+        var actual = HerfaceScenarioLoader.Parse(yaml, "scenario.yml");
+
+        Assert.Equal("scenario.yml", actual.Name);
+        Assert.Single(actual.Scenarios);
+        Assert.Equal("Open Netflix", actual.Scenarios[0].Name);
+        Assert.True(actual.Scenarios[0].Assertions.AllowToolErrors);
+        Assert.False(actual.Scenarios[0].Assertions.AllowReplyContradictions);
+        Assert.True(actual.Scenarios[0].Assertions.AllowExplicitlyUnresolvedOutcome);
     }
 
     [Fact]
