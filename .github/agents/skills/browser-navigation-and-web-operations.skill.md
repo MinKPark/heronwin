@@ -19,7 +19,8 @@ applies_when:
 1. Determine whether the user wants direct website navigation, web search, browser chrome control, or page interaction.
 2. Distinguish browser chrome controls such as the address bar, tabs, back, forward, and refresh from the web page content.
 3. When the user wants a website, navigate through the browser address bar with a clean URL.
-4. After navigation, refresh the visible browser state and verify that the page actually changed to the intended site.
+4. Unless the user explicitly wants to modify the existing address-bar text in place, clear the current address-bar contents before entering a new address or URL.
+5. After navigation, refresh the visible browser state and verify that the page actually changed to the intended site.
 
 ## Direct Website Navigation Rules
 
@@ -35,8 +36,10 @@ applies_when:
 - If direct element targeting is unavailable or fails, use the browser-standard address-bar shortcut such as `Ctrl+L` as the fallback.
 - Treat in-page fields such as a webpage `Search box`, site search field, or Bing results search box as page content, not as the browser address bar.
 - For direct website navigation, do not type the site domain or URL into an in-page `Search box` just because it currently has focus.
-- Before typing a replacement URL, replace the entire existing address-bar contents.
-- If the address bar may still contain old text, select all or otherwise clear it before entering the new URL.
+- Unless the user explicitly asked to edit the current address-bar text in place, clear the full address bar before entering a new address or replacement URL.
+- Before typing a replacement URL, replace the entire existing address-bar contents rather than appending to it.
+- If the address bar may still contain old text, select all and delete it or otherwise clear it before entering the new URL.
+- If the user is intentionally modifying text already in the address bar, preserve that text and make only the requested edit instead of clearing it automatically.
 - After entering the URL, submit it with `Enter`, then refresh the browser state before answering.
 
 ## Search Versus URL Rules
