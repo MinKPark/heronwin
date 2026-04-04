@@ -62,7 +62,8 @@ internal static class AgentRunner
         ComposedAgentPrompt composedPrompt,
         ILlmClient llmClient,
         McpClientManager mcpManager,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<string, CancellationToken, Task>? intermediateStepNarrator = null)
     {
         var messages = history.ToList();
         var runtimeToolPolicy = BuildRuntimeToolPolicy(tools);
@@ -188,6 +189,35 @@ internal static class AgentRunner
                         $"turn={turnId}, toolCallId={toolCall.Id}, tool={toolCall.Name}");
                 }
 
+                var parsedArgsDictionary = parsedArgs as IReadOnlyDictionary<string, object?> ?? new Dictionary<string, object?>();
+                var intermediateStep = BuildToolStepNarration(toolCall.Name, parsedArgsDictionary);
+                if (!string.IsNullOrWhiteSpace(intermediateStep))
+                {
+                    Display.IntermediateStep(intermediateStep);
+                    DebugTrace.WriteEvent(
+                        "agent.tool_step_narration",
+                        $"turn={turnId}, toolCallId={toolCall.Id}, tool={toolCall.Name}, step={DebugTrace.Preview(intermediateStep, 240)}");
+
+                    if (intermediateStepNarrator is not null)
+                    {
+                        try
+                        {
+                            await intermediateStepNarrator(intermediateStep, cancellationToken);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            throw;
+                        }
+                        catch (Exception ex)
+                        {
+                            Display.Warn($"Step speech failed: {ex.Message}");
+                            DebugTrace.WriteEvent(
+                                "agent.tool_step_narration_failed",
+                                $"turn={turnId}, toolCallId={toolCall.Id}, tool={toolCall.Name}, error={DebugTrace.Preview(ex.ToString(), 700)}");
+                        }
+                    }
+                }
+
                 Display.ToolCall(toolCall.Name, toolCall.Arguments);
 
                 ToolCallOutcome toolOutput;
@@ -220,8 +250,6 @@ internal static class AgentRunner
                         $"turn={turnId}, tool={toolCall.Name}");
                     try
                     {
-                        var parsedArgsDictionary = parsedArgs as IReadOnlyDictionary<string, object?> ?? new Dictionary<string, object?>();
-
                         if (toolCall.Name == "launch_app_via_taskbar_search")
                         {
                             var appName = TryGetStringArgument(parsedArgsDictionary, "appName");
@@ -411,6 +439,31 @@ internal static class AgentRunner
         return key is not null && key.Trim() is "Tab" or "Left" or "Right" or "Up" or "Down";
     }
 
+    internal static string? BuildToolStepNarration(
+        string toolName,
+        IReadOnlyDictionary<string, object?> args)
+    {
+        return toolName switch
+        {
+            "list_windows" => "I'm checking what's already open.",
+            "select_window" => BuildSelectWindowNarration(args),
+            "describe_selected_window" => "I'm checking the current window.",
+            "describe_selected_window_focus" => "I'm checking where focus landed.",
+            "capture_selected_window_screenshot" => "I'm taking a quick screenshot.",
+            "list_taskbar_elements" => "I'm checking the taskbar.",
+            "select_taskbar_app" => BuildTaskbarSelectionNarration(args),
+            "launch_app_via_taskbar_search" => BuildTaskbarSearchLaunchNarration(args),
+            "list_main_menu_items" => "I'm checking the app menu.",
+            "invoke_main_menu_item" => "I'm choosing that menu item.",
+            "list_context_menu_items" => "I'm checking the context menu.",
+            "invoke_context_menu_item" => "I'm choosing that context menu item.",
+            "focus_selected_window_element" => BuildElementFocusNarration(args),
+            "invoke_selected_window_element" => BuildElementInvokeNarration(args),
+            "send_input_to_window" => BuildSendInputNarration(args),
+            _ => null
+        };
+    }
+
     internal static string? BuildToolSpecificGuidance(
         string toolName,
         string toolOutputText,
@@ -477,6 +530,163 @@ internal static class AgentRunner
         {
             return false;
         }
+    }
+
+    private static string BuildSelectWindowNarration(IReadOnlyDictionary<string, object?> args)
+    {
+        var title = TryGetShortSpeechLabel(TryGetStringArgument(args, "titleContains"));
+        return title is not null
+            ? $"I'm switching to {title}."
+            : "I'm switching to the right window.";
+    }
+
+    private static string BuildTaskbarSelectionNarration(IReadOnlyDictionary<string, object?> args)
+    {
+        var title = TryGetShortSpeechLabel(TryGetStringArgument(args, "titleContains"));
+        return title is not null
+            ? $"I'm opening {title} from the taskbar."
+            : "I'm opening it from the taskbar.";
+    }
+
+    private static string BuildTaskbarSearchLaunchNarration(IReadOnlyDictionary<string, object?> args)
+    {
+        var appName = TryGetShortSpeechLabel(TryGetStringArgument(args, "appName"));
+        return appName is not null
+            ? $"I'm launching {appName} from Search."
+            : "I'm launching it from Search.";
+    }
+
+    private static string BuildElementFocusNarration(IReadOnlyDictionary<string, object?> args)
+    {
+        var elementPath = TryGetStringArgument(args, "elementPath");
+        return string.Equals(elementPath, "root", StringComparison.OrdinalIgnoreCase)
+            ? "I'm refocusing the current window."
+            : "I'm focusing that control.";
+    }
+
+    private static string BuildElementInvokeNarration(IReadOnlyDictionary<string, object?> args)
+    {
+        var elementPath = TryGetStringArgument(args, "elementPath");
+        return string.Equals(elementPath, "root", StringComparison.OrdinalIgnoreCase)
+            ? "I'm activating the current page."
+            : "I'm activating that control.";
+    }
+
+    private static string BuildSendInputNarration(IReadOnlyDictionary<string, object?> args)
+    {
+        var text = TryGetStringArgument(args, "text");
+        if (!string.IsNullOrWhiteSpace(text))
+        {
+            return LooksLikeUrl(text)
+                ? "I'm typing the URL."
+                : "I'm typing the requested text.";
+        }
+
+        var key = TryGetStringArgument(args, "key");
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return "I'm sending the next input.";
+        }
+
+        var modifiers = GetModifierNames(args);
+        if (modifiers.Count > 0)
+        {
+            var shortcutParts = modifiers
+                .Select(NormalizeModifierLabel)
+                .Append(NormalizeKeyLabel(key));
+            return $"I'm pressing {string.Join(" plus ", shortcutParts)}.";
+        }
+
+        return key.Trim() switch
+        {
+            "Tab" => "I'm moving to the next field.",
+            "Left" => "I'm moving left.",
+            "Right" => "I'm moving right.",
+            "Up" => "I'm moving up.",
+            "Down" => "I'm moving down.",
+            _ => $"I'm pressing {NormalizeKeyLabel(key)}."
+        };
+    }
+
+    private static IReadOnlyList<string> GetModifierNames(IReadOnlyDictionary<string, object?> args)
+    {
+        if (!args.TryGetValue("modifiers", out var modifiersValue) || modifiersValue is null)
+        {
+            return [];
+        }
+
+        return modifiersValue switch
+        {
+            JsonElement element when element.ValueKind == JsonValueKind.Array
+                => element.EnumerateArray()
+                    .Where(item => item.ValueKind == JsonValueKind.String)
+                    .Select(item => item.GetString())
+                    .Where(item => !string.IsNullOrWhiteSpace(item))
+                    .Cast<string>()
+                    .ToArray(),
+            IEnumerable<string> strings => strings.Where(item => !string.IsNullOrWhiteSpace(item)).ToArray(),
+            IEnumerable<object?> objects => objects
+                .Select(item => item?.ToString())
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .Cast<string>()
+                .ToArray(),
+            _ => []
+        };
+    }
+
+    private static string NormalizeModifierLabel(string modifier)
+    {
+        var normalized = modifier.Trim();
+        return normalized.ToLowerInvariant() switch
+        {
+            "control" or "ctrl" => "Control",
+            "alt" => "Alt",
+            "shift" => "Shift",
+            "windows" or "win" or "meta" => "Windows",
+            _ => normalized
+        };
+    }
+
+    private static string NormalizeKeyLabel(string key)
+    {
+        var normalized = key.Trim();
+        return normalized.ToLowerInvariant() switch
+        {
+            "esc" => "Escape",
+            "pgup" => "Page Up",
+            "pgdn" => "Page Down",
+            _ when normalized.Length == 1 => normalized.ToUpperInvariant(),
+            _ => normalized
+        };
+    }
+
+    private static string? TryGetShortSpeechLabel(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        var normalized = Regex.Replace(text, @"\s+", " ").Trim().Trim('"', '\'');
+        if (normalized.Length is 0 or > 32)
+        {
+            return null;
+        }
+
+        return normalized;
+    }
+
+    private static bool LooksLikeUrl(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        return Regex.IsMatch(
+            text,
+            @"(?:https?://|www\.)|(?:\b[a-z0-9-]+\.[a-z]{2,}\b)",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
 
     internal static int? TryResolveOrdinalActionIndex(string text)
@@ -791,6 +1001,17 @@ internal static class Display
                 $"say={DebugTrace.Preview(normalizedSay, 400)}",
                 $"log={DebugTrace.Preview(normalizedLog, 900)}"
             ]);
+    }
+
+    public static void IntermediateStep(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return;
+        }
+
+        Console.WriteLine($"\n{Label("Step")} {text.Trim()}");
+        DebugTrace.WriteEvent("display.intermediate_step", DebugTrace.Preview(text, 500));
     }
 
     public static void ContextUsage(int currentTokens, int maxTokens)

@@ -132,7 +132,13 @@ var agentTask = Task.Run(async () =>
                 composedPrompt,
                 llmClient,
                 mcpManager,
-                cancellationSource.Token);
+                cancellationSource.Token,
+                intermediateStepNarrator: speechSynthesizer is null
+                    ? null
+                    : async (stepText, cancellationToken) =>
+                    {
+                        await PlayAudioOutputAsync(() => SpeakAsync(speechSynthesizer, stepText, cancellationToken));
+                    });
             history.Add(new AgentMessage.User(queuedTurn.Text));
             history.Add(new AgentMessage.Assistant(reply.RawText));
             Display.ContextUsage(

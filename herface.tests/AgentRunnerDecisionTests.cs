@@ -125,6 +125,37 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void BuildToolStepNarration_ReturnsSearchLaunchSentence()
+    {
+        var actual = AgentRunner.BuildToolStepNarration(
+            "launch_app_via_taskbar_search",
+            new Dictionary<string, object?> { ["appName"] = "Netflix" });
+
+        Assert.Equal("I'm launching Netflix from Search.", actual);
+    }
+
+    [Fact]
+    public void BuildToolStepNarration_ReturnsShortcutSentence_ForModifiedKey()
+    {
+        using var modifiers = JsonDocument.Parse("""["Control"]""");
+        var actual = AgentRunner.BuildToolStepNarration(
+            "send_input_to_window",
+            new Dictionary<string, object?> { ["key"] = "L", ["modifiers"] = modifiers.RootElement.Clone() });
+
+        Assert.Equal("I'm pressing Control plus L.", actual);
+    }
+
+    [Fact]
+    public void BuildToolStepNarration_ReturnsUrlSentence_ForTypedUrl()
+    {
+        var actual = AgentRunner.BuildToolStepNarration(
+            "send_input_to_window",
+            new Dictionary<string, object?> { ["text"] = "https://www.netflix.com" });
+
+        Assert.Equal("I'm typing the URL.", actual);
+    }
+
+    [Fact]
     public void BuildToolSpecificGuidance_ReturnsNull_ForModifiedShortcut()
     {
         var actual = AgentRunner.BuildToolSpecificGuidance(
