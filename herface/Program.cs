@@ -18,6 +18,36 @@ Display.Banner();
 using var httpClient = new HttpClient();
 await using var mcpManager = new McpClientManager();
 
+DebugTrace.WriteStructuredEvent(
+    "session.start",
+    new Dictionary<string, object?>
+    {
+        ["pid"] = Environment.ProcessId,
+        ["process"] = Environment.ProcessPath ?? "(unknown)",
+        ["cwd"] = Directory.GetCurrentDirectory(),
+        ["baseDir"] = AppContext.BaseDirectory,
+        ["sessionId"] = DebugTrace.SessionId,
+        ["llmProvider"] = config.LlmProvider.ToString(),
+        ["openAiModel"] = config.OpenAiModel,
+        ["anthropicModel"] = config.AnthropicModel,
+        ["whisperModel"] = config.WhisperModel,
+        ["ttsModel"] = config.TtsModel,
+        ["ttsVoice"] = config.TtsVoice,
+        ["wakeWord"] = config.WakeWord,
+        ["maxContextTokens"] = config.MaxContextTokens,
+        ["debugAudioPlayback"] = config.DebugAudioPlayback,
+        ["mcpServers"] = config.McpServers.Select(server => new Dictionary<string, object?>
+        {
+            ["name"] = server.Name,
+            ["command"] = server.Command,
+            ["args"] = server.Args ?? [],
+            ["envKeys"] = server.Env?.Keys.OrderBy(static key => key, StringComparer.OrdinalIgnoreCase).ToArray() ?? [],
+        }).ToArray(),
+        ["displayTopology"] = DisplayTopology.Capture(),
+        ["textLogPath"] = DebugTrace.LogFilePath,
+        ["jsonLogPath"] = DebugTrace.JsonLogFilePath,
+    });
+
 DebugTrace.WriteEvent(
     "config.loaded",
     $"llmProvider={config.LlmProvider}, openAiModel={config.OpenAiModel}, anthropicModel={config.AnthropicModel}, whisperModel={config.WhisperModel}, wakeWord={DebugTrace.SerializeObject(config.WakeWord)}, agentDefinitionPath={config.AgentDefinitionPath}, agentCoreDefinitionPath={config.AgentPrompts.CoreDefinitionPath ?? "(none)"}, agentSkills={config.AgentPrompts.Skills.Count}, mcpServers={config.McpServers.Count}, debugAudioPlayback={config.DebugAudioPlayback}");
@@ -45,6 +75,10 @@ Display.Info($"Mic capture: {AudioRecorder.DescribeRecordingFormat()}");
 if (DebugTrace.IsEnabled && !string.IsNullOrWhiteSpace(DebugTrace.LogFilePath))
 {
     Display.Info($"Debug trace: {DebugTrace.LogFilePath}");
+    if (!string.IsNullOrWhiteSpace(DebugTrace.JsonLogFilePath))
+    {
+        Display.Info($"Debug trace JSONL: {DebugTrace.JsonLogFilePath}");
+    }
 }
 if (speechSynthesizer is not null)
 {
@@ -315,7 +349,7 @@ Display.Info("Shutting down...");
 DebugTrace.WriteEvent("session.shutdown", "Application shutdown completed.");
 if (!DebugTrace.IsEnabled)
 {
-    ArtifactCleanup.CleanupCurrentRunArtifacts(DebugTrace.LogFilePath);
+    ArtifactCleanup.CleanupCurrentRunArtifacts(DebugTrace.LogFilePath, DebugTrace.JsonLogFilePath);
 }
 PrintDebugLogPathIfEnabled();
 return;
@@ -424,5 +458,9 @@ static void PrintDebugLogPathIfEnabled()
     if (DebugTrace.IsEnabled && !string.IsNullOrWhiteSpace(DebugTrace.LogFilePath))
     {
         Display.Info($"Debug log saved to: {DebugTrace.LogFilePath}");
+        if (!string.IsNullOrWhiteSpace(DebugTrace.JsonLogFilePath))
+        {
+            Display.Info($"Debug JSONL saved to: {DebugTrace.JsonLogFilePath}");
+        }
     }
 }

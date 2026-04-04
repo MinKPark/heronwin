@@ -12,15 +12,22 @@ internal static class ArtifactCleanup
     internal static void CleanupPreviousRunArtifacts(string baseDirectory, string? processPath)
     {
         var debugLogPath = DebugTrace.BuildLogFilePath(baseDirectory, processPath);
+        var debugJsonLogPath = DebugTrace.BuildJsonLogFilePath(baseDirectory, processPath);
         TryDeleteFile(debugLogPath);
+        TryDeleteFile(debugJsonLogPath);
         TryDeleteDirectory(EyesAndHandsScreenshotDirectory);
     }
 
-    internal static void CleanupCurrentRunArtifacts(string? debugLogPath)
+    internal static void CleanupCurrentRunArtifacts(string? debugLogPath, string? debugJsonLogPath)
     {
         if (!string.IsNullOrWhiteSpace(debugLogPath))
         {
             TryDeleteFile(debugLogPath);
+        }
+
+        if (!string.IsNullOrWhiteSpace(debugJsonLogPath))
+        {
+            TryDeleteFile(debugJsonLogPath);
         }
 
         TryDeleteDirectory(EyesAndHandsScreenshotDirectory);

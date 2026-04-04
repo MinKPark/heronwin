@@ -8,17 +8,25 @@ internal static class DebugTrace
     private static readonly object SyncRoot = new();
     private static volatile bool _isEnabled;
     private static string? _logFilePath;
+    private static string? _jsonLogFilePath;
+    private static string? _sessionId;
     private static long _sequenceNumber;
 
     internal static bool IsEnabled => _isEnabled;
 
     internal static string? LogFilePath => _logFilePath;
 
+    internal static string? JsonLogFilePath => _jsonLogFilePath;
+
+    internal static string SessionId => _sessionId ?? "(uninitialized)";
+
     internal static void Configure(bool isEnabled)
     {
         _isEnabled = isEnabled;
         _sequenceNumber = 0;
         _logFilePath = null;
+        _jsonLogFilePath = null;
+        _sessionId = Guid.NewGuid().ToString("n");
 
         if (!_isEnabled)
         {
@@ -26,13 +34,24 @@ internal static class DebugTrace
         }
 
         var logFilePath = BuildLogFilePath(AppContext.BaseDirectory, Environment.ProcessPath);
+        var jsonLogFilePath = BuildJsonLogFilePath(AppContext.BaseDirectory, Environment.ProcessPath);
         Directory.CreateDirectory(Path.GetDirectoryName(logFilePath)!);
         File.WriteAllText(logFilePath, string.Empty, Encoding.UTF8);
+        File.WriteAllText(jsonLogFilePath, string.Empty, Encoding.UTF8);
         _logFilePath = logFilePath;
+        _jsonLogFilePath = jsonLogFilePath;
 
-        WriteEvent(
-            "session.start",
-            $"pid={Environment.ProcessId}, process={Environment.ProcessPath ?? "(unknown)"}, cwd={Directory.GetCurrentDirectory()}, baseDir={AppContext.BaseDirectory}");
+        WriteStructuredEvent(
+            "session.trace_ready",
+            new Dictionary<string, object?>
+            {
+                ["pid"] = Environment.ProcessId,
+                ["process"] = Environment.ProcessPath ?? "(unknown)",
+                ["cwd"] = Directory.GetCurrentDirectory(),
+                ["baseDir"] = AppContext.BaseDirectory,
+                ["textLogPath"] = logFilePath,
+                ["jsonLogPath"] = jsonLogFilePath,
+            });
     }
 
     internal static string BuildLogFilePath(string baseDirectory, string? processPath)
@@ -46,6 +65,17 @@ internal static class DebugTrace
         return Path.Combine(baseDirectory, $"{executableName.ToLowerInvariant()}.debug.log");
     }
 
+    internal static string BuildJsonLogFilePath(string baseDirectory, string? processPath)
+    {
+        var executableName = Path.GetFileNameWithoutExtension(processPath);
+        if (string.IsNullOrWhiteSpace(executableName))
+        {
+            executableName = "herface";
+        }
+
+        return Path.Combine(baseDirectory, $"{executableName.ToLowerInvariant()}.debug.jsonl");
+    }
+
     internal static string FormatTimestampedLine(string message, DateTimeOffset timestamp, long sequenceNumber)
         => $"[{timestamp:yyyy-MM-dd HH:mm:ss.fff zzz}] #{sequenceNumber:D5} {message}";
 
@@ -56,7 +86,23 @@ internal static class DebugTrace
             return;
         }
 
-        WriteLineCore($"{category}: {message}");
+        WriteEntryCore(
+            [$"{category}: {message}"],
+            category,
+            new Dictionary<string, object?> { ["message"] = message });
+    }
+
+    internal static void WriteStructuredEvent(string category, object payload)
+    {
+        if (!_isEnabled)
+        {
+            return;
+        }
+
+        WriteEntryCore(
+            [$"{category}: {SerializeObject(payload, maxLength: 1400)}"],
+            category,
+            payload);
     }
 
     internal static void WriteBlock(string category, IEnumerable<string> lines)
@@ -69,15 +115,27 @@ internal static class DebugTrace
         var materialized = lines.Where(line => !string.IsNullOrWhiteSpace(line)).ToList();
         if (materialized.Count == 0)
         {
-            WriteLineCore($"{category}: (empty)");
+            WriteEntryCore(
+                [$"{category}: (empty)"],
+                category,
+                new Dictionary<string, object?> { ["lines"] = Array.Empty<string>() });
             return;
         }
 
-        WriteLineCore($"{category}:");
+        var textLines = new List<string>(materialized.Count + 1)
+        {
+            $"{category}:"
+        };
+
         foreach (var line in materialized)
         {
-            WriteLineCore($"  {line}");
+            textLines.Add($"  {line}");
         }
+
+        WriteEntryCore(
+            textLines,
+            category,
+            new Dictionary<string, object?> { ["lines"] = materialized });
     }
 
     internal static void WriteTextBlock(string category, IEnumerable<string> headerLines, string text)
@@ -91,23 +149,37 @@ internal static class DebugTrace
             .Where(line => !string.IsNullOrWhiteSpace(line))
             .ToList();
 
-        WriteLineCore($"{category}:");
+        var textLines = new List<string>
+        {
+            $"{category}:"
+        };
+
         foreach (var line in materializedHeaders)
         {
-            WriteLineCore($"  {line}");
+            textLines.Add($"  {line}");
         }
 
         if (string.IsNullOrEmpty(text))
         {
-            WriteLineCore("  (empty)");
-            return;
+            textLines.Add("  (empty)");
+        }
+        else
+        {
+            var normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+            foreach (var line in normalized.Split('\n'))
+            {
+                textLines.Add($"  {line}");
+            }
         }
 
-        var normalized = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
-        foreach (var line in normalized.Split('\n'))
-        {
-            WriteLineCore($"  {line}");
-        }
+        WriteEntryCore(
+            textLines,
+            category,
+            new Dictionary<string, object?>
+            {
+                ["headers"] = materializedHeaders,
+                ["text"] = text,
+            });
     }
 
     internal static void WriteLlmRequest(
@@ -144,17 +216,36 @@ internal static class DebugTrace
             lines.Add($"systemPrompt={Preview(systemPrompt, 900)}");
         }
 
-        if (tools.Count > 0)
+        var toolNames = tools.Select(tool => tool.Name).ToArray();
+        if (toolNames.Length > 0)
         {
-            lines.Add($"toolNames={string.Join(", ", tools.Select(tool => tool.Name))}");
+            lines.Add($"toolNames={string.Join(", ", toolNames)}");
         }
 
+        var describedMessages = new List<string>(messages.Count);
         for (var index = 0; index < messages.Count; index++)
         {
-            lines.Add($"message[{index}] {DescribeMessage(messages[index])}");
+            var description = DescribeMessage(messages[index]);
+            lines.Add($"message[{index}] {description}");
+            describedMessages.Add(description);
         }
 
-        WriteBlock("llm.request", lines);
+        WriteEntryCore(
+            BuildBlockLines("llm.request", lines),
+            "llm.request",
+            new Dictionary<string, object?>
+            {
+                ["turn"] = turnId,
+                ["attempt"] = attempt,
+                ["provider"] = providerName,
+                ["messageCount"] = messages.Count,
+                ["messages"] = describedMessages,
+                ["toolCount"] = tools.Count,
+                ["toolNames"] = toolNames,
+                ["promptSource"] = promptSource,
+                ["systemPromptChars"] = string.IsNullOrWhiteSpace(systemPrompt) ? 0 : systemPrompt.Length,
+                ["systemPromptPreview"] = string.IsNullOrWhiteSpace(systemPrompt) ? null : Preview(systemPrompt, 900),
+            });
     }
 
     internal static void WriteLlmResponse(
@@ -177,13 +268,32 @@ internal static class DebugTrace
             $"toolCalls={result.ToolCalls.Count}"
         };
 
+        var toolCalls = new List<Dictionary<string, object?>>(result.ToolCalls.Count);
         foreach (var toolCall in result.ToolCalls)
         {
+            var toolCallData = new Dictionary<string, object?>
+            {
+                ["id"] = toolCall.Id,
+                ["name"] = toolCall.Name,
+                ["argumentsPreview"] = Preview(toolCall.Arguments, 600),
+            };
+
             lines.Add(
                 $"toolCall id={toolCall.Id}, name={toolCall.Name}, arguments={Preview(toolCall.Arguments, 600)}");
+            toolCalls.Add(toolCallData);
         }
 
-        WriteBlock("llm.response", lines);
+        WriteEntryCore(
+            BuildBlockLines("llm.response", lines),
+            "llm.response",
+            new Dictionary<string, object?>
+            {
+                ["turn"] = turnId,
+                ["attempt"] = attempt,
+                ["provider"] = providerName,
+                ["textPreview"] = Preview(result.Text, 1200),
+                ["toolCalls"] = toolCalls,
+            });
     }
 
     internal static string Preview(string? text, int maxLength = 400)
@@ -223,6 +333,17 @@ internal static class DebugTrace
         }
     }
 
+    private static IReadOnlyList<string> BuildBlockLines(string category, IEnumerable<string> lines)
+    {
+        var blockLines = new List<string> { $"{category}:" };
+        foreach (var line in lines)
+        {
+            blockLines.Add($"  {line}");
+        }
+
+        return blockLines;
+    }
+
     private static string DescribeMessage(AgentMessage message)
         => message switch
         {
@@ -241,20 +362,56 @@ internal static class DebugTrace
             _ => $"role={message.Role}"
         };
 
-    private static void WriteLineCore(string message)
+    private static void WriteEntryCore(
+        IReadOnlyList<string> textLines,
+        string category,
+        object? payload)
     {
         var logFilePath = _logFilePath;
-        if (!_isEnabled || string.IsNullOrWhiteSpace(logFilePath))
+        var jsonLogFilePath = _jsonLogFilePath;
+        if (!_isEnabled || string.IsNullOrWhiteSpace(logFilePath) || string.IsNullOrWhiteSpace(jsonLogFilePath))
         {
             return;
         }
 
+        var timestamp = DateTimeOffset.Now;
         var sequenceNumber = Interlocked.Increment(ref _sequenceNumber);
-        var formatted = FormatTimestampedLine(message, DateTimeOffset.Now, sequenceNumber);
+        var formattedLines = textLines
+            .Select(line => FormatTimestampedLine(line, timestamp, sequenceNumber))
+            .ToArray();
+        var jsonLine = SerializeJsonEnvelope(category, payload, timestamp, sequenceNumber);
 
         lock (SyncRoot)
         {
-            File.AppendAllText(logFilePath, formatted + Environment.NewLine, Encoding.UTF8);
+            File.AppendAllLines(logFilePath, formattedLines, Encoding.UTF8);
+            File.AppendAllText(jsonLogFilePath, jsonLine + Environment.NewLine, Encoding.UTF8);
+        }
+    }
+
+    private static string SerializeJsonEnvelope(
+        string category,
+        object? payload,
+        DateTimeOffset timestamp,
+        long sequenceNumber)
+    {
+        var envelope = new Dictionary<string, object?>
+        {
+            ["timestamp"] = timestamp,
+            ["sequence"] = sequenceNumber,
+            ["sessionId"] = _sessionId,
+            ["category"] = category,
+            ["data"] = payload,
+        };
+
+        try
+        {
+            return JsonSerializer.Serialize(envelope, JsonSerializerOptionsCache.Default);
+        }
+        catch
+        {
+            envelope["data"] = payload?.ToString();
+            envelope["serializationFallback"] = true;
+            return JsonSerializer.Serialize(envelope, JsonSerializerOptionsCache.Default);
         }
     }
 }

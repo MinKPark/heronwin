@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -155,14 +156,29 @@ internal static class WindowAutomation
         string? windowHandle,
         string? titleContains)
     {
+        var stopwatch = Stopwatch.StartNew();
+        var previousSelectedHandle = selectionState.GetSelectedHandle();
+        var foregroundBefore = NativeMethods.GetForegroundWindow();
         var handle = ResolveWindowHandle(windowHandle, titleContains);
         EnsureWindowExists(handle);
         using var settleObserver = UiSettleObserver.TryCreate(handle);
         FocusWindow(handle);
         selectionState.SetSelectedHandle(handle);
         var uiSettle = WaitForUiToSettle(handle, settleObserver);
+        var result = BuildSelectionResult(handle, wasFocused: true, uiSettle);
+        LogTrace(
+            "select_window.complete",
+            ("requestedHandle", windowHandle),
+            ("requestedTitleContains", titleContains),
+            ("previousSelectedHandle", FormatHandleOrNone(previousSelectedHandle)),
+            ("foregroundBefore", FormatHandleOrNone(foregroundBefore)),
+            ("foregroundAfter", FormatHandleOrNone(NativeMethods.GetForegroundWindow())),
+            ("selectedWindow", DescribeSelectionResult(result)),
+            ("uiSettleStatus", uiSettle.Status),
+            ("uiSettleElapsedMs", uiSettle.ElapsedMilliseconds),
+            ("elapsedMs", RoundElapsedMilliseconds(stopwatch.Elapsed)));
 
-        return BuildSelectionResult(handle, wasFocused: true, uiSettle);
+        return result;
     }
 
     internal static TaskbarElementListResult ListTaskbarElements()
@@ -191,6 +207,7 @@ internal static class WindowAutomation
                 "Provide elementPath, titleContains, or automationIdContains to target a taskbar app.");
         }
 
+        var stopwatch = Stopwatch.StartNew();
         var (taskbarHandle, taskbarRoot) = GetTaskbarRootElement();
         var (hostElement, hostPath) = FindMainTaskbarHost(taskbarRoot);
         var visibleApps = EnumerateVisibleTaskbarChildren(hostElement, hostPath)
@@ -203,6 +220,7 @@ internal static class WindowAutomation
         }
 
         var target = ResolveTaskbarAppTarget(visibleApps, elementPath, titleContains, automationIdContains);
+        var foregroundBefore = NativeMethods.GetForegroundWindow();
         FocusWindow(taskbarHandle);
 
         var targetElement = ResolveElementPath(taskbarRoot, target.Path);
@@ -210,14 +228,27 @@ internal static class WindowAutomation
         var selectedWindow = TrySelectForegroundWindowAfterLaunch(selectionState, [taskbarHandle]);
         var uiSettleHandle = selectedWindow is null ? taskbarHandle : ParseHandle(selectedWindow.Handle);
         var uiSettle = WaitForUiToSettle(uiSettleHandle);
-
-        return new TaskbarAppActivationResult(
+        var result = new TaskbarAppActivationResult(
             BuildWindowDescriptor(taskbarHandle),
             BuildElementSnapshot(hostElement, hostPath, [], includeChildren: false),
             BuildTaskbarElementSummary(targetElement, target.Path),
             actionTaken,
             selectedWindow,
             uiSettle);
+
+        LogTrace(
+            "select_taskbar_app.complete",
+            ("visibleApps", visibleApps.Length),
+            ("target", DescribeTaskbarElement(target)),
+            ("foregroundBefore", FormatHandleOrNone(foregroundBefore)),
+            ("foregroundAfter", FormatHandleOrNone(NativeMethods.GetForegroundWindow())),
+            ("actionTaken", actionTaken),
+            ("selectedWindow", DescribeSelectionResult(selectedWindow)),
+            ("uiSettleStatus", uiSettle.Status),
+            ("uiSettleElapsedMs", uiSettle.ElapsedMilliseconds),
+            ("elapsedMs", RoundElapsedMilliseconds(stopwatch.Elapsed)));
+
+        return result;
     }
 
     internal static TaskbarAppSearchResult LaunchAppViaTaskbarSearch(
@@ -229,12 +260,14 @@ internal static class WindowAutomation
             throw new InvalidOperationException("appName is required.");
         }
 
+        var stopwatch = Stopwatch.StartNew();
         var normalizedQuery = appName.Trim();
         var (taskbarHandle, taskbarRoot) = GetTaskbarRootElement();
         var (hostElement, hostPath) = FindMainTaskbarHost(taskbarRoot);
         var visibleElements = EnumerateVisibleTaskbarChildren(hostElement, hostPath);
         var searchTarget = ResolveTaskbarSearchTarget(visibleElements);
 
+        var foregroundBefore = NativeMethods.GetForegroundWindow();
         FocusWindow(taskbarHandle);
 
         var searchElement = ResolveElementPath(taskbarRoot, searchTarget.Path);
@@ -257,8 +290,7 @@ internal static class WindowAutomation
         var selectedWindow = TrySelectForegroundWindowAfterLaunch(selectionState, [taskbarHandle, searchWindowHandle]);
         var uiSettleHandle = selectedWindow is null ? taskbarHandle : ParseHandle(selectedWindow.Handle);
         var uiSettle = WaitForUiToSettle(uiSettleHandle);
-
-        return new TaskbarAppSearchResult(
+        var result = new TaskbarAppSearchResult(
             BuildWindowDescriptor(taskbarHandle),
             BuildElementSnapshot(hostElement, hostPath, [], includeChildren: false),
             BuildTaskbarElementSummary(searchElement, searchTarget.Path),
@@ -269,6 +301,24 @@ internal static class WindowAutomation
             "pressed_enter",
             selectedWindow,
             uiSettle);
+
+        LogTrace(
+            "launch_app_via_taskbar_search.complete",
+            ("query", normalizedQuery),
+            ("visibleTaskbarElements", visibleElements.Count),
+            ("searchTarget", DescribeTaskbarElement(searchTarget)),
+            ("foregroundBefore", FormatHandleOrNone(foregroundBefore)),
+            ("searchWindowHandle", FormatHandleOrNone(searchWindowHandle)),
+            ("foregroundAfter", FormatHandleOrNone(NativeMethods.GetForegroundWindow())),
+            ("searchActionTaken", searchActionTaken),
+            ("textEntryActionTaken", textEntryActionTaken),
+            ("launchActionTaken", "pressed_enter"),
+            ("selectedWindow", DescribeSelectionResult(selectedWindow)),
+            ("uiSettleStatus", uiSettle.Status),
+            ("uiSettleElapsedMs", uiSettle.ElapsedMilliseconds),
+            ("elapsedMs", RoundElapsedMilliseconds(stopwatch.Elapsed)));
+
+        return result;
     }
 
     internal static WindowTreeResult DescribeSelectedWindow(
@@ -699,6 +749,45 @@ internal static class WindowAutomation
                 rect.Right - rect.Left,
                 rect.Bottom - rect.Top));
     }
+
+    private static void LogTrace(string category, params (string Key, object? Value)[] fields)
+    {
+        if (!DebugTrace.IsEnabled)
+        {
+            return;
+        }
+
+        var parts = fields
+            .Where(field => field.Value is not null)
+            .Select(field => $"{field.Key}={FormatTraceValue(field.Value!)}");
+
+        DebugTrace.WriteLine($"{category} {string.Join(" ", parts)}".TrimEnd());
+    }
+
+    private static string FormatTraceValue(object value)
+    {
+        return value switch
+        {
+            string text when text.Length == 0 => "\"\"",
+            string text => $"\"{text.Replace("\"", "'", StringComparison.Ordinal)}\"",
+            bool boolValue => boolValue ? "true" : "false",
+            nint handle => FormatHandle(handle),
+            IEnumerable<string> values => string.Join(",", values),
+            _ => Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) ?? "\"\"",
+        };
+    }
+
+    private static string FormatHandleOrNone(nint? handle)
+        => handle.HasValue && handle.Value != nint.Zero ? FormatHandle(handle.Value) : "none";
+
+    private static string DescribeSelectionResult(WindowSelectionResult? result)
+        => result is null ? "none" : $"{result.Handle} ({result.Title})";
+
+    private static string DescribeTaskbarElement(TaskbarElementSummary element)
+        => $"{element.Path} ({element.Name}; automationId={element.AutomationId}; className={element.ClassName})";
+
+    private static int RoundElapsedMilliseconds(TimeSpan elapsed)
+        => (int)Math.Round(elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero);
 
     private static UiElementSnapshot CaptureElementTree(
         AutomationElement element,
@@ -1307,6 +1396,12 @@ internal static class WindowAutomation
             return true;
         }, nint.Zero);
 
+        LogTrace(
+            "select_window.resolve_by_title",
+            ("titleContains", titleContains),
+            ("matchCount", matches.Count),
+            ("matches", string.Join(" | ", matches.Select(match => $"{FormatHandle(match.Handle)} ({match.Title})"))));
+
         return matches.Count switch
         {
             0 => throw new InvalidOperationException($"No visible window title contains '{titleContains}'."),
@@ -1598,6 +1693,11 @@ internal static class WindowAutomation
             string.Equals(element.AutomationId, SearchButtonAutomationId, StringComparison.Ordinal));
         if (exactMatch is not null)
         {
+            LogTrace(
+                "taskbar_search_target.resolved",
+                ("strategy", "automation_id_exact"),
+                ("visibleElements", visibleElements.Count),
+                ("target", DescribeTaskbarElement(exactMatch)));
             return exactMatch;
         }
 
@@ -1606,9 +1706,18 @@ internal static class WindowAutomation
             NormalizeLabel(element.Name).Contains("search", StringComparison.Ordinal));
         if (fallbackMatch is not null)
         {
+            LogTrace(
+                "taskbar_search_target.resolved",
+                ("strategy", "label_contains_search"),
+                ("visibleElements", visibleElements.Count),
+                ("target", DescribeTaskbarElement(fallbackMatch)));
             return fallbackMatch;
         }
 
+        LogTrace(
+            "taskbar_search_target.missing",
+            ("visibleElements", visibleElements.Count),
+            ("visibleElementSummaries", string.Join(" | ", visibleElements.Select(DescribeTaskbarElement))));
         throw new InvalidOperationException(
             "Could not find a visible Windows Search control on the main taskbar.");
     }
@@ -1618,28 +1727,45 @@ internal static class WindowAutomation
         string className,
         bool isVisible,
         bool isExcludedHandle)
+        => GetInteractiveSelectionTargetRejectionReason(title, className, isVisible, isExcludedHandle) is null;
+
+    internal static string? GetInteractiveSelectionTargetRejectionReason(
+        string title,
+        string className,
+        bool isVisible,
+        bool isExcludedHandle)
     {
-        if (isExcludedHandle || !isVisible || string.IsNullOrWhiteSpace(title))
+        if (isExcludedHandle)
         {
-            return false;
+            return "excluded_handle";
+        }
+
+        if (!isVisible)
+        {
+            return "window_not_visible";
+        }
+
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return "window_has_blank_title";
         }
 
         if (string.Equals(className, "Shell_TrayWnd", StringComparison.Ordinal))
         {
-            return false;
+            return "shell_taskbar_window";
         }
 
         if (string.Equals(title, "Program Manager", StringComparison.OrdinalIgnoreCase))
         {
-            return false;
+            return "desktop_program_manager";
         }
 
         if (string.Equals(title, "Windows Input Experience", StringComparison.OrdinalIgnoreCase))
         {
-            return false;
+            return "windows_input_experience";
         }
 
-        return true;
+        return null;
     }
 
     internal static string SanitizeFileNameSegment(string value)
@@ -1770,9 +1896,24 @@ internal static class WindowAutomation
         if (!string.IsNullOrWhiteSpace(elementPath))
         {
             var normalizedPath = NormalizeElementPath(elementPath);
-            return visibleApps.FirstOrDefault(app => string.Equals(app.Path, normalizedPath, StringComparison.Ordinal))
-                ?? throw new InvalidOperationException(
-                    $"No visible taskbar app button matched elementPath '{elementPath}'.");
+            var elementPathMatch = visibleApps.FirstOrDefault(app => string.Equals(app.Path, normalizedPath, StringComparison.Ordinal));
+            if (elementPathMatch is not null)
+            {
+                LogTrace(
+                    "taskbar_app_target.resolved",
+                    ("strategy", "element_path"),
+                    ("visibleApps", visibleApps.Count),
+                    ("target", DescribeTaskbarElement(elementPathMatch)));
+                return elementPathMatch;
+            }
+
+            LogTrace(
+                "taskbar_app_target.missing",
+                ("strategy", "element_path"),
+                ("visibleApps", visibleApps.Count),
+                ("requestedPath", normalizedPath));
+            throw new InvalidOperationException(
+                $"No visible taskbar app button matched elementPath '{elementPath}'.");
         }
 
         if (!string.IsNullOrWhiteSpace(automationIdContains))
@@ -1795,6 +1936,12 @@ internal static class WindowAutomation
             string.Equals(NormalizeLabel(app.Name), NormalizeLabel(expectedLabel), StringComparison.Ordinal));
         if (exactMatch is not null)
         {
+            LogTrace(
+                "taskbar_app_target.resolved",
+                ("strategy", "title_exact"),
+                ("visibleApps", visibleApps.Count),
+                ("expectedLabel", expectedLabel),
+                ("target", DescribeTaskbarElement(exactMatch)));
             return exactMatch;
         }
 
@@ -1807,6 +1954,14 @@ internal static class WindowAutomation
                        normalizedActual.Contains(normalizedExpected, StringComparison.Ordinal);
             })
             .ToArray();
+
+        LogTrace(
+            "taskbar_app_target.candidates",
+            ("strategy", "title_contains"),
+            ("visibleApps", visibleApps.Count),
+            ("expectedLabel", expectedLabel),
+            ("matchCount", matches.Length),
+            ("matches", string.Join(" | ", matches.Select(DescribeTaskbarElement))));
 
         return matches.Length switch
         {
@@ -1827,6 +1982,14 @@ internal static class WindowAutomation
         var matches = visibleApps
             .Where(app => selector(app).Contains(expectedSubstring, StringComparison.OrdinalIgnoreCase))
             .ToArray();
+
+        LogTrace(
+            "taskbar_app_target.candidates",
+            ("strategy", argumentName),
+            ("visibleApps", visibleApps.Count),
+            ("expectedSubstring", expectedSubstring),
+            ("matchCount", matches.Length),
+            ("matches", string.Join(" | ", matches.Select(DescribeTaskbarElement))));
 
         return matches.Length switch
         {
@@ -1930,23 +2093,47 @@ internal static class WindowAutomation
         WindowSelectionState selectionState,
         IReadOnlyCollection<nint> excludedHandles)
     {
+        var stopwatch = Stopwatch.StartNew();
+        var attemptCount = 0;
         var deadline = DateTime.UtcNow + LaunchSelectionTimeout;
         while (DateTime.UtcNow <= deadline)
         {
+            attemptCount += 1;
             if (TryPromoteForegroundWindow(selectionState, excludedHandles, out var selectedWindow))
             {
+                LogTrace(
+                    "foreground_launch_selection.complete",
+                    ("status", "selected"),
+                    ("attempts", attemptCount),
+                    ("excludedHandles", string.Join(", ", excludedHandles.Select(FormatHandle))),
+                    ("selectedWindow", DescribeSelectionResult(selectedWindow)),
+                    ("elapsedMs", RoundElapsedMilliseconds(stopwatch.Elapsed)));
                 return selectedWindow;
             }
 
             Thread.Sleep(LaunchSelectionInterval);
         }
 
+        attemptCount += 1;
         if (TryPromoteForegroundWindow(selectionState, excludedHandles, out var fallbackWindow))
         {
+            LogTrace(
+                "foreground_launch_selection.complete",
+                ("status", "selected_after_timeout_boundary"),
+                ("attempts", attemptCount),
+                ("excludedHandles", string.Join(", ", excludedHandles.Select(FormatHandle))),
+                ("selectedWindow", DescribeSelectionResult(fallbackWindow)),
+                ("elapsedMs", RoundElapsedMilliseconds(stopwatch.Elapsed)));
             return fallbackWindow;
         }
 
         selectionState.Clear();
+        LogTrace(
+            "foreground_launch_selection.complete",
+            ("status", "no_selection"),
+            ("attempts", attemptCount),
+            ("excludedHandles", string.Join(", ", excludedHandles.Select(FormatHandle))),
+            ("elapsedMs", RoundElapsedMilliseconds(stopwatch.Elapsed)));
         return null;
     }
 
@@ -1966,9 +2153,22 @@ internal static class WindowAutomation
         var className = NativeMethods.GetClassName(handle);
         var isVisible = NativeMethods.IsWindowVisible(handle);
         var isExcludedHandle = excludedHandles.Contains(handle);
+        var rejectionReason = GetInteractiveSelectionTargetRejectionReason(
+            title,
+            className,
+            isVisible,
+            isExcludedHandle);
 
-        if (!IsInteractiveSelectionTarget(title, className, isVisible, isExcludedHandle))
+        if (rejectionReason is not null)
         {
+            LogTrace(
+                "foreground_promotion.rejected",
+                ("handle", FormatHandle(handle)),
+                ("title", title),
+                ("className", className),
+                ("isVisible", isVisible),
+                ("isExcludedHandle", isExcludedHandle),
+                ("reason", rejectionReason));
             selectedWindow = null!;
             return false;
         }
@@ -1976,6 +2176,12 @@ internal static class WindowAutomation
         FocusWindow(handle);
         selectionState.SetSelectedHandle(handle);
         selectedWindow = BuildSelectionResult(handle, wasFocused: true);
+        LogTrace(
+            "foreground_promotion.accepted",
+            ("handle", FormatHandle(handle)),
+            ("title", title),
+            ("className", className),
+            ("selectedWindow", DescribeSelectionResult(selectedWindow)));
         return true;
     }
 

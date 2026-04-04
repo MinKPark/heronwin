@@ -39,4 +39,28 @@ public sealed class WindowSelectionCandidateTests
 
         Assert.False(result);
     }
+
+    [Fact]
+    public void GetInteractiveSelectionTargetRejectionReason_ReturnsExcludedHandle()
+    {
+        var reason = WindowAutomation.GetInteractiveSelectionTargetRejectionReason(
+            title: "Netflix",
+            className: "Chrome_WidgetWin_1",
+            isVisible: true,
+            isExcludedHandle: true);
+
+        Assert.Equal("excluded_handle", reason);
+    }
+
+    [Fact]
+    public void GetInteractiveSelectionTargetRejectionReason_ReturnsNull_ForValidInteractiveWindow()
+    {
+        var reason = WindowAutomation.GetInteractiveSelectionTargetRejectionReason(
+            title: "Netflix - Microsoft Edge",
+            className: "Chrome_WidgetWin_1",
+            isVisible: true,
+            isExcludedHandle: false);
+
+        Assert.Null(reason);
+    }
 }

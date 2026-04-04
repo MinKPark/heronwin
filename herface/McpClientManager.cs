@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Diagnostics;
+using ModelContextProtocol;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 
@@ -41,20 +43,61 @@ internal sealed class McpClientManager : IAsyncDisposable
                 }
             }
 
+            ApplyServerDebugEnvironment(server, environment);
+            var resolvedCommand = ResolveMaybeRelativePath(server.Command, envBaseDir);
+            var resolvedArguments = server.Args?.Select(arg => ResolveMaybeRelativePath(arg, envBaseDir)).ToArray() ?? [];
+
+            DebugTrace.WriteStructuredEvent(
+                "mcp.connect.start",
+                new Dictionary<string, object?>
+                {
+                    ["server"] = server.Name,
+                    ["command"] = resolvedCommand,
+                    ["arguments"] = resolvedArguments,
+                    ["workingDirectory"] = envBaseDir,
+                    ["serverEnvKeys"] = server.Env?.Keys.OrderBy(static key => key, StringComparer.OrdinalIgnoreCase).ToArray() ?? [],
+                    ["stderrCaptureEnabled"] = true,
+                    ["eyesAndHandsDebugEnabled"] = IsEyesAndHandsServer(server) && DebugTrace.IsEnabled,
+                });
+
             var transport = new StdioClientTransport(new StdioClientTransportOptions
             {
                 Name = server.Name,
-                Command = ResolveMaybeRelativePath(server.Command, envBaseDir),
-                Arguments = server.Args?.Select(arg => ResolveMaybeRelativePath(arg, envBaseDir)).ToArray() ?? [],
+                Command = resolvedCommand,
+                Arguments = resolvedArguments,
+                WorkingDirectory = envBaseDir,
                 EnvironmentVariables = environment.ToDictionary(
                     kvp => kvp.Key,
-                    kvp => (string?)kvp.Value)
+                    kvp => (string?)kvp.Value),
+                StandardErrorLines = line =>
+                {
+                    if (string.IsNullOrWhiteSpace(line))
+                    {
+                        return;
+                    }
+
+                    DebugTrace.WriteStructuredEvent(
+                        "mcp.stderr",
+                        new Dictionary<string, object?>
+                        {
+                            ["server"] = server.Name,
+                            ["line"] = line,
+                        });
+                }
             });
 
             var client = await McpClient.CreateAsync(transport, cancellationToken: cancellationToken);
             _clients[server.Name] = client;
             _toolNamesByServer[server.Name] = new HashSet<string>(StringComparer.Ordinal);
-            DebugTrace.WriteEvent("mcp.connect.complete", $"server={server.Name}");
+            DebugTrace.WriteStructuredEvent(
+                "mcp.connect.complete",
+                new Dictionary<string, object?>
+                {
+                    ["server"] = server.Name,
+                    ["workingDirectory"] = envBaseDir,
+                    ["command"] = resolvedCommand,
+                    ["arguments"] = resolvedArguments,
+                });
         }
     }
 
@@ -98,45 +141,77 @@ internal sealed class McpClientManager : IAsyncDisposable
                 continue;
             }
 
-            DebugTrace.WriteBlock(
+            var stopwatch = Stopwatch.StartNew();
+            DebugTrace.WriteStructuredEvent(
                 "mcp.call.start",
-                [
-                    $"server={serverName}",
-                    $"tool={toolName}",
-                    $"arguments={DebugTrace.SerializeObject(dictionaryArgs)}"
-                ]);
-            var result = await client.CallToolAsync(toolName, dictionaryArgs, cancellationToken: cancellationToken);
-            var textBlocks = result.Content.OfType<TextContentBlock>().Select(block => block.Text);
-            var text = string.Join('\n', textBlocks);
-            var images = ExtractImages(result.Content, text);
-            var imagePaths = ExtractImageFilePathsFromJsonText(text);
-            var logLines = new List<string>
-            {
-                $"server={serverName}",
-                $"tool={toolName}",
-                $"images={images.Count}",
-                $"result={DebugTrace.Preview(text, 1000)}"
-            };
-            if (imagePaths.Count > 0)
-            {
-                logLines.Add($"imagePaths={string.Join(", ", imagePaths)}");
-            }
+                new Dictionary<string, object?>
+                {
+                    ["server"] = serverName,
+                    ["tool"] = toolName,
+                    ["arguments"] = dictionaryArgs,
+                });
 
-            DebugTrace.WriteBlock(
-                "mcp.call.complete",
-                logLines);
-            if (ShouldLogFullToolPayload(toolName, text))
+            try
             {
-                DebugTrace.WriteTextBlock(
-                    "mcp.call.complete.full",
-                    [
-                        $"server={serverName}",
-                        $"tool={toolName}",
-                        $"images={images.Count}"
-                    ],
-                    text);
+                var result = await client.CallToolAsync(toolName, dictionaryArgs, cancellationToken: cancellationToken);
+                var structuredContentPreview = TrySerializeStructuredContent(result.StructuredContent);
+                var text = BuildToolText(result, structuredContentPreview);
+                var images = ExtractImages(result.Content, text);
+                var imagePaths = ExtractImageFilePathsFromJsonText(text);
+                var contentBlockTypes = result.Content
+                    .Select(block => block.GetType().Name)
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(static name => name, StringComparer.Ordinal)
+                    .ToArray();
+
+                DebugTrace.WriteStructuredEvent(
+                    "mcp.call.complete",
+                    new Dictionary<string, object?>
+                    {
+                        ["server"] = serverName,
+                        ["tool"] = toolName,
+                        ["elapsedMs"] = (int)Math.Round(stopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
+                        ["isError"] = result.IsError,
+                        ["contentBlockTypes"] = contentBlockTypes,
+                        ["structuredContentPreview"] = structuredContentPreview,
+                        ["imageCount"] = images.Count,
+                        ["imagePaths"] = imagePaths,
+                        ["textPreview"] = DebugTrace.Preview(text, 1000),
+                    });
+
+                if (ShouldLogFullToolPayload(toolName, text) || result.IsError == true)
+                {
+                    DebugTrace.WriteTextBlock(
+                        "mcp.call.complete.full",
+                        [
+                            $"server={serverName}",
+                            $"tool={toolName}",
+                            $"elapsedMs={(int)Math.Round(stopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero)}",
+                            $"isError={result.IsError == true}",
+                            $"contentBlockTypes={string.Join(", ", contentBlockTypes.DefaultIfEmpty("(none)"))}",
+                            $"structuredContent={structuredContentPreview ?? "(none)"}",
+                            $"images={images.Count}"
+                        ],
+                        text);
+                }
+
+                return new ToolCallOutcome(text, images, result.IsError == true);
             }
-            return new ToolCallOutcome(text, images);
+            catch (McpProtocolException ex)
+            {
+                LogToolCallFailure(serverName, toolName, dictionaryArgs, stopwatch.Elapsed, ex);
+                throw;
+            }
+            catch (McpException ex)
+            {
+                LogToolCallFailure(serverName, toolName, dictionaryArgs, stopwatch.Elapsed, ex);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                LogToolCallFailure(serverName, toolName, dictionaryArgs, stopwatch.Elapsed, ex);
+                throw;
+            }
         }
 
         DebugTrace.WriteEvent("mcp.call.missing_tool", $"tool={toolName}");
@@ -403,6 +478,92 @@ internal sealed class McpClientManager : IAsyncDisposable
         => mimeType.Equals("image/png", StringComparison.OrdinalIgnoreCase)
            || mimeType.Equals("image/jpeg", StringComparison.OrdinalIgnoreCase)
            || mimeType.Equals("image/bmp", StringComparison.OrdinalIgnoreCase);
+
+    private static string BuildToolText(CallToolResult result, string? structuredContentPreview)
+    {
+        var textBlocks = result.Content
+            .OfType<TextContentBlock>()
+            .Select(block => block.Text)
+            .Where(static text => !string.IsNullOrWhiteSpace(text))
+            .ToArray();
+        if (textBlocks.Length > 0)
+        {
+            return string.Join('\n', textBlocks);
+        }
+
+        return structuredContentPreview ?? string.Empty;
+    }
+
+    private static string? TrySerializeStructuredContent(object? structuredContent)
+    {
+        if (structuredContent is null)
+        {
+            return null;
+        }
+
+        if (structuredContent is JsonElement jsonElement &&
+            jsonElement.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        try
+        {
+            var serialized = JsonSerializer.Serialize(structuredContent, JsonSerializerOptionsCache.Default);
+            return string.Equals(serialized, "null", StringComparison.Ordinal) ? null : serialized;
+        }
+        catch
+        {
+            return structuredContent.ToString();
+        }
+    }
+
+    private static void LogToolCallFailure(
+        string serverName,
+        string toolName,
+        IReadOnlyDictionary<string, object?> arguments,
+        TimeSpan elapsed,
+        Exception ex)
+    {
+        DebugTrace.WriteStructuredEvent(
+            "mcp.call.failed",
+            new Dictionary<string, object?>
+            {
+                ["server"] = serverName,
+                ["tool"] = toolName,
+                ["arguments"] = arguments,
+                ["elapsedMs"] = (int)Math.Round(elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
+                ["exceptionType"] = ex.GetType().FullName ?? ex.GetType().Name,
+                ["message"] = ex.Message,
+                ["mcpErrorCode"] = ex is McpProtocolException protocolException
+                    ? protocolException.ErrorCode.ToString()
+                    : null,
+                ["innerExceptionType"] = ex.InnerException?.GetType().FullName,
+                ["innerMessage"] = ex.InnerException?.Message,
+                ["exceptionPreview"] = DebugTrace.Preview(ex.ToString(), 1400),
+            });
+    }
+
+    private static void ApplyServerDebugEnvironment(McpServerConfig server, Dictionary<string, string> environment)
+    {
+        environment["HERFACE_DEBUG_SESSION_ID"] = DebugTrace.SessionId;
+
+        if (DebugTrace.IsEnabled && IsEyesAndHandsServer(server))
+        {
+            environment["EYESANDHANDS_DEBUG"] = "1";
+        }
+    }
+
+    private static bool IsEyesAndHandsServer(McpServerConfig server)
+    {
+        if (server.Name.Contains("eyesandhands", StringComparison.OrdinalIgnoreCase) ||
+            server.Command.Contains("eyesandhands", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return server.Args?.Any(arg => arg.Contains("eyesandhands", StringComparison.OrdinalIgnoreCase)) == true;
+    }
 
     private static string ResolveMaybeRelativePath(string value, string baseDir)
     {

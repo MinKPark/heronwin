@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -10,7 +11,7 @@ internal sealed record ToolCallRequest(string Id, string Name, string Arguments)
 
 internal sealed record ToolImage(string MimeType, string Base64Data, string Detail = "low");
 
-internal sealed record ToolCallOutcome(string Text, IReadOnlyList<ToolImage> Images);
+internal sealed record ToolCallOutcome(string Text, IReadOnlyList<ToolImage> Images, bool IsError = false);
 
 internal sealed record AgentReply(string LogText, string SpokenText, string RawText);
 
@@ -65,6 +66,7 @@ internal static class AgentRunner
         CancellationToken cancellationToken,
         Func<string, CancellationToken, Task>? intermediateStepNarrator = null)
     {
+        var turnStopwatch = Stopwatch.StartNew();
         var messages = history.ToList();
         var runtimeToolPolicy = BuildRuntimeToolPolicy(tools);
         if (!string.IsNullOrWhiteSpace(runtimeToolPolicy))
@@ -79,9 +81,18 @@ internal static class AgentRunner
         }
 
         messages.Add(new AgentMessage.User(userText));
-        DebugTrace.WriteEvent(
+        DebugTrace.WriteStructuredEvent(
             "agent.turn.start",
-            $"turn={turnId}, historyMessages={history.Count}, toolsAvailable={tools.Count}, provider={llmClient.DisplayName}");
+            new Dictionary<string, object?>
+            {
+                ["turn"] = turnId,
+                ["historyMessages"] = history.Count,
+                ["toolsAvailable"] = tools.Count,
+                ["provider"] = llmClient.DisplayName,
+                ["promptSource"] = composedPrompt.SourceDescription,
+                ["usedFallbackPrompt"] = composedPrompt.UsesFallbackDefinition,
+                ["activeSkills"] = composedPrompt.ActiveSkills.Select(skill => skill.Key).ToArray(),
+            });
         Display.UserMessage(userText);
         var usedAnyTools = false;
         var performedDesktopAction = false;
@@ -105,11 +116,20 @@ internal static class AgentRunner
             {
                 var responseText = result.Text ?? """{"say":"","log":"(no response)"}""";
                 var parsedReply = AssistantResponseParser.Parse(responseText);
-                if (NeedsRepair(responseText, parsedReply, usedAnyTools, performedDesktopAction))
+                var repairReason = GetRepairReason(responseText, parsedReply, usedAnyTools, performedDesktopAction);
+                if (!string.IsNullOrWhiteSpace(repairReason))
                 {
-                    DebugTrace.WriteEvent(
+                    DebugTrace.WriteStructuredEvent(
                         "agent.reply_repair_requested",
-                        $"turn={turnId}, attempt={llmAttempt}, usedAnyTools={usedAnyTools}, performedDesktopAction={performedDesktopAction}, raw={DebugTrace.Preview(responseText, 600)}");
+                        new Dictionary<string, object?>
+                        {
+                            ["turn"] = turnId,
+                            ["attempt"] = llmAttempt,
+                            ["rule"] = repairReason,
+                            ["usedAnyTools"] = usedAnyTools,
+                            ["performedDesktopAction"] = performedDesktopAction,
+                            ["rawPreview"] = DebugTrace.Preview(responseText, 600),
+                        });
                     llmAttempt += 1;
                     var repairMessages = new List<AgentMessage>(messages)
                     {
@@ -130,11 +150,36 @@ internal static class AgentRunner
                         composedPrompt.SystemPrompt,
                         cancellationToken);
                     DebugTrace.WriteLlmResponse(turnId, llmAttempt, $"{llmClient.DisplayName} repair", repairedReply);
+                    DebugTrace.WriteStructuredEvent(
+                        "agent.reply_repair_completed",
+                        new Dictionary<string, object?>
+                        {
+                            ["turn"] = turnId,
+                            ["attempt"] = llmAttempt,
+                            ["rule"] = repairReason,
+                            ["returnedToolCalls"] = repairedReply.ToolCalls.Count,
+                            ["rawPreview"] = DebugTrace.Preview(repairedReply.Text, 600),
+                        });
                     if (repairedReply.ToolCalls.Count == 0 && !string.IsNullOrWhiteSpace(repairedReply.Text))
                     {
                         responseText = repairedReply.Text;
                         parsedReply = AssistantResponseParser.Parse(responseText);
                     }
+                }
+
+                var contradictionRule = GetReplyOutcomeContradictionRule(parsedReply);
+                if (!string.IsNullOrWhiteSpace(contradictionRule))
+                {
+                    DebugTrace.WriteStructuredEvent(
+                        "agent.reply_contradiction_detected",
+                        new Dictionary<string, object?>
+                        {
+                            ["turn"] = turnId,
+                            ["attempt"] = llmAttempt,
+                            ["rule"] = contradictionRule,
+                            ["sayPreview"] = DebugTrace.Preview(parsedReply.SpokenText, 400),
+                            ["logPreview"] = DebugTrace.Preview(parsedReply.LogText, 900),
+                        });
                 }
 
                 parsedReply = AlignReplyOutcomeConsistency(parsedReply);
@@ -144,23 +189,35 @@ internal static class AgentRunner
                     && NeedsAdditionalDesktopEvidence(parsedReply))
                 {
                     performedConfidenceEvidenceRetry = true;
-                    DebugTrace.WriteEvent(
+                    DebugTrace.WriteStructuredEvent(
                         "agent.additional_desktop_evidence_requested",
-                        $"turn={turnId}, reason=assistant_uncertain");
+                        new Dictionary<string, object?>
+                        {
+                            ["turn"] = turnId,
+                            ["reason"] = "assistant_uncertain",
+                            ["sayPreview"] = DebugTrace.Preview(parsedReply.SpokenText, 300),
+                            ["logPreview"] = DebugTrace.Preview(parsedReply.LogText, 500),
+                        });
                     messages.Add(new AgentMessage.Assistant(responseText));
-                    messages.AddRange(await CollectAdditionalConfidenceEvidenceAsync(mcpManager, cancellationToken));
+                    messages.AddRange(await CollectAdditionalConfidenceEvidenceAsync(turnId, mcpManager, cancellationToken));
                     continue;
                 }
 
                 Display.AssistantReply(parsedReply.SpokenText, parsedReply.LogText);
-                DebugTrace.WriteBlock(
+                DebugTrace.WriteStructuredEvent(
                     "assistant.reply",
-                    [
-                        $"turn={turnId}",
-                        $"say={DebugTrace.Preview(parsedReply.SpokenText, 400)}",
-                        $"log={DebugTrace.Preview(parsedReply.LogText, 900)}",
-                        $"raw={DebugTrace.Preview(responseText, 1200)}"
-                    ]);
+                    new Dictionary<string, object?>
+                    {
+                        ["turn"] = turnId,
+                        ["elapsedMs"] = (int)Math.Round(turnStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
+                        ["attempts"] = llmAttempt,
+                        ["usedAnyTools"] = usedAnyTools,
+                        ["performedDesktopAction"] = performedDesktopAction,
+                        ["performedConfidenceEvidenceRetry"] = performedConfidenceEvidenceRetry,
+                        ["sayPreview"] = DebugTrace.Preview(parsedReply.SpokenText, 400),
+                        ["logPreview"] = DebugTrace.Preview(parsedReply.LogText, 900),
+                        ["rawPreview"] = DebugTrace.Preview(responseText, 1200),
+                    });
 
                 messages.Add(new AgentMessage.Assistant(responseText));
                 return parsedReply with { RawText = responseText };
@@ -172,9 +229,15 @@ internal static class AgentRunner
             foreach (var toolCall in result.ToolCalls)
             {
                 usedAnyTools = true;
-                DebugTrace.WriteEvent(
+                DebugTrace.WriteStructuredEvent(
                     "agent.tool_call_requested",
-                    $"turn={turnId}, toolCallId={toolCall.Id}, tool={toolCall.Name}, arguments={DebugTrace.Preview(toolCall.Arguments, 600)}");
+                    new Dictionary<string, object?>
+                    {
+                        ["turn"] = turnId,
+                        ["toolCallId"] = toolCall.Id,
+                        ["tool"] = toolCall.Name,
+                        ["argumentsPreview"] = DebugTrace.Preview(toolCall.Arguments, 600),
+                    });
                 object parsedArgs = new Dictionary<string, object?>();
                 try
                 {
@@ -222,6 +285,7 @@ internal static class AgentRunner
 
                 Display.ToolCall(toolCall.Name, toolCall.Arguments);
 
+                var toolCallStopwatch = Stopwatch.StartNew();
                 ToolCallOutcome toolOutput;
                 try
                 {
@@ -229,13 +293,22 @@ internal static class AgentRunner
                 }
                 catch (Exception ex)
                 {
-                    toolOutput = new ToolCallOutcome($"Error: {ex.Message}", []);
+                    toolOutput = new ToolCallOutcome($"Error: {ex.Message}", [], true);
                 }
 
                 Display.ToolResult(toolCall.Name, toolOutput.Text, toolOutput.Images.Count);
-                DebugTrace.WriteEvent(
+                DebugTrace.WriteStructuredEvent(
                     "agent.tool_call_completed",
-                    $"turn={turnId}, toolCallId={toolCall.Id}, tool={toolCall.Name}, images={toolOutput.Images.Count}, result={DebugTrace.Preview(toolOutput.Text, 900)}");
+                    new Dictionary<string, object?>
+                    {
+                        ["turn"] = turnId,
+                        ["toolCallId"] = toolCall.Id,
+                        ["tool"] = toolCall.Name,
+                        ["elapsedMs"] = (int)Math.Round(toolCallStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
+                        ["isError"] = toolOutput.IsError,
+                        ["images"] = toolOutput.Images.Count,
+                        ["resultPreview"] = DebugTrace.Preview(toolOutput.Text, 900),
+                    });
                 messages.Add(new AgentMessage.ToolResult(toolCall.Id, toolCall.Name, toolOutput.Text, toolOutput.Images));
                 if (toolOutput.Images.Count > 0)
                 {
@@ -247,9 +320,15 @@ internal static class AgentRunner
                 if (IsDesktopActionTool(toolCall.Name))
                 {
                     performedDesktopAction = true;
-                    DebugTrace.WriteEvent(
+                    DebugTrace.WriteStructuredEvent(
                         "agent.desktop_action_tool_detected",
-                        $"turn={turnId}, tool={toolCall.Name}");
+                        new Dictionary<string, object?>
+                        {
+                            ["turn"] = turnId,
+                            ["tool"] = toolCall.Name,
+                            ["toolIsError"] = toolOutput.IsError,
+                            ["reportedWindow"] = DescribePrimaryWindowFromToolOutput(toolOutput.Text),
+                        });
                     try
                     {
                         if (toolCall.Name == "launch_app_via_taskbar_search")
@@ -262,6 +341,7 @@ internal static class AgentRunner
                                 {
                                     try
                                     {
+                                        var followUpSelectionStopwatch = Stopwatch.StartNew();
                                         var selectResult = await mcpManager.CallToolAsync(
                                             "select_window",
                                             followUpSelectionArgs,
@@ -275,30 +355,51 @@ internal static class AgentRunner
                                                 "Internal screenshot evidence after re-selecting the launched app window. Treat the screenshot as authoritative for the current visible screen.",
                                                 selectResult.Images));
                                         }
-                                        DebugTrace.WriteEvent(
+                                        DebugTrace.WriteStructuredEvent(
                                             "agent.desktop_followup_select_window",
-                                            $"turn={turnId}, appName={DebugTrace.SerializeObject(appName)}, target={DebugTrace.SerializeObject(DescribeLaunchFollowUpSelectionTarget(toolOutput.Text) ?? appName)}, result={DebugTrace.Preview(selectResult.Text, 600)}, images={selectResult.Images.Count}");
+                                            new Dictionary<string, object?>
+                                            {
+                                                ["turn"] = turnId,
+                                                ["appName"] = appName,
+                                                ["target"] = DescribeLaunchFollowUpSelectionTarget(toolOutput.Text) ?? appName,
+                                                ["elapsedMs"] = (int)Math.Round(followUpSelectionStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
+                                                ["selectedWindow"] = DescribePrimaryWindowFromToolOutput(selectResult.Text),
+                                                ["images"] = selectResult.Images.Count,
+                                                ["resultPreview"] = DebugTrace.Preview(selectResult.Text, 600),
+                                            });
                                     }
                                     catch (Exception ex)
                                     {
                                         followUpEvidence.Add(new AgentMessage.User(
                                             $"Attempt to re-select the launched app window for \"{appName}\" was unavailable: {ex.Message}"));
-                                        DebugTrace.WriteEvent(
+                                        DebugTrace.WriteStructuredEvent(
                                             "agent.desktop_followup_select_window_failed",
-                                            $"turn={turnId}, appName={DebugTrace.SerializeObject(appName)}, target={DebugTrace.SerializeObject(DescribeLaunchFollowUpSelectionTarget(toolOutput.Text) ?? appName)}, error={DebugTrace.Preview(ex.ToString(), 700)}");
+                                            new Dictionary<string, object?>
+                                            {
+                                                ["turn"] = turnId,
+                                                ["appName"] = appName,
+                                                ["target"] = DescribeLaunchFollowUpSelectionTarget(toolOutput.Text) ?? appName,
+                                                ["error"] = DebugTrace.Preview(ex.ToString(), 700),
+                                            });
                                     }
                                 }
                                 else
                                 {
                                     followUpEvidence.Add(new AgentMessage.User(
                                         $"Internal window re-selection after launching \"{appName}\" was skipped because the launch tool did not surface a launched app window. Treat the launch as unconfirmed and rely on the fresh UI snapshot before deciding what to do next."));
-                                    DebugTrace.WriteEvent(
+                                    DebugTrace.WriteStructuredEvent(
                                         "agent.desktop_followup_select_window_skipped",
-                                        $"turn={turnId}, appName={DebugTrace.SerializeObject(appName)}, launchResult={DebugTrace.Preview(toolOutput.Text, 700)}");
+                                        new Dictionary<string, object?>
+                                        {
+                                            ["turn"] = turnId,
+                                            ["appName"] = appName,
+                                            ["launchResultPreview"] = DebugTrace.Preview(toolOutput.Text, 700),
+                                        });
                                 }
                             }
                         }
 
+                        var postActionSnapshotStopwatch = Stopwatch.StartNew();
                         var postActionSnapshot = await mcpManager.CallToolAsync(
                             "describe_selected_window",
                             new Dictionary<string, object?> { ["maxDepth"] = 4 },
@@ -312,12 +413,31 @@ internal static class AgentRunner
                                 "Post-action visual evidence for the current selected window. Use it only if you actually have image content available.",
                                 postActionSnapshot.Images));
                         }
-                        DebugTrace.WriteEvent(
+                        DebugTrace.WriteStructuredEvent(
                             "agent.desktop_followup_snapshot",
-                            $"turn={turnId}, tool={toolCall.Name}, result={DebugTrace.Preview(postActionSnapshot.Text, 700)}, images={postActionSnapshot.Images.Count}");
+                            new Dictionary<string, object?>
+                            {
+                                ["turn"] = turnId,
+                                ["tool"] = toolCall.Name,
+                                ["elapsedMs"] = (int)Math.Round(postActionSnapshotStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
+                                ["snapshotWindow"] = DescribePrimaryWindowFromToolOutput(postActionSnapshot.Text),
+                                ["images"] = postActionSnapshot.Images.Count,
+                                ["resultPreview"] = DebugTrace.Preview(postActionSnapshot.Text, 700),
+                            });
+                        DebugTrace.WriteStructuredEvent(
+                            "agent.desktop_state_transition",
+                            new Dictionary<string, object?>
+                            {
+                                ["turn"] = turnId,
+                                ["tool"] = toolCall.Name,
+                                ["actionReportedWindow"] = DescribePrimaryWindowFromToolOutput(toolOutput.Text),
+                                ["snapshotWindow"] = DescribePrimaryWindowFromToolOutput(postActionSnapshot.Text),
+                                ["sourceOfTruth"] = postActionSnapshot.Images.Count > 0 ? "uia_plus_screenshot" : "uia_tree",
+                            });
 
                         if (ShouldCollectFocusSnapshotAfterAction(toolCall.Name, parsedArgsDictionary))
                         {
+                            var focusSnapshotStopwatch = Stopwatch.StartNew();
                             var focusSnapshot = await mcpManager.CallToolAsync(
                                 "describe_selected_window_focus",
                                 new Dictionary<string, object?> { ["maxDepth"] = 3 },
@@ -325,9 +445,16 @@ internal static class AgentRunner
                             Display.ToolResult("describe_selected_window_focus", focusSnapshot.Text, focusSnapshot.Images.Count);
                             followUpEvidence.Add(new AgentMessage.User(
                                 $"Post-action focused element snapshot after tool \"{toolCall.Name}\":\n{focusSnapshot.Text}\nTreat this focused subtree as fresher evidence than any older focus assumptions before sending more navigation keys."));
-                            DebugTrace.WriteEvent(
+                            DebugTrace.WriteStructuredEvent(
                                 "agent.desktop_followup_focus_snapshot",
-                                $"turn={turnId}, tool={toolCall.Name}, result={DebugTrace.Preview(focusSnapshot.Text, 700)}, images={focusSnapshot.Images.Count}");
+                                new Dictionary<string, object?>
+                                {
+                                    ["turn"] = turnId,
+                                    ["tool"] = toolCall.Name,
+                                    ["elapsedMs"] = (int)Math.Round(focusSnapshotStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
+                                    ["images"] = focusSnapshot.Images.Count,
+                                    ["resultPreview"] = DebugTrace.Preview(focusSnapshot.Text, 700),
+                                });
                         }
 
                         var toolSpecificGuidance = BuildToolSpecificGuidance(toolCall.Name, toolOutput.Text, parsedArgsDictionary);
@@ -340,9 +467,14 @@ internal static class AgentRunner
                     {
                         followUpEvidence.Add(new AgentMessage.User(
                             $"Post-action UI snapshot was unavailable after tool \"{toolCall.Name}\": {ex.Message}"));
-                        DebugTrace.WriteEvent(
+                        DebugTrace.WriteStructuredEvent(
                             "agent.desktop_followup_snapshot_failed",
-                            $"turn={turnId}, tool={toolCall.Name}, error={DebugTrace.Preview(ex.ToString(), 700)}");
+                            new Dictionary<string, object?>
+                            {
+                                ["turn"] = turnId,
+                                ["tool"] = toolCall.Name,
+                                ["error"] = DebugTrace.Preview(ex.ToString(), 700),
+                            });
                     }
                 }
             }
@@ -798,34 +930,34 @@ internal static class AgentRunner
     }
 
     private static bool NeedsRepair(string rawText, AgentReply reply, bool usedAnyTools, bool performedDesktopAction)
+        => GetRepairReason(rawText, reply, usedAnyTools, performedDesktopAction) is not null;
+
+    private static string? GetRepairReason(string rawText, AgentReply reply, bool usedAnyTools, bool performedDesktopAction)
     {
         var isStructured = AssistantResponseParser.IsStructuredJson(rawText);
         if (!isStructured)
         {
-            return true;
+            return "non_structured_reply";
         }
 
         if (performedDesktopAction && string.IsNullOrWhiteSpace(reply.SpokenText))
         {
-            return true;
+            return "missing_spoken_reply_after_desktop_action";
         }
 
-        if (performedDesktopAction &&
-            HasExplicitlyUnresolvedOutcome(reply.LogText) &&
-            !HasExplicitlyUnresolvedOutcome(reply.SpokenText))
+        if (performedDesktopAction && GetReplyOutcomeContradictionRule(reply) is not null)
         {
-            return true;
+            return "say_log_outcome_contradiction";
         }
 
-        return usedAnyTools && string.IsNullOrWhiteSpace(reply.LogText);
+        return usedAnyTools && string.IsNullOrWhiteSpace(reply.LogText)
+            ? "missing_log_after_tool_use"
+            : null;
     }
 
     internal static AgentReply AlignReplyOutcomeConsistency(AgentReply reply)
     {
-        if (string.IsNullOrWhiteSpace(reply.LogText) ||
-            string.IsNullOrWhiteSpace(reply.SpokenText) ||
-            !HasExplicitlyUnresolvedOutcome(reply.LogText) ||
-            HasExplicitlyUnresolvedOutcome(reply.SpokenText))
+        if (GetReplyOutcomeContradictionRule(reply) is null)
         {
             return reply;
         }
@@ -834,6 +966,20 @@ internal static class AgentRunner
         return string.IsNullOrWhiteSpace(normalizedSay)
             ? reply
             : reply with { SpokenText = normalizedSay };
+    }
+
+    private static string? GetReplyOutcomeContradictionRule(AgentReply reply)
+    {
+        if (string.IsNullOrWhiteSpace(reply.LogText) ||
+            string.IsNullOrWhiteSpace(reply.SpokenText))
+        {
+            return null;
+        }
+
+        return HasExplicitlyUnresolvedOutcome(reply.LogText) &&
+               !HasExplicitlyUnresolvedOutcome(reply.SpokenText)
+            ? "log_unresolved_but_say_resolved"
+            : null;
     }
 
     internal static bool NeedsAdditionalDesktopEvidence(AgentReply reply)
@@ -884,11 +1030,20 @@ internal static class AgentRunner
     }
 
     private static async Task<IReadOnlyList<AgentMessage>> CollectAdditionalConfidenceEvidenceAsync(
+        long turnId,
         McpClientManager mcpManager,
         CancellationToken cancellationToken)
     {
+        var evidenceStopwatch = Stopwatch.StartNew();
         Display.Info("The first pass was uncertain; waiting 1 second and collecting another UI snapshot plus screenshot.");
-        DebugTrace.WriteEvent("agent.additional_desktop_evidence", "Collecting second-pass UI Automation snapshot and screenshot.");
+        DebugTrace.WriteStructuredEvent(
+            "agent.additional_desktop_evidence",
+            new Dictionary<string, object?>
+            {
+                ["turn"] = turnId,
+                ["phase"] = "start",
+                ["waitBeforeRetryMs"] = 1000,
+            });
 
         var extraEvidence = new List<AgentMessage>
         {
@@ -900,6 +1055,7 @@ internal static class AgentRunner
 
         try
         {
+            var snapshotStopwatch = Stopwatch.StartNew();
             var retrySnapshot = await mcpManager.CallToolAsync(
                 "describe_selected_window",
                 new Dictionary<string, object?> { ["maxDepth"] = 4 },
@@ -913,15 +1069,33 @@ internal static class AgentRunner
                     "Second-pass visual evidence returned with the UI snapshot. Use it if actual image content is present.",
                     retrySnapshot.Images));
             }
+            DebugTrace.WriteStructuredEvent(
+                "agent.additional_desktop_evidence_snapshot",
+                new Dictionary<string, object?>
+                {
+                    ["turn"] = turnId,
+                    ["elapsedMs"] = (int)Math.Round(snapshotStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
+                    ["window"] = DescribePrimaryWindowFromToolOutput(retrySnapshot.Text),
+                    ["images"] = retrySnapshot.Images.Count,
+                    ["resultPreview"] = DebugTrace.Preview(retrySnapshot.Text, 700),
+                });
         }
         catch (Exception ex)
         {
             extraEvidence.Add(new AgentMessage.User(
                 $"Second-pass UI Automation snapshot after waiting 1 more second was unavailable: {ex.Message}"));
+            DebugTrace.WriteStructuredEvent(
+                "agent.additional_desktop_evidence_snapshot_failed",
+                new Dictionary<string, object?>
+                {
+                    ["turn"] = turnId,
+                    ["error"] = DebugTrace.Preview(ex.ToString(), 700),
+                });
         }
 
         try
         {
+            var screenshotStopwatch = Stopwatch.StartNew();
             var screenshot = await mcpManager.CallToolAsync(
                 "capture_selected_window_screenshot",
                 new Dictionary<string, object?>(),
@@ -935,12 +1109,38 @@ internal static class AgentRunner
                     "Second-pass screenshot evidence after waiting 1 more second. Treat this as the source of truth for the visible screen.",
                     screenshot.Images));
             }
+            DebugTrace.WriteStructuredEvent(
+                "agent.additional_desktop_evidence_screenshot",
+                new Dictionary<string, object?>
+                {
+                    ["turn"] = turnId,
+                    ["elapsedMs"] = (int)Math.Round(screenshotStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
+                    ["window"] = DescribePrimaryWindowFromToolOutput(screenshot.Text),
+                    ["images"] = screenshot.Images.Count,
+                    ["resultPreview"] = DebugTrace.Preview(screenshot.Text, 700),
+                });
         }
         catch (Exception ex)
         {
             extraEvidence.Add(new AgentMessage.User(
                 $"Second-pass screenshot capture after waiting 1 more second was unavailable: {ex.Message}"));
+            DebugTrace.WriteStructuredEvent(
+                "agent.additional_desktop_evidence_screenshot_failed",
+                new Dictionary<string, object?>
+                {
+                    ["turn"] = turnId,
+                    ["error"] = DebugTrace.Preview(ex.ToString(), 700),
+                });
         }
+
+        DebugTrace.WriteStructuredEvent(
+            "agent.additional_desktop_evidence_complete",
+            new Dictionary<string, object?>
+            {
+                ["turn"] = turnId,
+                ["elapsedMs"] = (int)Math.Round(evidenceStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
+                ["messagesAdded"] = extraEvidence.Count,
+            });
 
         return extraEvidence;
     }
@@ -1001,6 +1201,23 @@ internal static class AgentRunner
             : title;
     }
 
+    internal static string? DescribePrimaryWindowFromToolOutput(string toolOutputText)
+    {
+        if (TryGetWindowProperty(toolOutputText, "selectedWindow", out var selectedWindow) &&
+            selectedWindow.ValueKind == JsonValueKind.Object)
+        {
+            return DescribeWindowElement(selectedWindow);
+        }
+
+        if (TryGetWindowProperty(toolOutputText, "window", out var window) &&
+            window.ValueKind == JsonValueKind.Object)
+        {
+            return DescribeWindowElement(window);
+        }
+
+        return null;
+    }
+
     private static string? TryGetStringArgument(IReadOnlyDictionary<string, object?> args, string key)
     {
         if (!args.TryGetValue(key, out var value) || value is null)
@@ -1039,6 +1256,49 @@ internal static class AgentRunner
         {
             return false;
         }
+    }
+
+    private static bool TryGetWindowProperty(string toolOutputText, string propertyName, out JsonElement window)
+    {
+        window = default;
+        if (string.IsNullOrWhiteSpace(toolOutputText))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(toolOutputText);
+            if (!TryGetJsonProperty(document.RootElement, propertyName, out var property))
+            {
+                return false;
+            }
+
+            window = property.Clone();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string? DescribeWindowElement(JsonElement windowElement)
+    {
+        var handle = TryGetJsonStringProperty(windowElement, "handle");
+        var title = TryGetJsonStringProperty(windowElement, "title");
+
+        if (!string.IsNullOrWhiteSpace(title) && !string.IsNullOrWhiteSpace(handle))
+        {
+            return $"{title} ({handle})";
+        }
+
+        if (!string.IsNullOrWhiteSpace(title))
+        {
+            return title;
+        }
+
+        return handle;
     }
 
     private static string? TryGetJsonStringProperty(JsonElement element, string propertyName)

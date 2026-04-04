@@ -17,6 +17,18 @@ public sealed class DebugTraceTests
     }
 
     [Fact]
+    public void BuildJsonLogFilePath_UsesExecutableNameBesideExecutable()
+    {
+        var actual = DebugTrace.BuildJsonLogFilePath(
+            @"C:\apps\herface\bin\Debug\net10.0-windows\",
+            @"C:\apps\herface\bin\Debug\net10.0-windows\herface.exe");
+
+        Assert.Equal(
+            @"C:\apps\herface\bin\Debug\net10.0-windows\herface.debug.jsonl",
+            actual);
+    }
+
+    [Fact]
     public void FormatTimestampedLine_IncludesSequenceNumber()
     {
         var actual = DebugTrace.FormatTimestampedLine(

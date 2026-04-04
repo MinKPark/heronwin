@@ -189,6 +189,15 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void DescribePrimaryWindowFromToolOutput_UsesWindowProperty_WhenSelectedWindowIsAbsent()
+    {
+        var actual = AgentRunner.DescribePrimaryWindowFromToolOutput(
+            """{"Window":{"Handle":"0x00ABCDEF","Title":"Settings"}}""");
+
+        Assert.Equal("Settings (0x00ABCDEF)", actual);
+    }
+
+    [Fact]
     public void BuildToolStepNarration_ReturnsSearchLaunchSentence()
     {
         var actual = AgentRunner.BuildToolStepNarration(
