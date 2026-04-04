@@ -32,6 +32,10 @@ Splitting the prompt layer the same way keeps durable agent policy separate from
 
 This keeps hard rules in the core agent and keeps scenarios modular.
 
+## Policy
+
+- See `skill-vs-code-policy.md` for the repository rule on when to change skills versus runtime code.
+
 ## Suggested Activation Rules
 
 Pick only the smallest set of skills that clearly apply to the current user turn.
