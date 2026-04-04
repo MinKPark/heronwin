@@ -155,6 +155,7 @@ var agentTask = Task.Run(async () =>
                 queuedTurn.Text,
                 composedPrompt.SystemPrompt,
                 config.MaxContextTokens,
+                llmClient.ModelProfile,
                 llmClient,
                 cancellationSource.Token);
 

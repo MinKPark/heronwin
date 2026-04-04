@@ -40,6 +40,7 @@ internal interface ILlmClient
 {
     LlmProviderId ProviderId { get; }
     string DisplayName { get; }
+    LlmModelProfile ModelProfile { get; }
     Task<ChatResult> ChatAsync(
         IReadOnlyList<AgentMessage> messages,
         IReadOnlyList<ToolDefinition> tools,
@@ -202,7 +203,11 @@ internal static class AgentRunner
                             ["logPreview"] = DebugTrace.Preview(parsedReply.LogText, 500),
                         });
                     messages.Add(new AgentMessage.Assistant(responseText));
-                    messages.AddRange(await CollectAdditionalConfidenceEvidenceAsync(turnId, mcpManager, cancellationToken));
+                    messages.AddRange(await CollectAdditionalConfidenceEvidenceAsync(
+                        turnId,
+                        mcpManager,
+                        llmClient.ModelProfile,
+                        cancellationToken));
                     continue;
                 }
 
@@ -308,6 +313,49 @@ internal static class AgentRunner
                 }
 
                 if (toolCall.Name == "send_input_to_window" &&
+                    ShouldOpenNewTabBeforeBrowserUrlEntry(userText, executableArgs, recentWindowContext))
+                {
+                    var newTabArgs = new Dictionary<string, object?>
+                    {
+                        ["key"] = "T",
+                        ["modifiers"] = new[] { "Control" },
+                    };
+
+                    try
+                    {
+                        var newTabStopwatch = Stopwatch.StartNew();
+                        var newTabResult = await mcpManager.CallToolAsync("send_input_to_window", newTabArgs, cancellationToken);
+                        DebugTrace.WriteStructuredEvent(
+                            "agent.browser_new_tab_prime_completed",
+                            new Dictionary<string, object?>
+                            {
+                                ["turn"] = turnId,
+                                ["toolCallId"] = toolCall.Id,
+                                ["elapsedMs"] = (int)Math.Round(newTabStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
+                                ["isError"] = newTabResult.IsError,
+                                ["resultPreview"] = DebugTrace.Preview(newTabResult.Text, 600),
+                            });
+
+                        if (!newTabResult.IsError &&
+                            DescribePrimaryWindowFromToolOutput(newTabResult.Text) is not null)
+                        {
+                            recentWindowContext = newTabResult.Text;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugTrace.WriteStructuredEvent(
+                            "agent.browser_new_tab_prime_failed",
+                            new Dictionary<string, object?>
+                            {
+                                ["turn"] = turnId,
+                                ["toolCallId"] = toolCall.Id,
+                                ["error"] = DebugTrace.Preview(ex.ToString(), 700),
+                            });
+                    }
+                }
+
+                if (toolCall.Name == "send_input_to_window" &&
                     ShouldPrimeBrowserAddressBarForUrlEntry(executableArgs, recentWindowContext, recentFocusContext))
                 {
                     var primeArgs = new Dictionary<string, object?>
@@ -376,7 +424,11 @@ internal static class AgentRunner
                         ["images"] = toolOutput.Images.Count,
                         ["resultPreview"] = DebugTrace.Preview(toolOutput.Text, 900),
                     });
-                messages.Add(new AgentMessage.ToolResult(toolCall.Id, toolCall.Name, toolOutput.Text, toolOutput.Images));
+                var toolResultContext = UiSnapshotCompactor.CompactToolTextForContext(
+                    toolCall.Name,
+                    toolOutput.Text,
+                    llmClient.ModelProfile);
+                messages.Add(new AgentMessage.ToolResult(toolCall.Id, toolCall.Name, toolResultContext, toolOutput.Images));
 
                 if (!toolOutput.IsError)
                 {
@@ -492,8 +544,12 @@ internal static class AgentRunner
                             cancellationToken);
                         Display.ToolResult("describe_selected_window", postActionSnapshot.Text, postActionSnapshot.Images.Count);
                         recentWindowContext = postActionSnapshot.Text;
+                        var compactPostActionSnapshot = UiSnapshotCompactor.CompactToolTextForContext(
+                            "describe_selected_window",
+                            postActionSnapshot.Text,
+                            llmClient.ModelProfile);
                         followUpEvidence.Add(new AgentMessage.User(
-                            $"Post-action visible UI snapshot after tool \"{toolCall.Name}\":\n{postActionSnapshot.Text}\nUse this UI Automation tree first. If it is too sparse or ambiguous to describe the visible screen confidently, call capture_selected_window_screenshot before answering."));
+                            $"Post-action visible UI snapshot after tool \"{toolCall.Name}\":\n{compactPostActionSnapshot}\nUse this UI Automation tree first. If it is too sparse or ambiguous to describe the visible screen confidently, call capture_selected_window_screenshot before answering."));
                         if (postActionSnapshot.Images.Count > 0)
                         {
                             followUpEvidence.Add(new AgentMessage.VisualContext(
@@ -531,8 +587,12 @@ internal static class AgentRunner
                                 cancellationToken);
                             Display.ToolResult("describe_selected_window_focus", focusSnapshot.Text, focusSnapshot.Images.Count);
                             recentFocusContext = focusSnapshot.Text;
+                            var compactFocusSnapshot = UiSnapshotCompactor.CompactToolTextForContext(
+                                "describe_selected_window_focus",
+                                focusSnapshot.Text,
+                                llmClient.ModelProfile);
                             followUpEvidence.Add(new AgentMessage.User(
-                                $"Post-action focused element snapshot after tool \"{toolCall.Name}\":\n{focusSnapshot.Text}\nTreat this focused subtree as fresher evidence than any older focus assumptions before sending more navigation keys."));
+                                $"Post-action focused element snapshot after tool \"{toolCall.Name}\":\n{compactFocusSnapshot}\nTreat this focused subtree as fresher evidence than any older focus assumptions before sending more navigation keys."));
                             DebugTrace.WriteStructuredEvent(
                                 "agent.desktop_followup_focus_snapshot",
                                 new Dictionary<string, object?>
@@ -632,6 +692,8 @@ internal static class AgentRunner
                 "Use send_input_to_window only when the user explicitly asks for a specific key, shortcut, or text entry, not as a generic fallback for activating visible controls.");
             parts.Add(
                 "When entering a replacement URL in a browser, replace or clear the full address-bar contents before typing the new URL.");
+            parts.Add(
+                "For direct website navigation in Microsoft Edge, unless the user explicitly asks to reuse the current tab, open a new tab first, then enter the clean URL through the address bar.");
         }
 
         if (toolNames.Contains("invoke_selected_window_element") &&
@@ -1128,6 +1190,7 @@ internal static class AgentRunner
     private static async Task<IReadOnlyList<AgentMessage>> CollectAdditionalConfidenceEvidenceAsync(
         long turnId,
         McpClientManager mcpManager,
+        LlmModelProfile modelProfile,
         CancellationToken cancellationToken)
     {
         var evidenceStopwatch = Stopwatch.StartNew();
@@ -1157,8 +1220,12 @@ internal static class AgentRunner
                 new Dictionary<string, object?> { ["maxDepth"] = 4 },
                 cancellationToken);
             Display.ToolResult("describe_selected_window", retrySnapshot.Text, retrySnapshot.Images.Count);
+            var compactRetrySnapshot = UiSnapshotCompactor.CompactToolTextForContext(
+                "describe_selected_window",
+                retrySnapshot.Text,
+                modelProfile);
             extraEvidence.Add(new AgentMessage.User(
-                $"Second-pass visible UI snapshot after waiting 1 more second:\n{retrySnapshot.Text}"));
+                $"Second-pass visible UI snapshot after waiting 1 more second:\n{compactRetrySnapshot}"));
             if (retrySnapshot.Images.Count > 0)
             {
                 extraEvidence.Add(new AgentMessage.VisualContext(
@@ -1357,6 +1424,28 @@ internal static class AgentRunner
         return SnapshotLooksLikeBrowserWindow(recentWindowContext);
     }
 
+    internal static bool ShouldOpenNewTabBeforeBrowserUrlEntry(
+        string userText,
+        IReadOnlyDictionary<string, object?> args,
+        string? recentWindowContext)
+    {
+        var text = TryGetStringArgument(args, "text");
+        if (!LooksLikeUrl(text ?? string.Empty) ||
+            string.IsNullOrWhiteSpace(recentWindowContext))
+        {
+            return false;
+        }
+
+        if (UserExplicitlyRequestsCurrentTabReuse(userText) ||
+            !SnapshotLooksLikeEdgeWindow(recentWindowContext) ||
+            SnapshotLooksLikeNewTab(recentWindowContext))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
     private static Dictionary<string, object?> CloneArguments(IReadOnlyDictionary<string, object?> args)
         => args.ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal);
 
@@ -1496,6 +1585,44 @@ internal static class AgentRunner
         }
     }
 
+    private static bool SnapshotLooksLikeEdgeWindow(string? snapshotText)
+    {
+        if (string.IsNullOrWhiteSpace(snapshotText))
+        {
+            return false;
+        }
+
+        if (TryGetWindowProperty(snapshotText, "window", out var window))
+        {
+            return WindowLooksLikeEdge(window);
+        }
+
+        if (TryGetWindowProperty(snapshotText, "selectedWindow", out var selectedWindow))
+        {
+            return WindowLooksLikeEdge(selectedWindow);
+        }
+
+        return false;
+    }
+
+    private static bool SnapshotLooksLikeNewTab(string? snapshotText)
+    {
+        if (string.IsNullOrWhiteSpace(snapshotText))
+        {
+            return false;
+        }
+
+        if (!TryGetWindowProperty(snapshotText, "window", out var window) &&
+            !TryGetWindowProperty(snapshotText, "selectedWindow", out window))
+        {
+            return false;
+        }
+
+        var title = TryGetJsonStringProperty(window, "title");
+        return !string.IsNullOrWhiteSpace(title) &&
+               title.Contains("new tab", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static bool ContainsMatchingElement(
         JsonElement element,
         Func<JsonElement, bool> predicate)
@@ -1560,6 +1687,13 @@ internal static class AgentRunner
                title.Contains("Google Chrome", StringComparison.OrdinalIgnoreCase) ||
                title.Contains("Mozilla Firefox", StringComparison.OrdinalIgnoreCase) ||
                title.Contains("Brave", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool WindowLooksLikeEdge(JsonElement window)
+    {
+        var title = TryGetJsonStringProperty(window, "title");
+        return !string.IsNullOrWhiteSpace(title) &&
+               title.Contains("Microsoft Edge", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool HasUsableWindowBounds(JsonElement window)
@@ -1735,6 +1869,21 @@ internal static class AgentRunner
         string? Title,
         bool IsSelected,
         bool HasUsableBounds);
+
+    private static bool UserExplicitlyRequestsCurrentTabReuse(string userText)
+    {
+        if (string.IsNullOrWhiteSpace(userText))
+        {
+            return false;
+        }
+
+        return userText.Contains("same tab", StringComparison.OrdinalIgnoreCase)
+               || userText.Contains("current tab", StringComparison.OrdinalIgnoreCase)
+               || userText.Contains("this tab", StringComparison.OrdinalIgnoreCase)
+               || userText.Contains("reuse the tab", StringComparison.OrdinalIgnoreCase)
+               || userText.Contains("reuse current tab", StringComparison.OrdinalIgnoreCase)
+               || userText.Contains("replace this tab", StringComparison.OrdinalIgnoreCase);
+    }
 
 }
 
@@ -1999,7 +2148,6 @@ internal static class AssistantResponseParser
 
 internal static class ContextManager
 {
-    private const double CompressionTriggerRatio = 0.7;
     private const int KeepRecentMessages = 8;
 
     public static int EstimateTokens(
@@ -2034,6 +2182,7 @@ internal static class ContextManager
         string pendingUserText,
         string systemPrompt,
         int maxContextTokens,
+        LlmModelProfile modelProfile,
         ILlmClient llmClient,
         CancellationToken cancellationToken)
     {
@@ -2041,7 +2190,7 @@ internal static class ContextManager
         Display.ContextUsage(currentTokens, maxContextTokens);
 
         if (maxContextTokens <= 0
-            || currentTokens < maxContextTokens * CompressionTriggerRatio
+            || currentTokens < maxContextTokens * modelProfile.ContextCompressionTriggerRatio
             || history.Count <= KeepRecentMessages)
         {
             return;
@@ -2051,7 +2200,7 @@ internal static class ContextManager
         var messagesToCompress = history.Take(splitIndex).ToList();
         DebugTrace.WriteEvent(
             "context.compression_requested",
-            $"messagesToCompress={messagesToCompress.Count}, historyMessages={history.Count}, pendingUserText={DebugTrace.Preview(pendingUserText, 300)}");
+            $"model={modelProfile.ModelName}, triggerRatio={modelProfile.ContextCompressionTriggerRatio:F2}, messagesToCompress={messagesToCompress.Count}, historyMessages={history.Count}, pendingUserText={DebugTrace.Preview(pendingUserText, 300)}");
         var summaryText = await SummarizeAsync(messagesToCompress, llmClient, cancellationToken);
 
         history.RemoveRange(0, splitIndex);

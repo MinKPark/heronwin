@@ -90,6 +90,19 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void BuildRuntimeToolPolicy_ReturnsBrowserNewTabGuidance_WhenInputToolExists()
+    {
+        var actual = AgentRunner.BuildRuntimeToolPolicy(
+            [
+                new ToolDefinition("send_input_to_window", "desc", default)
+            ]);
+
+        Assert.NotNull(actual);
+        Assert.Contains("open a new tab first", actual!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("address bar", actual, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void BuildRuntimeToolPolicy_ReturnsLaunchContinuationGuidance_WhenLaunchToolsExist()
     {
         var actual = AgentRunner.BuildRuntimeToolPolicy(
@@ -296,6 +309,28 @@ public sealed class AgentRunnerDecisionTests
             new Dictionary<string, object?> { ["text"] = "https://www.netflix.com" },
             """{"Window":{"Handle":"0x00060A88","Title":"Netflix - Microsoft Edge","ClassName":"Chrome_WidgetWin_1"}}""",
             """{"FocusedElement":{"Path":"focused","Name":"Search box","ControlType":"Edit","ClassName":"SearchBox"}}""");
+
+        Assert.False(actual);
+    }
+
+    [Fact]
+    public void ShouldOpenNewTabBeforeBrowserUrlEntry_ReturnsTrue_ForEdgeWebsiteRequest()
+    {
+        var actual = AgentRunner.ShouldOpenNewTabBeforeBrowserUrlEntry(
+            "Open the Netflix website in Edge.",
+            new Dictionary<string, object?> { ["text"] = "https://www.netflix.com" },
+            """{"Window":{"Handle":"0x00060A88","Title":"YouTube - Personal - Microsoft Edge","ClassName":"Chrome_WidgetWin_1"}}""");
+
+        Assert.True(actual);
+    }
+
+    [Fact]
+    public void ShouldOpenNewTabBeforeBrowserUrlEntry_ReturnsFalse_WhenUserWantsCurrentTab()
+    {
+        var actual = AgentRunner.ShouldOpenNewTabBeforeBrowserUrlEntry(
+            "Open the Netflix website in the current tab.",
+            new Dictionary<string, object?> { ["text"] = "https://www.netflix.com" },
+            """{"Window":{"Handle":"0x00060A88","Title":"YouTube - Personal - Microsoft Edge","ClassName":"Chrome_WidgetWin_1"}}""");
 
         Assert.False(actual);
     }

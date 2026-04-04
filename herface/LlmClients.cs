@@ -1,7 +1,9 @@
 using System.Net.Http.Headers;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 
 namespace HeronWin.HerFace;
 
@@ -59,6 +61,7 @@ internal sealed class OpenAiApiClient(
 {
     public LlmProviderId ProviderId => LlmProviderId.OpenAiApi;
     public string DisplayName => $"OpenAI API ({model})";
+    public LlmModelProfile ModelProfile { get; } = LlmModelProfiles.Create(LlmProviderId.OpenAiApi, model);
 
     public async Task<ChatResult> ChatAsync(
         IReadOnlyList<AgentMessage> messages,
@@ -66,12 +69,6 @@ internal sealed class OpenAiApiClient(
         string? systemPrompt,
         CancellationToken cancellationToken)
     {
-        DebugTrace.WriteEvent(
-            "llm.http.start",
-            $"provider=OpenAI, model={model}, messages={messages.Count}, tools={tools.Count}");
-        using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/chat/completions");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-
         var payload = new JsonObject
         {
             ["model"] = model,
@@ -89,39 +86,74 @@ internal sealed class OpenAiApiClient(
             payload["tool_choice"] = "auto";
         }
 
-        request.Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
-        using var response = await httpClient.SendAsync(request, cancellationToken);
-        var responseText = await response.Content.ReadAsStringAsync(cancellationToken);
-        DebugTrace.WriteEvent(
-            "llm.http.complete",
-            $"provider=OpenAI, model={model}, status={(int)response.StatusCode}, response={DebugTrace.Preview(responseText, 1200)}");
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new InvalidOperationException($"Chat request failed ({(int)response.StatusCode}): {ApiErrorParser.ExtractApiError(responseText)}");
-        }
+        var payloadJson = payload.ToJsonString();
 
-        using var document = JsonDocument.Parse(responseText);
-        var message = document.RootElement.GetProperty("choices")[0].GetProperty("message");
-
-        string? text = null;
-        if (message.TryGetProperty("content", out var contentElement) && contentElement.ValueKind == JsonValueKind.String)
+        for (var retryAttempt = 0; ; retryAttempt++)
         {
-            text = contentElement.GetString();
-        }
+            DebugTrace.WriteEvent(
+                "llm.http.start",
+                $"provider=OpenAI, model={model}, messages={messages.Count}, tools={tools.Count}, retryAttempt={retryAttempt}");
 
-        var toolCalls = new List<ToolCallRequest>();
-        if (message.TryGetProperty("tool_calls", out var toolCallArray) && toolCallArray.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var toolCall in toolCallArray.EnumerateArray())
+            using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/chat/completions");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+            request.Content = new StringContent(payloadJson, Encoding.UTF8, "application/json");
+
+            using var response = await httpClient.SendAsync(request, cancellationToken);
+            var responseText = await response.Content.ReadAsStringAsync(cancellationToken);
+            DebugTrace.WriteEvent(
+                "llm.http.complete",
+                $"provider=OpenAI, model={model}, status={(int)response.StatusCode}, retryAttempt={retryAttempt}, response={DebugTrace.Preview(responseText, 1200)}");
+            if (!response.IsSuccessStatusCode)
             {
-                toolCalls.Add(new ToolCallRequest(
-                    toolCall.GetProperty("id").GetString() ?? Guid.NewGuid().ToString("n"),
-                    toolCall.GetProperty("function").GetProperty("name").GetString() ?? string.Empty,
-                    toolCall.GetProperty("function").GetProperty("arguments").GetString() ?? "{}"));
-            }
-        }
+                if (retryAttempt < ModelProfile.MaxThrottleRetries &&
+                    LlmThrottleRetry.TryGetRetryDelay(response, responseText, out var delay, out var limitKind))
+                {
+                    Display.Info(
+                        $"{limitKind} limit hit for {model}. Waiting {LlmThrottleRetry.FormatDelay(delay)} before retrying this step.");
+                    DebugTrace.WriteStructuredEvent(
+                        "llm.http.throttled",
+                        new Dictionary<string, object?>
+                        {
+                            ["provider"] = "OpenAI",
+                            ["model"] = model,
+                            ["retryAttempt"] = retryAttempt,
+                            ["delayMs"] = (int)Math.Round(delay.TotalMilliseconds, MidpointRounding.AwayFromZero),
+                            ["limitKind"] = limitKind,
+                            ["error"] = ApiErrorParser.ExtractApiError(responseText),
+                        });
 
-        return new ChatResult(text, toolCalls);
+                    await Task.Delay(delay, cancellationToken);
+                    Display.Info("Retrying the throttled LLM step now.");
+                    continue;
+                }
+
+                throw new InvalidOperationException(
+                    $"Chat request failed ({(int)response.StatusCode}): {ApiErrorParser.ExtractApiError(responseText)}");
+            }
+
+            using var document = JsonDocument.Parse(responseText);
+            var message = document.RootElement.GetProperty("choices")[0].GetProperty("message");
+
+            string? text = null;
+            if (message.TryGetProperty("content", out var contentElement) && contentElement.ValueKind == JsonValueKind.String)
+            {
+                text = contentElement.GetString();
+            }
+
+            var toolCalls = new List<ToolCallRequest>();
+            if (message.TryGetProperty("tool_calls", out var toolCallArray) && toolCallArray.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var toolCall in toolCallArray.EnumerateArray())
+                {
+                    toolCalls.Add(new ToolCallRequest(
+                        toolCall.GetProperty("id").GetString() ?? Guid.NewGuid().ToString("n"),
+                        toolCall.GetProperty("function").GetProperty("name").GetString() ?? string.Empty,
+                        toolCall.GetProperty("function").GetProperty("arguments").GetString() ?? "{}"));
+                }
+            }
+
+            return new ChatResult(text, toolCalls);
+        }
     }
 
     internal static JsonArray ToOpenAiMessages(IReadOnlyList<AgentMessage> messages, string? systemPrompt)
@@ -351,6 +383,7 @@ internal sealed class ClaudeApiClient(
 {
     public LlmProviderId ProviderId => LlmProviderId.ClaudeApi;
     public string DisplayName => $"Claude API ({model})";
+    public LlmModelProfile ModelProfile { get; } = LlmModelProfiles.Create(LlmProviderId.ClaudeApi, model);
 
     public async Task<ChatResult> ChatAsync(
         IReadOnlyList<AgentMessage> messages,
@@ -358,13 +391,6 @@ internal sealed class ClaudeApiClient(
         string? systemPrompt,
         CancellationToken cancellationToken)
     {
-        DebugTrace.WriteEvent(
-            "llm.http.start",
-            $"provider=Claude, model={model}, messages={messages.Count}, tools={tools.Count}");
-        using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.anthropic.com/v1/messages");
-        request.Headers.Add("x-api-key", apiKey);
-        request.Headers.Add("anthropic-version", "2023-06-01");
-
         var payload = new JsonObject
         {
             ["model"] = model,
@@ -383,38 +409,74 @@ internal sealed class ClaudeApiClient(
             payload["tools"] = ToAnthropicTools(tools);
         }
 
-        request.Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
-        using var response = await httpClient.SendAsync(request, cancellationToken);
-        var responseText = await response.Content.ReadAsStringAsync(cancellationToken);
-        DebugTrace.WriteEvent(
-            "llm.http.complete",
-            $"provider=Claude, model={model}, status={(int)response.StatusCode}, response={DebugTrace.Preview(responseText, 1200)}");
-        if (!response.IsSuccessStatusCode)
+        var payloadJson = payload.ToJsonString();
+
+        for (var retryAttempt = 0; ; retryAttempt++)
         {
-            throw new InvalidOperationException($"Claude request failed ({(int)response.StatusCode}): {ApiErrorParser.ExtractApiError(responseText)}");
-        }
+            DebugTrace.WriteEvent(
+                "llm.http.start",
+                $"provider=Claude, model={model}, messages={messages.Count}, tools={tools.Count}, retryAttempt={retryAttempt}");
 
-        using var document = JsonDocument.Parse(responseText);
-        string? text = null;
-        var toolCalls = new List<ToolCallRequest>();
+            using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.anthropic.com/v1/messages");
+            request.Headers.Add("x-api-key", apiKey);
+            request.Headers.Add("anthropic-version", "2023-06-01");
+            request.Content = new StringContent(payloadJson, Encoding.UTF8, "application/json");
 
-        foreach (var block in document.RootElement.GetProperty("content").EnumerateArray())
-        {
-            var type = block.GetProperty("type").GetString();
-            if (type == "text")
+            using var response = await httpClient.SendAsync(request, cancellationToken);
+            var responseText = await response.Content.ReadAsStringAsync(cancellationToken);
+            DebugTrace.WriteEvent(
+                "llm.http.complete",
+                $"provider=Claude, model={model}, status={(int)response.StatusCode}, retryAttempt={retryAttempt}, response={DebugTrace.Preview(responseText, 1200)}");
+            if (!response.IsSuccessStatusCode)
             {
-                text = (text ?? string.Empty) + (block.GetProperty("text").GetString() ?? string.Empty);
-            }
-            else if (type == "tool_use")
-            {
-                toolCalls.Add(new ToolCallRequest(
-                    block.GetProperty("id").GetString() ?? Guid.NewGuid().ToString("n"),
-                    block.GetProperty("name").GetString() ?? string.Empty,
-                    block.GetProperty("input").GetRawText()));
-            }
-        }
+                if (retryAttempt < ModelProfile.MaxThrottleRetries &&
+                    LlmThrottleRetry.TryGetRetryDelay(response, responseText, out var delay, out var limitKind))
+                {
+                    Display.Info(
+                        $"{limitKind} limit hit for {model}. Waiting {LlmThrottleRetry.FormatDelay(delay)} before retrying this step.");
+                    DebugTrace.WriteStructuredEvent(
+                        "llm.http.throttled",
+                        new Dictionary<string, object?>
+                        {
+                            ["provider"] = "Claude",
+                            ["model"] = model,
+                            ["retryAttempt"] = retryAttempt,
+                            ["delayMs"] = (int)Math.Round(delay.TotalMilliseconds, MidpointRounding.AwayFromZero),
+                            ["limitKind"] = limitKind,
+                            ["error"] = ApiErrorParser.ExtractApiError(responseText),
+                        });
 
-        return new ChatResult(text, toolCalls);
+                    await Task.Delay(delay, cancellationToken);
+                    Display.Info("Retrying the throttled LLM step now.");
+                    continue;
+                }
+
+                throw new InvalidOperationException(
+                    $"Claude request failed ({(int)response.StatusCode}): {ApiErrorParser.ExtractApiError(responseText)}");
+            }
+
+            using var document = JsonDocument.Parse(responseText);
+            string? text = null;
+            var toolCalls = new List<ToolCallRequest>();
+
+            foreach (var block in document.RootElement.GetProperty("content").EnumerateArray())
+            {
+                var type = block.GetProperty("type").GetString();
+                if (type == "text")
+                {
+                    text = (text ?? string.Empty) + (block.GetProperty("text").GetString() ?? string.Empty);
+                }
+                else if (type == "tool_use")
+                {
+                    toolCalls.Add(new ToolCallRequest(
+                        block.GetProperty("id").GetString() ?? Guid.NewGuid().ToString("n"),
+                        block.GetProperty("name").GetString() ?? string.Empty,
+                        block.GetProperty("input").GetRawText()));
+                }
+            }
+
+            return new ChatResult(text, toolCalls);
+        }
     }
 
     private static JsonArray ToAnthropicMessages(IReadOnlyList<AgentMessage> messages)
@@ -587,5 +649,90 @@ internal static class ApiErrorParser
         }
 
         return responseText;
+    }
+}
+
+internal static class LlmThrottleRetry
+{
+    private static readonly Regex RetryDelayRegex = new(
+        @"try again in\s+(?<seconds>\d+(?:\.\d+)?)s",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+    public static bool TryGetRetryDelay(
+        HttpResponseMessage response,
+        string responseText,
+        out TimeSpan delay,
+        out string limitKind)
+    {
+        delay = default;
+        limitKind = string.Empty;
+
+        if ((int)response.StatusCode != 429)
+        {
+            return false;
+        }
+
+        var error = ApiErrorParser.ExtractApiError(responseText);
+        if (string.IsNullOrWhiteSpace(error) ||
+            (!error.Contains("rate limit", StringComparison.OrdinalIgnoreCase)
+             && !error.Contains("too many requests", StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        limitKind = LooksLikeTokenLimit(error)
+            ? "Token throughput"
+            : "Rate";
+        delay = ResolveDelay(response, error);
+        return true;
+    }
+
+    public static string FormatDelay(TimeSpan delay)
+    {
+        var seconds = delay.TotalSeconds;
+        return seconds >= 10
+            ? $"{Math.Ceiling(seconds):N0} seconds"
+            : $"{seconds:F1} seconds";
+    }
+
+    private static bool LooksLikeTokenLimit(string error)
+        => error.Contains("token", StringComparison.OrdinalIgnoreCase)
+           || error.Contains("tpm", StringComparison.OrdinalIgnoreCase);
+
+    private static TimeSpan ResolveDelay(HttpResponseMessage response, string error)
+    {
+        if (response.Headers.RetryAfter?.Delta is { } retryAfter && retryAfter > TimeSpan.Zero)
+        {
+            return ClampDelay(retryAfter);
+        }
+
+        if (response.Headers.TryGetValues("retry-after-ms", out var retryAfterValues) &&
+            int.TryParse(retryAfterValues.FirstOrDefault(), out var retryAfterMs) &&
+            retryAfterMs > 0)
+        {
+            return ClampDelay(TimeSpan.FromMilliseconds(retryAfterMs));
+        }
+
+        var match = RetryDelayRegex.Match(error);
+        if (match.Success &&
+            double.TryParse(match.Groups["seconds"].Value, CultureInfo.InvariantCulture, out var retrySeconds) &&
+            retrySeconds > 0)
+        {
+            return ClampDelay(TimeSpan.FromSeconds(retrySeconds));
+        }
+
+        return TimeSpan.FromSeconds(5);
+    }
+
+    private static TimeSpan ClampDelay(TimeSpan delay)
+    {
+        if (delay < TimeSpan.FromSeconds(1))
+        {
+            return TimeSpan.FromSeconds(1);
+        }
+
+        return delay > TimeSpan.FromMinutes(2)
+            ? TimeSpan.FromMinutes(2)
+            : delay;
     }
 }
