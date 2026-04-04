@@ -52,6 +52,33 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void HasExplicitlyUnresolvedOutcome_ReturnsFalse_ForConditionalNoOp()
+    {
+        var actual = AgentRunner.HasExplicitlyUnresolvedOutcome(
+            "Confirmed current page is Netflix Home in Edge, not a profile picker. I did not click anything because the requested condition was absent.");
+
+        Assert.False(actual);
+    }
+
+    [Fact]
+    public void HasExplicitlyUnresolvedOutcome_ReturnsFalse_ForProfileSelectionNoOpWording()
+    {
+        var actual = AgentRunner.HasExplicitlyUnresolvedOutcome(
+            "The visible screen is the Netflix home page, not a profile selection screen. I did not click anything.");
+
+        Assert.False(actual);
+    }
+
+    [Fact]
+    public void HasExplicitlyUnresolvedOutcome_ReturnsFalse_ForExplicitConditionalNoOp()
+    {
+        var actual = AgentRunner.HasExplicitlyUnresolvedOutcome(
+            "I did not see a profile-selection screen, so there was no profile to choose. This is a conditional no-op based on the current evidence.");
+
+        Assert.False(actual);
+    }
+
+    [Fact]
     public void AlignReplyOutcomeConsistency_UsesLogSummary_WhenSayContradictsLog()
     {
         var reply = new AgentReply(
@@ -101,6 +128,21 @@ public sealed class AgentRunnerDecisionTests
         Assert.Contains("follow-up verification", actual!, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("open a new tab first", actual, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("address bar", actual, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildRuntimeToolPolicy_IncludesConditionalNoOpAndBrowserSearchGuidance_WhenRelevantToolsExist()
+    {
+        var actual = AgentRunner.BuildRuntimeToolPolicy(
+            [
+                new ToolDefinition("describe_selected_window", "desc", default),
+                new ToolDefinition("launch_app_via_taskbar_search", "desc", default)
+            ]);
+
+        Assert.NotNull(actual);
+        Assert.Contains("conditional step as a successful no-op", actual!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("perform that action instead of stopping just because the target is visible", actual, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("keep the interaction inside the browser", actual, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -350,6 +392,28 @@ public sealed class AgentRunnerDecisionTests
             "Go to the Netflix website.",
             "send_input_to_window",
             new Dictionary<string, object?> { ["text"] = "https://www.netflix.com" },
+            """{"Window":{"Handle":"0x00060A88","Title":"Netflix - Microsoft Edge","ClassName":"Chrome_WidgetWin_1"}}""");
+
+        Assert.False(actual);
+    }
+
+    [Fact]
+    public void ShouldBlockTaskbarSearchForBrowserContentQuery_ReturnsTrue_ForShowSearchInBrowser()
+    {
+        var actual = AgentRunner.ShouldBlockTaskbarSearchForBrowserContentQuery(
+            "Search for the show Boyfriend on Demand.",
+            "launch_app_via_taskbar_search",
+            """{"Window":{"Handle":"0x00060A88","Title":"Netflix - Microsoft Edge","ClassName":"Chrome_WidgetWin_1"}}""");
+
+        Assert.True(actual);
+    }
+
+    [Fact]
+    public void ShouldBlockTaskbarSearchForBrowserContentQuery_ReturnsFalse_ForExplicitAppLaunch()
+    {
+        var actual = AgentRunner.ShouldBlockTaskbarSearchForBrowserContentQuery(
+            "Launch the Calculator app from the taskbar search.",
+            "launch_app_via_taskbar_search",
             """{"Window":{"Handle":"0x00060A88","Title":"Netflix - Microsoft Edge","ClassName":"Chrome_WidgetWin_1"}}""");
 
         Assert.False(actual);

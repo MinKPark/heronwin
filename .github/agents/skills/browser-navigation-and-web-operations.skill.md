@@ -17,12 +17,13 @@ applies_when:
 ## Workflow
 
 1. Determine whether the user wants direct website navigation, web search, browser chrome control, or page interaction.
-2. Distinguish browser chrome controls such as the address bar, tabs, back, forward, and refresh from the web page content.
+2. Distinguish browser chrome controls such as the address bar, tabs, back, forward, and refresh from the web page content and from site-native search controls inside the page.
 3. If the current selected window is not a browser, first switch to an existing browser window or launch the browser before interacting with controls in the current non-browser window.
 4. In Microsoft Edge, when the user wants to open a new website or web page, open a new tab first unless the user explicitly asked to reuse the current tab.
 5. When the user wants a website, navigate through the browser address bar with a clean URL.
-6. Unless the user explicitly wants to modify the existing address-bar text in place, clear the current address-bar contents before entering a new address or URL.
-7. After navigation, refresh the visible browser state and verify that the page actually changed to the intended site.
+6. When the user wants to search within the currently visible website, stay inside that site and use the site's own search surface rather than Windows Search or a generic web-search route.
+7. Unless the user explicitly wants to modify the existing address-bar text in place, clear the current address-bar contents before entering a new address or URL.
+8. After navigation or site-search actions, refresh the visible browser state and verify that the page actually changed to the intended site or result state.
 
 ## Direct Website Navigation Rules
 
@@ -53,12 +54,18 @@ applies_when:
 
 - If the user explicitly asks to search the web, then use search behavior.
 - If the user asks for a specific website or URL, do not convert that into a search query.
+- If the user asks to search for a title, show, movie, article, or other content within the current website, do not switch to Windows taskbar search and do not replace the site flow with a browser-level web search unless the user explicitly asked for that.
+- For site-native search, first identify the visible site search control or search affordance from the refreshed page state before typing.
+- When a site search control is exposed in the UI tree, copy its exact full `path` or `uiPath` from the latest evidence. Do not shorten or approximate that identifier.
+- If a site search control path fails once, refresh the page state and select a fresh exact target from the newest evidence instead of mutating the old path.
+- Do not claim a site search step succeeded until the search field, query text, or visible results for the requested title are actually on screen.
 - If the browser lands on a search page for a malformed string such as a search term glued to a URL, report that the direct navigation did not succeed and repair it by returning to the address bar, replacing the full contents, and retrying with a clean URL.
 
 ## Verification Rules
 
 - Verify direct navigation from refreshed evidence such as the tab title, page title, visible page content, or browser error state.
 - Do not stop after merely focusing the browser chrome or entering the URL. Continue until the requested site is confirmed, clearly failed, or still lacks sufficient evidence.
+- For site-native search, do not stop after only clicking the search affordance or typing text. Continue until the requested visible result state is confirmed, clearly failed, or still lacks sufficient evidence.
 - If the result is still a search page, say so directly.
 - If the result is a browser error page such as name resolution failure, say that directly and treat it as failed navigation, not as a successful site visit.
 - When UI Automation is too sparse to verify the destination page confidently, capture a screenshot and use it as the source of truth.

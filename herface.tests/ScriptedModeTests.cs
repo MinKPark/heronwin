@@ -172,6 +172,45 @@ public sealed class ScriptedModeTests
     }
 
     [Fact]
+    public void AssessTurn_Passes_WhenToolErrorsAreRecoveredBeforeResolvedReply()
+    {
+        var records = new[]
+        {
+            CreateTraceRecord(1, "agent.tool_call_completed", """{"turn":8,"isError":true}"""),
+            CreateTraceRecord(2, "agent.tool_call_completed", """{"turn":8,"isError":false}"""),
+            CreateTraceRecord(
+                3,
+                "assistant.reply",
+                """{"turn":8,"sayText":"Netflix is open now.","logText":"Netflix home screen is visible."}""")
+        };
+
+        var actual = HerfaceScenarioEvaluator.AssessTurn(records, 8);
+
+        Assert.True(actual.Passed);
+        Assert.Equal(1, actual.ToolErrorCount);
+        Assert.Empty(actual.Failures);
+    }
+
+    [Fact]
+    public void AssessTurn_Fails_WhenToolErrorsRemainUnrecovered()
+    {
+        var records = new[]
+        {
+            CreateTraceRecord(1, "agent.tool_call_completed", """{"turn":9,"isError":true}"""),
+            CreateTraceRecord(
+                2,
+                "assistant.reply",
+                """{"turn":9,"sayText":"I could not open Netflix.","logText":"The request is not complete yet because opening Netflix failed."}""")
+        };
+
+        var actual = HerfaceScenarioEvaluator.AssessTurn(records, 9);
+
+        Assert.False(actual.Passed);
+        Assert.Equal(1, actual.ToolErrorCount);
+        Assert.Contains(actual.Failures, failure => failure.Contains("unrecovered tool error", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void EvaluateScenario_Passes_WhenRequiredCategoryAndFinalTextArePresent()
     {
         var scenario = new HerfaceScenarioDefinition(

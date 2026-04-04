@@ -336,11 +336,15 @@ internal static class HerfaceScenarioEvaluator
             .ToArray();
         var failures = new List<string>();
 
-        var toolCallCount = turnRecords.Count(record => record.Category == "agent.tool_call_completed");
-        var toolErrorCount = turnRecords.Count(
-            record => record.Category == "agent.tool_call_completed"
-                      && record.TryGetBoolean("isError", out var isError)
-                      && isError);
+        var toolCompletionRecords = turnRecords
+            .Where(record => record.Category == "agent.tool_call_completed")
+            .OrderBy(record => record.Sequence)
+            .ToArray();
+        var toolCallCount = toolCompletionRecords.Length;
+        var toolErrorRecords = toolCompletionRecords
+            .Where(record => record.TryGetBoolean("isError", out var isError) && isError)
+            .ToArray();
+        var toolErrorCount = toolErrorRecords.Length;
         var hasReplyContradiction = turnRecords.Any(record => record.Category == "agent.reply_contradiction_detected");
         var assistantReply = turnRecords.LastOrDefault(record => record.Category == "assistant.reply");
         var hasAssistantReply = assistantReply is not null;
@@ -348,15 +352,22 @@ internal static class HerfaceScenarioEvaluator
         var finalLogText = assistantReply?.GetString("logText") ?? string.Empty;
         var combinedFinalText = $"{finalSayText}\n{finalLogText}".Trim();
         var hasExplicitlyUnresolvedOutcome = AgentRunner.HasExplicitlyUnresolvedOutcome(combinedFinalText);
+        var hasRecoveredToolErrors = toolErrorCount > 0
+            && hasAssistantReply
+            && !hasReplyContradiction
+            && !hasExplicitlyUnresolvedOutcome
+            && toolCompletionRecords.Any(
+                record => record.Sequence > toolErrorRecords[^1].Sequence
+                          && (!record.TryGetBoolean("isError", out var isError) || !isError));
 
         if (!hasAssistantReply)
         {
             failures.Add("No assistant.reply event was recorded for this turn.");
         }
 
-        if (toolErrorCount > 0 && !assertions.AllowToolErrors)
+        if (toolErrorCount > 0 && !assertions.AllowToolErrors && !hasRecoveredToolErrors)
         {
-            failures.Add($"The turn recorded {toolErrorCount} tool error event(s).");
+            failures.Add($"The turn recorded {toolErrorCount} unrecovered tool error event(s).");
         }
 
         if (hasReplyContradiction && !assertions.AllowReplyContradictions)

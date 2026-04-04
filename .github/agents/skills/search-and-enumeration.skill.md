@@ -20,15 +20,21 @@ applies_when:
 1. Identify the currently visible search or result surface.
 2. Enumerate what is visibly exposed before drilling deeper.
 3. When the request is about a list or tree item, also note the hosting control when available.
-4. Report visible findings first and tool limitations second.
+4. For multi-step requests, finish the current search stage before drifting into later open, play, or navigation stages.
+5. Report visible findings first and tool limitations second.
 
 ## Search Rules
 
 - When the user asks to search within Explorer or another app, first identify the visible search-related UI element if possible.
+- If the current app already exposes a visible search affordance such as a button, field, or search tab, prefer that site-native or app-native path over generic keyboard wandering.
+- When a visible search control is exposed in the refreshed tree, reuse the full exact `path` or `uiPath` from that fresh tree. Do not trim segments or guess a nearby control.
 - If the tool surface cannot directly type into or invoke the relevant control, say so plainly.
+- If a direct search-control action fails, refresh the window state and pick a new exact target from the latest evidence instead of reusing a guessed variant of the old path.
 - After entering or submitting a search, expect the accessibility tree to lag behind the visible UI.
 - Retry `eyesandhands/describe_selected_window` or `eyesandhands/describe_selected_window_focus` a few times with short waits before concluding that the result is not exposed yet.
 - Treat newly appearing named results as fresher evidence than an earlier sparse tree snapshot.
+- Do not count a search step as complete until the requested query or visible matching results are actually on screen.
+- If the search request is only the first stage of a larger task, stop that stage at confirmed visible results rather than skipping ahead to open or playback claims.
 
 ## Enumeration Rules
 

@@ -8,11 +8,14 @@ This document defines how `heronwin` should decide between:
 The default policy is:
 
 - Prefer skill changes first.
+- Treat code as the last resort when the needed behavior is mostly impossible to express or stabilize through prompt or skill guidance alone.
 - Use code changes for general guardrails, deterministic recovery, and reusable runtime behavior.
 
 ## Goal
 
 Keep scenario behavior easy to evolve in prompts while reserving code for logic that must be reliable across turns, models, and prompt wording.
+
+This is the main development approach for `herface`, not a secondary preference.
 
 ## Default Rule
 
@@ -132,9 +135,10 @@ For `herface`, use this split:
 For this repository, the operating rule is:
 
 - Treat skills as the main mechanism for behavioral tuning.
+- Prefer updating the agent core or skills before adding runtime logic.
 - Treat code as the place for general improvements and hard guardrails.
 
-That means most new issues should start as skill changes, and only graduate to code when they prove to be general reliability problems.
+That means most new issues should start as skill changes, and only graduate to code when they prove to be general reliability problems or mostly impossible to hold through prompt guidance alone.
 
 ## Example: Browser Fullscreen
 

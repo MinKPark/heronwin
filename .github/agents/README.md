@@ -1,5 +1,17 @@
 # Agent And Skills
 
+## Main Development Approach
+
+For `herface`, the main development approach is:
+
+1. Start with the core agent prompt and the smallest relevant skill updates.
+2. Use runtime code only when the needed behavior is a general guardrail, deterministic recovery, or otherwise mostly impossible to hold reliably through prompt guidance alone.
+
+In short:
+
+- skills and prompts first
+- runtime code last
+
 This directory now contains two prompt layouts:
 
 - Compatibility fallback prompt: `her.agent.md`
@@ -35,6 +47,7 @@ This keeps hard rules in the core agent and keeps scenarios modular.
 ## Policy
 
 - See `skill-vs-code-policy.md` for the repository rule on when to change skills versus runtime code.
+- Treat that policy as the default path for new behavior work, scenario fixes, and debugging.
 
 ## Suggested Activation Rules
 

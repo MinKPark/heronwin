@@ -540,6 +540,28 @@ internal static class AgentRunner
                         });
                 }
 
+                if (TryRewriteBrowserSearchControlAction(
+                        userText,
+                        toolCall.Name,
+                        executableArgs,
+                        recentWindowContext,
+                        out var rewrittenBrowserSearchArgs))
+                {
+                    executableArgs = rewrittenBrowserSearchArgs;
+                    effectiveArgumentsText = JsonSerializer.Serialize(executableArgs, JsonSerializerOptionsCache.Default);
+                    DebugTrace.WriteStructuredEvent(
+                        "agent.tool_call_arguments_rewritten",
+                        new Dictionary<string, object?>
+                        {
+                            ["turn"] = turnId,
+                            ["toolCallId"] = toolCall.Id,
+                            ["tool"] = toolCall.Name,
+                            ["reason"] = "browser_site_search_control_preferred",
+                            ["originalArgumentsPreview"] = DebugTrace.Preview(toolCall.Arguments, 600),
+                            ["rewrittenArgumentsPreview"] = DebugTrace.Preview(effectiveArgumentsText, 600),
+                        });
+                }
+
                 if (TryRewriteBrowserAddressBarActionToShortcut(
                         toolCall.Name,
                         executableArgs,
@@ -657,6 +679,43 @@ internal static class AgentRunner
                                 ["error"] = DebugTrace.Preview(ex.ToString(), 700),
                             });
                     }
+                }
+
+                if (ShouldBlockTaskbarSearchForBrowserContentQuery(
+                        userText,
+                        executableToolName,
+                        recentWindowContext))
+                {
+                    Display.ToolCall(executableToolName, effectiveArgumentsText);
+                    var blockedMessage =
+                        "Blocked internal policy: the current request is about finding content within the already selected website in the browser. Do not use Windows/taskbar app search here. Stay in the current browser window and use the website's own search or navigation controls instead.";
+                    Display.ToolResult(executableToolName, blockedMessage, 0);
+                    DebugTrace.WriteStructuredEvent(
+                        "agent.tool_call_blocked",
+                        new Dictionary<string, object?>
+                        {
+                            ["turn"] = turnId,
+                            ["toolCallId"] = toolCall.Id,
+                            ["tool"] = toolCall.Name,
+                            ["executedTool"] = executableToolName,
+                            ["reason"] = "browser_content_search_must_stay_in_browser",
+                            ["resultPreview"] = DebugTrace.Preview(blockedMessage, 900),
+                        });
+                    DebugTrace.WriteStructuredEvent(
+                        "agent.tool_call_completed",
+                        new Dictionary<string, object?>
+                        {
+                            ["turn"] = turnId,
+                            ["toolCallId"] = toolCall.Id,
+                            ["tool"] = toolCall.Name,
+                            ["executedTool"] = executableToolName,
+                            ["elapsedMs"] = 0,
+                            ["isError"] = true,
+                            ["images"] = 0,
+                            ["resultPreview"] = DebugTrace.Preview(blockedMessage, 900),
+                        });
+                    messages.Add(new AgentMessage.ToolResult(toolCall.Id, toolCall.Name, blockedMessage));
+                    continue;
                 }
 
                 Display.ToolCall(executableToolName, effectiveArgumentsText);
@@ -923,6 +982,18 @@ internal static class AgentRunner
         {
             parts.Add(
                 "Treat `send_input_to_window` as explicit keyboard or text input that still requires follow-up verification; key presses and text entry alone do not confirm that the intended visible UI result occurred.");
+        }
+
+        if (toolNames.Contains("describe_selected_window") || toolNames.Contains("capture_selected_window_screenshot"))
+        {
+            parts.Add(
+                "For conditional instructions such as \"if profile selection is visible\" or \"if a passcode is required\", inspect the current UI first. If the condition is present and the user named a target or action, perform that action instead of stopping just because the target is visible. If the condition is absent, treat that conditional step as a successful no-op instead of forcing a click, and phrase the reply as \"condition not present, so no action was needed\" rather than as an incomplete or failed outcome.");
+        }
+
+        if (toolNames.Contains("launch_app_via_taskbar_search"))
+        {
+            parts.Add(
+                "Use `launch_app_via_taskbar_search` only for launching Windows apps. When a browser window is already selected and the user wants to search for content such as a show, movie, article, or page, keep the interaction inside the browser or website instead of using Windows Search.");
         }
 
         return parts.Count == 0 ? null : string.Join(" ", parts);
@@ -1393,6 +1464,11 @@ internal static class AgentRunner
         }
 
         var combined = text.ToLowerInvariant();
+        if (LooksLikeConditionalNoOpOutcome(combined))
+        {
+            return false;
+        }
+
         return combined.Contains("not complete", StringComparison.Ordinal)
             || combined.Contains("not completed", StringComparison.Ordinal)
             || combined.Contains("not done", StringComparison.Ordinal)
@@ -1407,6 +1483,28 @@ internal static class AgentRunner
             || combined.Contains("not yet", StringComparison.Ordinal)
             || combined.Contains("still showing", StringComparison.Ordinal)
             || combined.Contains("still on", StringComparison.Ordinal);
+    }
+
+    private static bool LooksLikeConditionalNoOpOutcome(string combinedLowerText)
+    {
+        return combinedLowerText.Contains("condition was absent", StringComparison.Ordinal)
+               || combinedLowerText.Contains("condition is absent", StringComparison.Ordinal)
+               || combinedLowerText.Contains("requested condition was absent", StringComparison.Ordinal)
+               || combinedLowerText.Contains("conditional no-op", StringComparison.Ordinal)
+               || combinedLowerText.Contains("no action was needed", StringComparison.Ordinal)
+               || combinedLowerText.Contains("no action needed", StringComparison.Ordinal)
+               || (combinedLowerText.Contains("no profile selection prompt", StringComparison.Ordinal)
+                   && combinedLowerText.Contains("did not click anything", StringComparison.Ordinal))
+               || (combinedLowerText.Contains("no profile selection screen", StringComparison.Ordinal)
+                   && combinedLowerText.Contains("did not click anything", StringComparison.Ordinal))
+               || (combinedLowerText.Contains("not a profile selection screen", StringComparison.Ordinal)
+                   && combinedLowerText.Contains("did not click anything", StringComparison.Ordinal))
+               || (combinedLowerText.Contains("did not see a profile-selection screen", StringComparison.Ordinal)
+                   && combinedLowerText.Contains("no profile to choose", StringComparison.Ordinal))
+               || (combinedLowerText.Contains("not a profile picker", StringComparison.Ordinal)
+                   && combinedLowerText.Contains("did not click anything", StringComparison.Ordinal))
+               || (combinedLowerText.Contains("no passcode prompt", StringComparison.Ordinal)
+                   && combinedLowerText.Contains("not needed", StringComparison.Ordinal));
     }
 
     private static async Task<IReadOnlyList<AgentMessage>> CollectAdditionalConfidenceEvidenceAsync(
@@ -1790,6 +1888,44 @@ internal static class AgentRunner
         return true;
     }
 
+    internal static bool TryRewriteBrowserSearchControlAction(
+        string userText,
+        string toolName,
+        IReadOnlyDictionary<string, object?> args,
+        string? recentWindowContext,
+        out Dictionary<string, object?> rewrittenArgs)
+    {
+        rewrittenArgs = new Dictionary<string, object?>(StringComparer.Ordinal);
+        if (toolName is not "invoke_selected_window_element" and not "focus_selected_window_element")
+        {
+            return false;
+        }
+
+        if (!SnapshotLooksLikeBrowserWindow(recentWindowContext) ||
+            !UserRequestLooksLikeBrowserContentSearch(userText))
+        {
+            return false;
+        }
+
+        var elementPath = TryGetStringArgument(args, "elementPath") ?? TryGetStringArgument(args, "uiPath");
+        if (string.IsNullOrWhiteSpace(elementPath) ||
+            TryFindElementByPath(recentWindowContext, elementPath, out _))
+        {
+            return false;
+        }
+
+        var requiredAction = toolName == "focus_selected_window_element" ? "focus" : "invoke";
+        if (!TryFindUniqueElementPathByNameAndAction(recentWindowContext, "Search", requiredAction, out var repairedPath))
+        {
+            return false;
+        }
+
+        rewrittenArgs = CloneArguments(args);
+        rewrittenArgs["elementPath"] = repairedPath;
+        rewrittenArgs.Remove("uiPath");
+        return true;
+    }
+
     internal static bool ShouldExitBrowserFullscreenBeforeBrowserShortcut(string? recentWindowContext)
     {
         if (!SnapshotLooksLikeBrowserWindow(recentWindowContext) ||
@@ -1891,6 +2027,16 @@ internal static class AgentRunner
         }
 
         return false;
+    }
+
+    internal static bool ShouldBlockTaskbarSearchForBrowserContentQuery(
+        string userText,
+        string toolName,
+        string? recentWindowContext)
+    {
+        return toolName == "launch_app_via_taskbar_search"
+               && SnapshotLooksLikeBrowserWindow(recentWindowContext)
+               && UserRequestLooksLikeBrowserContentSearch(userText);
     }
 
     private static bool SnapshotContainsBrowserAddressBar(string? snapshotText)
@@ -2071,6 +2217,97 @@ internal static class AgentRunner
         foreach (var child in children.EnumerateArray())
         {
             if (TryFindElementByPath(child, elementPath, out match))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryFindUniqueElementPathByNameAndAction(
+        string? snapshotText,
+        string elementName,
+        string requiredAction,
+        out string elementPath)
+    {
+        elementPath = string.Empty;
+        if (string.IsNullOrWhiteSpace(snapshotText) ||
+            string.IsNullOrWhiteSpace(elementName) ||
+            string.IsNullOrWhiteSpace(requiredAction))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(snapshotText);
+            if (!TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree))
+            {
+                return false;
+            }
+
+            var matches = new List<string>();
+            CollectElementPathsByNameAndAction(elementTree, elementName, requiredAction, matches);
+            if (matches.Count != 1)
+            {
+                return false;
+            }
+
+            elementPath = matches[0];
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void CollectElementPathsByNameAndAction(
+        JsonElement element,
+        string elementName,
+        string requiredAction,
+        List<string> matches)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        var name = TryGetJsonStringProperty(element, "name");
+        var path = TryGetJsonStringProperty(element, "uiPath") ?? TryGetJsonStringProperty(element, "path");
+        if (!string.IsNullOrWhiteSpace(path) &&
+            !string.IsNullOrWhiteSpace(name) &&
+            string.Equals(name, elementName, StringComparison.OrdinalIgnoreCase) &&
+            ElementHasAction(element, requiredAction))
+        {
+            matches.Add(path);
+        }
+
+        if (!TryGetJsonProperty(element, "children", out var children) ||
+            children.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (var child in children.EnumerateArray())
+        {
+            CollectElementPathsByNameAndAction(child, elementName, requiredAction, matches);
+        }
+    }
+
+    private static bool ElementHasAction(JsonElement element, string requiredAction)
+    {
+        if (!TryGetJsonProperty(element, "availableActions", out var actionsElement) ||
+            actionsElement.ValueKind != JsonValueKind.Array)
+        {
+            return false;
+        }
+
+        foreach (var actionElement in actionsElement.EnumerateArray())
+        {
+            if (actionElement.ValueKind == JsonValueKind.String &&
+                string.Equals(actionElement.GetString(), requiredAction, StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
@@ -2353,6 +2590,29 @@ internal static class AgentRunner
                    userText,
                    @"\b[\w-]+\.(com|net|org|io|ai|app|tv|co)\b",
                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    }
+
+    private static bool UserRequestLooksLikeBrowserContentSearch(string userText)
+    {
+        if (string.IsNullOrWhiteSpace(userText))
+        {
+            return false;
+        }
+
+        if (userText.Contains("taskbar", StringComparison.OrdinalIgnoreCase)
+            || userText.Contains("windows search", StringComparison.OrdinalIgnoreCase)
+            || userText.Contains("start menu", StringComparison.OrdinalIgnoreCase)
+            || userText.Contains("launch", StringComparison.OrdinalIgnoreCase)
+            || userText.Contains("open the app", StringComparison.OrdinalIgnoreCase)
+            || userText.Contains("application", StringComparison.OrdinalIgnoreCase)
+            || userText.Contains("program", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return userText.Contains("search for", StringComparison.OrdinalIgnoreCase)
+               || userText.Contains("look for", StringComparison.OrdinalIgnoreCase)
+               || userText.Contains("find ", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool UserExplicitlyRequestsCurrentTabReuse(string userText)
