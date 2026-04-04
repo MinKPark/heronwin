@@ -27,3 +27,4 @@ artifacts/
 
 # gpt profile
 obsolete/herface-nodejs/.chatgpt-profile/
+tempbuild/

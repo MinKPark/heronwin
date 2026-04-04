@@ -63,7 +63,7 @@ async function main(): Promise<void> {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const serverPath = path.resolve(
     __dirname,
-    "../../herbody/eyesandhands/bin/Debug/net8.0-windows/eyesandhands.exe",
+    "../../herbody/eyesandhands/bin/Debug/net10.0-windows/eyesandhands.exe",
   );
 
   const transport = new StdioClientTransport({ command: serverPath });
