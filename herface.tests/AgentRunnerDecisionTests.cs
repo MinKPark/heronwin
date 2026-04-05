@@ -1381,6 +1381,58 @@ public sealed class AgentRunnerDecisionTests
         Assert.Equal("tool_fallback", actual.Source);
     }
 
+    [Fact]
+    public void ResolveToolStepNarration_SuppressesFallback_ForSequentialWindowEvidenceTools()
+    {
+        var actual = AgentRunner.ResolveToolStepNarration(
+            assistantContent: null,
+            toolCallCount: 2,
+            toolName: "capture_selected_window_screenshot",
+            args: new Dictionary<string, object?>(),
+            previousToolName: "describe_selected_window");
+
+        Assert.Null(actual);
+    }
+
+    [Fact]
+    public void ResolveToolStepNarration_DoesNotSuppressAssistantContent_ForSequentialWindowEvidenceTools()
+    {
+        var actual = AgentRunner.ResolveToolStepNarration(
+            """{"say":"Let me zoom in on that for a sec.","log":"Capturing a screenshot after the UI tree."}""",
+            1,
+            "capture_selected_window_screenshot",
+            new Dictionary<string, object?>(),
+            previousToolName: "describe_selected_window");
+
+        Assert.NotNull(actual);
+        Assert.Equal("Let me zoom in on that for a sec.", actual!.Text);
+        Assert.Equal("assistant_content", actual.Source);
+    }
+
+    [Fact]
+    public void TryRewriteDescribeSelectedWindowToFullDepth_RewritesMaxDepthToFullDepth()
+    {
+        var rewritten = AgentRunner.TryRewriteDescribeSelectedWindowToFullDepth(
+            new Dictionary<string, object?> { ["maxDepth"] = 3 },
+            out var rewrittenArgs);
+
+        Assert.True(rewritten);
+        Assert.True(rewrittenArgs.TryGetValue("fullDepth", out var fullDepthValue));
+        Assert.Equal(true, fullDepthValue);
+        Assert.False(rewrittenArgs.ContainsKey("maxDepth"));
+    }
+
+    [Fact]
+    public void TryRewriteDescribeSelectedWindowToFullDepth_DoesNotRewriteWhenAlreadyFullDepth()
+    {
+        var rewritten = AgentRunner.TryRewriteDescribeSelectedWindowToFullDepth(
+            new Dictionary<string, object?> { ["fullDepth"] = true },
+            out var rewrittenArgs);
+
+        Assert.False(rewritten);
+        Assert.Empty(rewrittenArgs);
+    }
+
     [Theory]
     [InlineData("click_selected_window_element")]
     [InlineData("set_selected_window_element_value")]

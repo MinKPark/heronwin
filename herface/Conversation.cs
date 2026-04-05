@@ -110,6 +110,7 @@ internal static class AgentRunner
         string? recentFocusContext = null;
         string? currentUiElementContext = null;
         string? currentFocusElementContext = null;
+        string? lastCompletedToolNameInTurn = null;
 
         void RememberRecentWindowSnapshot(string snapshotText, string? snapshotToolName = null)
         {
@@ -774,6 +775,25 @@ internal static class AgentRunner
                         });
                 }
 
+                if (executableToolName == "describe_selected_window" &&
+                    TryRewriteDescribeSelectedWindowToFullDepth(executableArgs, out var rewrittenDescribeArgs))
+                {
+                    executableArgs = rewrittenDescribeArgs;
+                    effectiveArgumentsText = JsonSerializer.Serialize(executableArgs, JsonSerializerOptionsCache.Default);
+                    DebugTrace.WriteStructuredEvent(
+                        "agent.tool_call_arguments_rewritten",
+                        new Dictionary<string, object?>
+                        {
+                            ["turn"] = turnId,
+                            ["toolCallId"] = toolCall.Id,
+                            ["tool"] = toolCall.Name,
+                            ["executedTool"] = executableToolName,
+                            ["reason"] = "full_depth_ui_tree_preferred",
+                            ["originalArgumentsPreview"] = DebugTrace.Preview(toolCall.Arguments, 600),
+                            ["rewrittenArgumentsPreview"] = DebugTrace.Preview(effectiveArgumentsText, 600),
+                        });
+                }
+
                 var actionableUiTreeContext = ResolveActionableUiTreeContext();
 
                 if (TryRewriteBrowserSearchControlAction(
@@ -1052,7 +1072,8 @@ internal static class AgentRunner
                     result.Text,
                     result.ToolCalls.Count,
                     executableToolName,
-                    executableArgs);
+                    executableArgs,
+                    lastCompletedToolNameInTurn);
                 var intermediateStepNarrationTask = StartToolStepNarrationAsync(
                     turnId,
                     toolCall,
@@ -1087,6 +1108,7 @@ internal static class AgentRunner
                         ["images"] = toolOutput.Images.Count,
                         ["resultPreview"] = DebugTrace.Preview(toolOutput.Text, 900),
                     });
+                lastCompletedToolNameInTurn = executableToolName;
 
                 if (!toolOutput.IsError)
                 {
@@ -1213,7 +1235,7 @@ internal static class AgentRunner
                         var postActionSnapshotStopwatch = Stopwatch.StartNew();
                         var postActionSnapshot = await mcpManager.CallToolAsync(
                             "describe_selected_window",
-                            new Dictionary<string, object?> { ["maxDepth"] = 4 },
+                            new Dictionary<string, object?> { ["fullDepth"] = true },
                             cancellationToken);
                         Display.ToolResult("describe_selected_window", postActionSnapshot.Text, postActionSnapshot.Images.Count);
                         RememberRecentWindowSnapshot(postActionSnapshot.Text, "describe_selected_window");
@@ -1377,6 +1399,23 @@ internal static class AgentRunner
             && IsDesktopActionTool(toolName)
             && availableToolNames.Contains("capture_selected_window_screenshot");
 
+    internal static bool TryRewriteDescribeSelectedWindowToFullDepth(
+        IReadOnlyDictionary<string, object?> args,
+        out Dictionary<string, object?> rewrittenArgs)
+    {
+        rewrittenArgs = new Dictionary<string, object?>(StringComparer.Ordinal);
+
+        if (TryGetBooleanArgument(args, "fullDepth") == true)
+        {
+            return false;
+        }
+
+        rewrittenArgs = CloneArguments(args);
+        rewrittenArgs["fullDepth"] = true;
+        rewrittenArgs.Remove("maxDepth");
+        return true;
+    }
+
     internal static string? BuildRuntimeToolPolicy(IReadOnlyList<ToolDefinition> tools)
     {
         var toolNames = tools.Select(tool => tool.Name).ToHashSet(StringComparer.Ordinal);
@@ -1458,7 +1497,8 @@ internal static class AgentRunner
         string? assistantContent,
         int toolCallCount,
         string toolName,
-        IReadOnlyDictionary<string, object?> args)
+        IReadOnlyDictionary<string, object?> args,
+        string? previousToolName = null)
     {
         if (toolCallCount == 1 &&
             TryExtractToolStepNarrationFromAssistantContent(assistantContent) is { } assistantNarration)
@@ -1466,9 +1506,13 @@ internal static class AgentRunner
             return new ToolStepNarrationPlan(assistantNarration, "assistant_content");
         }
 
-        return BuildToolStepNarration(toolName, args) is { } fallbackNarration
+        var narrationPlan = BuildToolStepNarration(toolName, args) is { } fallbackNarration
             ? new ToolStepNarrationPlan(fallbackNarration, "tool_fallback")
             : null;
+
+        return ShouldSuppressSequentialEvidenceNarration(previousToolName, narrationPlan, toolName)
+            ? null
+            : narrationPlan;
     }
 
     internal static string? TryExtractToolStepNarrationFromAssistantContent(string? assistantContent)
@@ -1535,6 +1579,17 @@ internal static class AgentRunner
         }
     }
 
+    private static bool ShouldSuppressSequentialEvidenceNarration(
+        string? previousToolName,
+        ToolStepNarrationPlan? narrationPlan,
+        string currentToolName)
+    {
+        return narrationPlan is not null
+               && string.Equals(narrationPlan.Source, "tool_fallback", StringComparison.Ordinal)
+               && IsWindowEvidenceTool(previousToolName)
+               && IsWindowEvidenceTool(currentToolName);
+    }
+
     internal static string? BuildToolStepNarration(
         string toolName,
         IReadOnlyDictionary<string, object?> args)
@@ -1561,6 +1616,9 @@ internal static class AgentRunner
             _ => null
         };
     }
+
+    private static bool IsWindowEvidenceTool(string? toolName)
+        => toolName is "describe_selected_window" or "capture_selected_window_screenshot";
 
     internal static string? BuildToolSpecificGuidance(
         string toolName,
@@ -2048,7 +2106,7 @@ internal static class AgentRunner
             var snapshotStopwatch = Stopwatch.StartNew();
             var retrySnapshot = await mcpManager.CallToolAsync(
                 "describe_selected_window",
-                new Dictionary<string, object?> { ["maxDepth"] = 4 },
+                new Dictionary<string, object?> { ["fullDepth"] = true },
                 cancellationToken);
             Display.ToolResult("describe_selected_window", retrySnapshot.Text, retrySnapshot.Images.Count);
             var compactRetrySnapshot = UiSnapshotCompactor.CompactToolTextForContext(
@@ -3523,6 +3581,22 @@ internal static class AgentRunner
             string text => text,
             JsonElement element when element.ValueKind == JsonValueKind.String => element.GetString(),
             _ => value.ToString()
+        };
+    }
+
+    private static bool? TryGetBooleanArgument(IReadOnlyDictionary<string, object?> args, string key)
+    {
+        if (!args.TryGetValue(key, out var value) || value is null)
+        {
+            return null;
+        }
+
+        return value switch
+        {
+            bool booleanValue => booleanValue,
+            JsonElement element when element.ValueKind is JsonValueKind.True or JsonValueKind.False => element.GetBoolean(),
+            _ when bool.TryParse(value.ToString(), out var parsed) => parsed,
+            _ => null
         };
     }
 
