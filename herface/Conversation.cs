@@ -106,7 +106,24 @@ internal static class AgentRunner
         var llmAttempt = 0;
         string? recentListWindowsOutput = null;
         string? recentWindowContext = null;
+        string? recentUiTreeContext = null;
         string? recentFocusContext = null;
+
+        void RememberRecentWindowSnapshot(string snapshotText)
+        {
+            if (DescribePrimaryWindowFromToolOutput(snapshotText) is not null)
+            {
+                recentWindowContext = snapshotText;
+            }
+
+            if (SnapshotContainsElementTree(snapshotText))
+            {
+                recentUiTreeContext = snapshotText;
+            }
+        }
+
+        string? ResolveActionableUiTreeContext()
+            => GetCurrentUiTreeContext(recentWindowContext, recentUiTreeContext);
 
         while (true)
         {
@@ -284,7 +301,7 @@ internal static class AgentRunner
                 async Task MaybeExitBrowserFullscreenAsync(string reason)
                 {
                     if (attemptedBrowserFullscreenExit ||
-                        !ShouldExitBrowserFullscreenBeforeBrowserShortcut(recentWindowContext))
+                        !ShouldExitBrowserFullscreenBeforeBrowserShortcut(ResolveActionableUiTreeContext()))
                     {
                         return;
                     }
@@ -311,10 +328,9 @@ internal static class AgentRunner
                                 ["resultPreview"] = DebugTrace.Preview(exitResult.Text, 600),
                             });
 
-                        if (!exitResult.IsError &&
-                            DescribePrimaryWindowFromToolOutput(exitResult.Text) is not null)
+                        if (!exitResult.IsError)
                         {
-                            recentWindowContext = exitResult.Text;
+                            RememberRecentWindowSnapshot(exitResult.Text);
                         }
                     }
                     catch (Exception ex)
@@ -405,7 +421,7 @@ internal static class AgentRunner
                             if (!selectionResult.IsError &&
                                 DescribePrimaryWindowFromToolOutput(selectionResult.Text) is not null)
                             {
-                                recentWindowContext = selectionResult.Text;
+                                RememberRecentWindowSnapshot(selectionResult.Text);
                                 return;
                             }
                         }
@@ -455,7 +471,7 @@ internal static class AgentRunner
                         if (!launchResult.IsError &&
                             DescribePrimaryWindowFromToolOutput(launchResult.Text) is not null)
                         {
-                            recentWindowContext = launchResult.Text;
+                            RememberRecentWindowSnapshot(launchResult.Text);
                         }
 
                         var followUpSelectionArgs = TryBuildLaunchFollowUpSelectionArguments(launchResult.Text);
@@ -482,7 +498,7 @@ internal static class AgentRunner
                             if (!followUpResult.IsError &&
                                 DescribePrimaryWindowFromToolOutput(followUpResult.Text) is not null)
                             {
-                                recentWindowContext = followUpResult.Text;
+                                RememberRecentWindowSnapshot(followUpResult.Text);
                             }
                         }
                     }
@@ -536,10 +552,7 @@ internal static class AgentRunner
 
                             if (!focusResult.IsError)
                             {
-                                if (DescribePrimaryWindowFromToolOutput(focusResult.Text) is not null)
-                                {
-                                    recentWindowContext = focusResult.Text;
-                                }
+                                RememberRecentWindowSnapshot(focusResult.Text);
 
                                 recentFocusContext = focusResult.Text;
                             }
@@ -585,7 +598,7 @@ internal static class AgentRunner
                         if (!selectAllResult.IsError &&
                             DescribePrimaryWindowFromToolOutput(selectAllResult.Text) is not null)
                         {
-                            recentWindowContext = selectAllResult.Text;
+                            RememberRecentWindowSnapshot(selectAllResult.Text);
                         }
                     }
                     catch (Exception ex)
@@ -635,7 +648,7 @@ internal static class AgentRunner
                         if (!submitResult.IsError &&
                             DescribePrimaryWindowFromToolOutput(submitResult.Text) is not null)
                         {
-                            recentWindowContext = submitResult.Text;
+                            RememberRecentWindowSnapshot(submitResult.Text);
                         }
 
                         await Task.Delay(1200, cancellationToken);
@@ -682,11 +695,13 @@ internal static class AgentRunner
                         });
                 }
 
+                var actionableUiTreeContext = ResolveActionableUiTreeContext();
+
                 if (TryRewriteBrowserSearchControlAction(
                         userText,
                         toolCall.Name,
                         executableArgs,
-                        recentWindowContext,
+                        actionableUiTreeContext,
                         out var rewrittenBrowserSearchArgs))
                 {
                     executableArgs = rewrittenBrowserSearchArgs;
@@ -708,7 +723,7 @@ internal static class AgentRunner
                         userText,
                         toolCall.Name,
                         executableArgs,
-                        recentWindowContext,
+                        actionableUiTreeContext,
                         out var rewrittenNamedTargetArgs))
                 {
                     executableArgs = rewrittenNamedTargetArgs;
@@ -730,7 +745,7 @@ internal static class AgentRunner
                         userText,
                         toolCall.Name,
                         executableArgs,
-                        recentWindowContext,
+                        actionableUiTreeContext,
                         out var rewrittenBrowserSearchTypingArgs,
                         out var rewrittenBrowserSearchFieldPath))
                 {
@@ -758,7 +773,7 @@ internal static class AgentRunner
                 if (TryRewriteBrowserAddressBarActionToShortcut(
                         toolCall.Name,
                         executableArgs,
-                        recentWindowContext,
+                        actionableUiTreeContext,
                         out var rewrittenBrowserAddressBarArgs))
                 {
                     await MaybeExitBrowserFullscreenAsync("browser_address_bar_shortcut_rewrite");
@@ -815,7 +830,7 @@ internal static class AgentRunner
                         if (!newTabResult.IsError &&
                             DescribePrimaryWindowFromToolOutput(newTabResult.Text) is not null)
                         {
-                            recentWindowContext = newTabResult.Text;
+                            RememberRecentWindowSnapshot(newTabResult.Text);
                         }
                     }
                     catch (Exception ex)
@@ -858,7 +873,7 @@ internal static class AgentRunner
                         if (!primeResult.IsError &&
                             DescribePrimaryWindowFromToolOutput(primeResult.Text) is not null)
                         {
-                            recentWindowContext = primeResult.Text;
+                            RememberRecentWindowSnapshot(primeResult.Text);
                         }
                     }
                     catch (Exception ex)
@@ -975,10 +990,7 @@ internal static class AgentRunner
                         recentListWindowsOutput = toolOutput.Text;
                     }
 
-                    if (DescribePrimaryWindowFromToolOutput(toolOutput.Text) is not null)
-                    {
-                        recentWindowContext = toolOutput.Text;
-                    }
+                    RememberRecentWindowSnapshot(toolOutput.Text);
 
                     if (toolCall.Name is "focus_selected_window_element" or "describe_selected_window_focus")
                     {
@@ -1023,6 +1035,11 @@ internal static class AgentRunner
                                             followUpSelectionArgs,
                                             cancellationToken);
                                         Display.ToolResult("select_window", selectResult.Text, selectResult.Images.Count);
+                                        if (!selectResult.IsError)
+                                        {
+                                            RememberRecentWindowSnapshot(selectResult.Text);
+                                        }
+
                                         followUpEvidence.Add(new AgentMessage.User(
                                             $"Internal window re-selection after launching \"{appName}\":\n{selectResult.Text}"));
                                         if (selectResult.Images.Count > 0)
@@ -1081,7 +1098,7 @@ internal static class AgentRunner
                             new Dictionary<string, object?> { ["maxDepth"] = 4 },
                             cancellationToken);
                         Display.ToolResult("describe_selected_window", postActionSnapshot.Text, postActionSnapshot.Images.Count);
-                        recentWindowContext = postActionSnapshot.Text;
+                        RememberRecentWindowSnapshot(postActionSnapshot.Text);
                         var compactPostActionSnapshot = UiSnapshotCompactor.CompactToolTextForContext(
                             "describe_selected_window",
                             postActionSnapshot.Text,
@@ -2013,6 +2030,37 @@ internal static class AgentRunner
         return null;
     }
 
+    internal static string? GetCurrentUiTreeContext(
+        string? recentWindowContext,
+        string? recentUiTreeContext)
+    {
+        if (!SnapshotContainsElementTree(recentUiTreeContext))
+        {
+            return SnapshotContainsElementTree(recentWindowContext)
+                ? recentWindowContext
+                : null;
+        }
+
+        if (string.IsNullOrWhiteSpace(recentWindowContext))
+        {
+            return recentUiTreeContext;
+        }
+
+        var uiTreeContext = recentUiTreeContext!;
+        var currentWindow = DescribePrimaryWindowFromToolOutput(recentWindowContext);
+        var treeWindow = DescribePrimaryWindowFromToolOutput(uiTreeContext);
+        if (string.IsNullOrWhiteSpace(currentWindow) ||
+            string.IsNullOrWhiteSpace(treeWindow) ||
+            string.Equals(currentWindow, treeWindow, StringComparison.OrdinalIgnoreCase))
+        {
+            return uiTreeContext;
+        }
+
+        return SnapshotContainsElementTree(recentWindowContext)
+            ? recentWindowContext
+            : null;
+    }
+
     internal static bool TryRewriteSelectWindowArguments(
         IReadOnlyDictionary<string, object?> args,
         string? recentListWindowsOutput,
@@ -2448,6 +2496,25 @@ internal static class AgentRunner
 
             return TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree) &&
                    ContainsMatchingElement(elementTree, ElementLooksLikeBrowserAddressBar);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool SnapshotContainsElementTree(string? snapshotText)
+    {
+        if (string.IsNullOrWhiteSpace(snapshotText))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(snapshotText);
+            return TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree) &&
+                   elementTree.ValueKind == JsonValueKind.Object;
         }
         catch
         {

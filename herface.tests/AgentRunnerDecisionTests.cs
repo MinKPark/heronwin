@@ -525,6 +525,112 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void GetCurrentUiTreeContext_PreservesMatchingTreeSnapshot_AfterScreenshotOnlyUpdate()
+    {
+        var uiTreeSnapshot =
+            """
+            {
+              "Window": {
+                "Handle": "0x00250450",
+                "Title": "Netflix - Microsoft Edge",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0",
+                    "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0",
+                    "ControlType": "Group",
+                    "AutomationId": "appMountPoint",
+                    "Children": [
+                      {
+                        "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2",
+                        "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2",
+                        "ControlType": "List",
+                        "Children": [
+                          {
+                            "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0",
+                            "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0",
+                            "Name": "Min",
+                            "ControlType": "ListItem",
+                            "ClassName": "profile"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+            """;
+        var screenshotOnlySnapshot =
+            """
+            {
+              "SelectedWindow": {
+                "Handle": "0x00250450",
+                "Title": "Netflix - Microsoft Edge",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "Screenshot": {
+                "MimeType": "image/png"
+              }
+            }
+            """;
+
+        var actionableUiTreeContext = AgentRunner.GetCurrentUiTreeContext(screenshotOnlySnapshot, uiTreeSnapshot);
+        var rewritten = AgentRunner.TryRewriteGenericContainerActionToNamedTarget(
+            "Could you select profile min and end?",
+            "click_selected_window_element",
+            new Dictionary<string, object?> { ["elementPath"] = "1/0/0/1/1/0/0/0/0/0/0/0/0" },
+            actionableUiTreeContext,
+            out var rewrittenArgs);
+
+        Assert.Equal(uiTreeSnapshot, actionableUiTreeContext);
+        Assert.True(rewritten);
+        Assert.Equal("1/0/0/1/1/0/0/0/0/0/0/0/0/2/0", rewrittenArgs["elementPath"]);
+    }
+
+    [Fact]
+    public void GetCurrentUiTreeContext_ReturnsNull_WhenScreenshotWindowDiffersFromStoredTree()
+    {
+        var recentUiTreeContext =
+            """
+            {
+              "Window": {
+                "Handle": "0x00250450",
+                "Title": "Netflix - Microsoft Edge",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window"
+              }
+            }
+            """;
+        var recentWindowContext =
+            """
+            {
+              "SelectedWindow": {
+                "Handle": "0x00060A88",
+                "Title": "YouTube - Personal - Microsoft Edge",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "Screenshot": {
+                "MimeType": "image/png"
+              }
+            }
+            """;
+
+        var actual = AgentRunner.GetCurrentUiTreeContext(recentWindowContext, recentUiTreeContext);
+
+        Assert.Null(actual);
+    }
+
+    [Fact]
     public void TryRewriteGenericContainerActionToNamedTarget_RewritesClickToExactNamedListItem()
     {
         var snapshot =
