@@ -5,17 +5,17 @@ VisualStudioVersion = 17.5.2.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "herbody", "herbody", "{4297FEFB-3DB8-2E3F-8FE4-C37F4169AE42}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "eyesandhands", "src\herbody\eyesandhands\eyesandhands.csproj", "{A7507561-0C8C-D674-6204-3731DA2F9F6C}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "eyesandhands", "herbody\eyesandhands\eyesandhands.csproj", "{A7507561-0C8C-D674-6204-3731DA2F9F6C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HeronWin.HerBody.EyesAndHands.Tests", "src\herbody\eyesandhands.tests\HeronWin.HerBody.EyesAndHands.Tests.csproj", "{B5F75D69-7F11-4D9F-981D-D239A5273E02}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HeronWin.HerBody.EyesAndHands.Tests", "herbody\eyesandhands.tests\HeronWin.HerBody.EyesAndHands.Tests.csproj", "{B5F75D69-7F11-4D9F-981D-D239A5273E02}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "herface", "herface", "{C7F68188-A07E-380E-65FC-5A5D072F1336}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Herface", "src\herface\Herface.csproj", "{9478285A-C0C7-439E-91DE-4F2A4F9ABD4C}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Herface", "herface\Herface.csproj", "{9478285A-C0C7-439E-91DE-4F2A4F9ABD4C}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "herface.tests", "herface.tests", "{42A8B5DE-4A4C-2E6E-11F7-F4CB753118D0}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HeronWin.HerFace.Tests", "src\herface.tests\HeronWin.HerFace.Tests.csproj", "{A83E1265-DFFB-426D-AB35-8396DE9F0040}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HeronWin.HerFace.Tests", "herface.tests\HeronWin.HerFace.Tests.csproj", "{A83E1265-DFFB-426D-AB35-8396DE9F0040}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
