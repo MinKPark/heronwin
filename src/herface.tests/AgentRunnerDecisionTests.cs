@@ -52,6 +52,15 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void HasExplicitlyUnresolvedOutcome_ReturnsTrue_ForNextStepLanguage()
+    {
+        var actual = AgentRunner.HasExplicitlyUnresolvedOutcome(
+            "Subtitles are visible. Next step should be to open playback controls and disable them.");
+
+        Assert.True(actual);
+    }
+
+    [Fact]
     public void HasExplicitlyUnresolvedOutcome_ReturnsFalse_ForConditionalNoOp()
     {
         var actual = AgentRunner.HasExplicitlyUnresolvedOutcome(
@@ -90,6 +99,26 @@ public sealed class AgentRunnerDecisionTests
 
         Assert.Equal("The screenshot shows Edge on a new tab page.", actual.SpokenText);
         Assert.Equal(reply.LogText, actual.LogText);
+    }
+
+    [Theory]
+    [InlineData("Subtitles are on right now. I'm turning them off.")]
+    [InlineData("자막 메뉴를 열어서 꺼볼게요.")]
+    public void HasDeferredActionPromise_ReturnsTrue_ForFutureActionPromises(string text)
+    {
+        var actual = AgentRunner.HasDeferredActionPromise(text);
+
+        Assert.True(actual);
+    }
+
+    [Theory]
+    [InlineData("Subtitles are still visible on the current Netflix playback frame.")]
+    [InlineData("현재 화면에는 자막이 계속 보이고 있어요.")]
+    public void HasDeferredActionPromise_ReturnsFalse_ForStatusOnlyReplies(string text)
+    {
+        var actual = AgentRunner.HasDeferredActionPromise(text);
+
+        Assert.False(actual);
     }
 
     [Fact]

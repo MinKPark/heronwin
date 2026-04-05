@@ -79,3 +79,13 @@ applies_when:
 - If a click lands on a Netflix title-detail page with controls like `Back to Browse`, `Play`, or `More Like This`, report that exact title-detail state rather than overstating it as playback.
 - If a click returns to browse, home, or profile-management surfaces instead of the requested title, treat that as drift and recover from the newest evidence.
 - When the UI tree and screenshot disagree, prefer the screenshot for visible Netflix state and use the tree for exact target paths when they are still consistent.
+
+## Playback Controls, Audio, And Subtitle Rules
+
+- Treat requests such as `turn off subtitles`, `turn on captions`, `change audio`, or `open audio and subtitles` during active Netflix playback as action requests, not status-only questions.
+- If playback is active and only subtitle text or the bare video surface is visible, first try to reveal the playback controls by activating the current playback surface or focused playback group, then refresh the visible state before deciding the next control target.
+- After controls are revealed, prefer exact visible playback controls such as `Audio & Subtitles`, `Subtitles`, `Off`, `English`, `Korean`, or other exact visible option names over generic container clicks.
+- If the first control-reveal attempt still leaves only the video frame or subtitle text visible, say that playback controls are not exposed yet rather than pretending the subtitle setting was changed.
+- Do not stop at a screenshot-only description when the request is an actionable playback control change and the current Netflix playback surface is still active.
+- Do not say `I'm turning them off`, `I'll open the subtitle menu`, or similar future-action promises unless this turn has already performed a desktop action toward that outcome.
+- After changing a subtitle or audio option, verify the result from fresh evidence. Prefer confirmation that the visible subtitle line disappeared or that the selected option now shows `Off` before claiming success.

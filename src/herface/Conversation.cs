@@ -1464,6 +1464,23 @@ internal static class AgentRunner
                 "Treat `send_input_to_window` as explicit keyboard or text input that still requires follow-up verification; key presses and text entry alone do not confirm that the intended visible UI result occurred.");
         }
 
+        if (toolNames.Overlaps(
+                [
+                    "click_selected_window_element",
+                    "invoke_selected_window_element",
+                    "focus_selected_window_element",
+                    "set_selected_window_element_value",
+                    "send_input_to_window",
+                    "launch_app_via_taskbar_search",
+                    "invoke_main_menu_item",
+                    "invoke_context_menu_item",
+                    "select_taskbar_app"
+                ]))
+        {
+            parts.Add(
+                "Final replies must report what already happened in this turn. Do not say things like `I'm turning it off now` or `I'll open it` unless you already performed a desktop action toward that outcome.");
+        }
+
         if (toolNames.Contains("describe_selected_window") || toolNames.Contains("capture_selected_window_screenshot"))
         {
             parts.Add(
@@ -1995,6 +2012,11 @@ internal static class AgentRunner
             return "say_log_outcome_contradiction";
         }
 
+        if (!performedDesktopAction && HasDeferredActionPromise(reply.SpokenText))
+        {
+            return "deferred_action_promise_without_desktop_action";
+        }
+
         return usedAnyTools && string.IsNullOrWhiteSpace(reply.LogText)
             ? "missing_log_after_tool_use"
             : null;
@@ -2076,7 +2098,44 @@ internal static class AgentRunner
             || combined.Contains("not loaded", StringComparison.Ordinal)
             || combined.Contains("not yet", StringComparison.Ordinal)
             || combined.Contains("still showing", StringComparison.Ordinal)
-            || combined.Contains("still on", StringComparison.Ordinal);
+            || combined.Contains("still on", StringComparison.Ordinal)
+            || combined.Contains("next step should be", StringComparison.Ordinal)
+            || combined.Contains("next step remains", StringComparison.Ordinal);
+    }
+
+    internal static bool HasDeferredActionPromise(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        var combined = text.ToLowerInvariant();
+        return combined.Contains("i'm turning", StringComparison.Ordinal)
+               || combined.Contains("i am turning", StringComparison.Ordinal)
+               || combined.Contains("i'm opening", StringComparison.Ordinal)
+               || combined.Contains("i am opening", StringComparison.Ordinal)
+               || combined.Contains("i'm clicking", StringComparison.Ordinal)
+               || combined.Contains("i am clicking", StringComparison.Ordinal)
+               || combined.Contains("i'm pressing", StringComparison.Ordinal)
+               || combined.Contains("i am pressing", StringComparison.Ordinal)
+               || combined.Contains("i'll turn", StringComparison.Ordinal)
+               || combined.Contains("i will turn", StringComparison.Ordinal)
+               || combined.Contains("i'll open", StringComparison.Ordinal)
+               || combined.Contains("i will open", StringComparison.Ordinal)
+               || combined.Contains("i'll click", StringComparison.Ordinal)
+               || combined.Contains("i will click", StringComparison.Ordinal)
+               || combined.Contains("i'll press", StringComparison.Ordinal)
+               || combined.Contains("i will press", StringComparison.Ordinal)
+               || combined.Contains("let me turn", StringComparison.Ordinal)
+               || combined.Contains("let me open", StringComparison.Ordinal)
+               || combined.Contains("let me click", StringComparison.Ordinal)
+               || combined.Contains("let me press", StringComparison.Ordinal)
+               || combined.Contains("꺼볼게요", StringComparison.Ordinal)
+               || combined.Contains("켜볼게요", StringComparison.Ordinal)
+               || combined.Contains("열어볼게요", StringComparison.Ordinal)
+               || combined.Contains("눌러볼게요", StringComparison.Ordinal)
+               || combined.Contains("해볼게요", StringComparison.Ordinal);
     }
 
     private static bool LooksLikeConditionalNoOpOutcome(string combinedLowerText)
@@ -2225,7 +2284,7 @@ internal static class AgentRunner
     private static string BuildRepairInstruction(bool performedDesktopAction)
         => performedDesktopAction
             ? "Rewrite your previous answer as strict JSON only: {\"say\":\"...\",\"log\":\"...\"}. Use the post-action UI Automation tree first. If the current evidence is too sparse or ambiguous to describe the visible screen confidently, do not guess. `say` and `log` must not contradict each other. If the evidence shows the request is incomplete or failed, `say` must also say that clearly. In say, include the action outcome, the current visible screen state if it is supported by evidence, and 2 or 3 likely next actions. In log, include the fuller evidence-based description and briefly note any uncertainty."
-            : "Rewrite your previous answer as strict JSON only: {\"say\":\"...\",\"log\":\"...\"}. Keep say short and spoken-friendly. Put fuller detail in log.";
+            : "Rewrite your previous answer as strict JSON only: {\"say\":\"...\",\"log\":\"...\"}. Keep say short and spoken-friendly. Put fuller detail in log. Do not promise a UI action unless this turn already performed it. If no desktop action happened yet, describe the current visible state truthfully and, if needed, the next step that is still required instead of saying you are doing it now.";
 
     internal static IReadOnlyDictionary<string, object?>? TryBuildLaunchFollowUpSelectionArguments(string toolOutputText)
     {

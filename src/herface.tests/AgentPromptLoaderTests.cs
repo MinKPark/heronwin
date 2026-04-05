@@ -85,7 +85,7 @@ public sealed class AgentPromptLoaderTests
     }
 
     [Fact]
-    public void RepositoryNetflixSkill_IncludesPinAndHomeNavigationGuidance()
+    public void RepositoryNetflixSkill_IncludesPinHomeNavigationAndSubtitleGuidance()
     {
         var skillsDirectory = Path.Combine(FindRepoRoot(), ".github", "agents", "skills");
 
@@ -98,6 +98,9 @@ public sealed class AgentPromptLoaderTests
         Assert.Contains("obvious ASR variants", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Shows`, `Movies`, `Games`", prompt.PromptText, StringComparison.Ordinal);
         Assert.Contains("Back to Browse", prompt.PromptText, StringComparison.Ordinal);
+        Assert.Contains("turn off subtitles", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("reveal the playback controls", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Do not say `I'm turning them off`", prompt.PromptText, StringComparison.Ordinal);
     }
 
     private static string FindRepoRoot()
