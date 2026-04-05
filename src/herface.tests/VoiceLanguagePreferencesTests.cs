@@ -49,8 +49,9 @@ public sealed class VoiceLanguagePreferencesTests
 
         var actual = VoiceLanguagePreferences.BuildTranscriptionPrompt(languages);
 
+        Assert.StartsWith("Context:", actual, StringComparison.Ordinal);
         Assert.Contains("American English", actual, StringComparison.Ordinal);
         Assert.Contains("Korean", actual, StringComparison.Ordinal);
-        Assert.Contains("switch naturally between them", actual, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Mixed-language utterances may occur", actual, StringComparison.Ordinal);
     }
 }

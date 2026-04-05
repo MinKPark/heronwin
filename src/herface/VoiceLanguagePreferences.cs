@@ -31,10 +31,10 @@ internal static class VoiceLanguagePreferences
         var labels = effectiveLanguages.Select(language => language.DisplayName).ToArray();
         if (labels.Length == 1)
         {
-            return $"The user's main spoken language is {labels[0]}. Transcribe the audio faithfully, keeping names and short commands natural.";
+            return $"Context: primary spoken language = {labels[0]}. Preserve names and short command phrases.";
         }
 
-        return $"The user's main spoken languages are {string.Join(", ", labels)}. The audio may switch naturally between them in the same utterance. Transcribe faithfully and preserve mixed-language speech, names, and short command phrases.";
+        return $"Context: primary spoken languages = {string.Join(", ", labels)}. Mixed-language utterances may occur. Preserve names and short command phrases.";
     }
 
     internal static string? GetSingleOpenAiLanguageCode(IReadOnlyList<VoiceLanguagePreference> languages)

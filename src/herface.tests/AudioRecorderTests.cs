@@ -115,6 +115,59 @@ public sealed class AudioRecorderTests
         Assert.True(AudioRecorder.ShouldTreatChunkAsSpeech(peak, rms, analysis));
     }
 
+    [Fact]
+    public void ShouldTreatChunkAsSpeech_ReturnsFalse_InStandby_ForPeakOnlyNoise()
+    {
+        Assert.False(AudioRecorder.ShouldTreatChunkAsSpeech(
+            peak: 0.18,
+            rms: 0.010,
+            speakerLeakAnalysis: AudioRecorder.SpeakerLeakAnalysis.None(),
+            isStandbyDetection: true));
+    }
+
+    [Fact]
+    public void ShouldTreatChunkAsSpeech_ReturnsTrue_InStandby_ForClearVoiceLevels()
+    {
+        Assert.True(AudioRecorder.ShouldTreatChunkAsSpeech(
+            peak: 0.16,
+            rms: 0.024,
+            speakerLeakAnalysis: AudioRecorder.SpeakerLeakAnalysis.None(),
+            isStandbyDetection: true));
+    }
+
+    [Fact]
+    public void ShouldKeepStandbyRecording_ReturnsFalse_ForWeakSparseCapture()
+    {
+        Assert.False(AudioRecorder.ShouldKeepStandbyRecording(
+            speechBufferCount: 4,
+            maxConsecutiveSpeechBuffers: 3,
+            maxSpeechPeak: 0.18,
+            maxSpeechRms: 0.019,
+            averageSpeechRms: 0.015));
+    }
+
+    [Fact]
+    public void ShouldKeepStandbyRecording_ReturnsFalse_ForLowEnergySustainedNoise()
+    {
+        Assert.False(AudioRecorder.ShouldKeepStandbyRecording(
+            speechBufferCount: 12,
+            maxConsecutiveSpeechBuffers: 5,
+            maxSpeechPeak: 0.078,
+            maxSpeechRms: 0.019,
+            averageSpeechRms: 0.014));
+    }
+
+    [Fact]
+    public void ShouldKeepStandbyRecording_ReturnsTrue_ForClearWakePhrase()
+    {
+        Assert.True(AudioRecorder.ShouldKeepStandbyRecording(
+            speechBufferCount: 9,
+            maxConsecutiveSpeechBuffers: 7,
+            maxSpeechPeak: 0.22,
+            maxSpeechRms: 0.041,
+            averageSpeechRms: 0.028));
+    }
+
     private static short[] BuildPseudoSpeech(int sampleCount, int seed, double amplitude)
     {
         var random = new Random(seed);

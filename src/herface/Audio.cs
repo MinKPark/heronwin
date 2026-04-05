@@ -42,12 +42,20 @@ internal static class AudioRecorder
     public const int ChannelCount = 1;
     public const int BitsPerSample = 16;
     private const int BufferMilliseconds = 100;
-    private const int PreRollMilliseconds = 2_500;
+    private const int ActivePreRollMilliseconds = 2_500;
+    private const int StandbyPreRollMilliseconds = 1_200;
     private const int SilenceGraceMs = 1_000;
     private const int MinSpeechCaptureMs = 350;
-    private const int ConsecutiveSpeechBuffers = 2;
+    private const int ActiveConsecutiveSpeechBuffers = 2;
+    private const int StandbyConsecutiveSpeechBuffers = 3;
     private const double SpeechPeakThreshold = 0.03;
     private const double SpeechRmsThreshold = 0.009;
+    private const double StandbySpeechPeakThreshold = 0.085;
+    private const double StandbySpeechRmsThreshold = 0.012;
+    private const int StandbyMinimumSpeechBuffers = 5;
+    private const int StandbyMinimumConsecutiveSpeechBuffers = 4;
+    private const double StandbyMinimumAverageSpeechRms = 0.016;
+    private const double StandbyMinimumMaxSpeechRms = 0.022;
     private const int SpeakerReferenceHistoryMs = 3_000;
     private const int SpeakerLagSearchMs = 750;
     private const int SpeakerLagSearchStepMs = 5;
@@ -73,6 +81,9 @@ internal static class AudioRecorder
 
     public static Task<RecordingResult?> RecordAsync(int maxDurationMs, int? maxWaitForSpeechMs, CancellationToken cancellationToken)
     {
+        var isStandbyDetection = maxWaitForSpeechMs is null;
+        var preRollMilliseconds = isStandbyDetection ? StandbyPreRollMilliseconds : ActivePreRollMilliseconds;
+        var requiredSpeechBuffers = isStandbyDetection ? StandbyConsecutiveSpeechBuffers : ActiveConsecutiveSpeechBuffers;
         var tempPath = Path.Combine(Path.GetTempPath(), $"herface-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}.wav");
         var completion = new TaskCompletionSource<RecordingResult?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var waveIn = new WaveInEvent
@@ -92,10 +103,15 @@ internal static class AudioRecorder
         long pcmDataBytes = 0;
         var speechStarted = false;
         var consecutiveSpeechBuffers = 0;
+        var maxConsecutiveSpeechBuffers = 0;
         var consecutiveSilenceBuffers = 0;
+        var speechBufferCount = 0;
+        var maxSpeechPeak = 0d;
+        var maxSpeechRms = 0d;
+        double totalSpeechRms = 0;
         var stopRequested = 0;
         var silenceBuffersToStop = (int)Math.Ceiling((double)SilenceGraceMs / BufferMilliseconds);
-        var preRollBytesLimit = waveIn.WaveFormat.AverageBytesPerSecond * PreRollMilliseconds / 1000;
+        var preRollBytesLimit = waveIn.WaveFormat.AverageBytesPerSecond * preRollMilliseconds / 1000;
         var preRollBytes = 0;
         var preRollBuffers = new Queue<BufferedAudioChunk>();
         var speakerFilteredBufferCount = 0;
@@ -136,7 +152,7 @@ internal static class AudioRecorder
                 speakerFilteredBufferCount += 1;
             }
 
-            var looksLikeSpeech = ShouldTreatChunkAsSpeech(levels.Peak, levels.Rms, speakerLeakAnalysis);
+            var looksLikeSpeech = ShouldTreatChunkAsSpeech(levels.Peak, levels.Rms, speakerLeakAnalysis, isStandbyDetection);
             if (speakerLeakAnalysis.IsLikelySpeakerDominant)
             {
                 speakerDominantBufferCount += 1;
@@ -144,6 +160,14 @@ internal static class AudioRecorder
                 {
                     speakerOnlyBufferCount += 1;
                 }
+            }
+
+            if (looksLikeSpeech)
+            {
+                speechBufferCount += 1;
+                totalSpeechRms += levels.Rms;
+                maxSpeechPeak = Math.Max(maxSpeechPeak, levels.Peak);
+                maxSpeechRms = Math.Max(maxSpeechRms, levels.Rms);
             }
 
             if (!speechStarted)
@@ -159,7 +183,8 @@ internal static class AudioRecorder
                 if (looksLikeSpeech)
                 {
                     consecutiveSpeechBuffers += 1;
-                    if (consecutiveSpeechBuffers >= ConsecutiveSpeechBuffers)
+                    maxConsecutiveSpeechBuffers = Math.Max(maxConsecutiveSpeechBuffers, consecutiveSpeechBuffers);
+                    if (consecutiveSpeechBuffers >= requiredSpeechBuffers)
                     {
                         speechStarted = true;
                         startedAt = preRollBuffers.Count > 0 ? preRollBuffers.Peek().StartedAt : chunk.StartedAt;
@@ -192,11 +217,14 @@ internal static class AudioRecorder
 
             if (looksLikeSpeech)
             {
+                consecutiveSpeechBuffers += 1;
+                maxConsecutiveSpeechBuffers = Math.Max(maxConsecutiveSpeechBuffers, consecutiveSpeechBuffers);
                 consecutiveSilenceBuffers = 0;
                 lastSpeechAt = chunk.EndedAt;
             }
             else
             {
+                consecutiveSpeechBuffers = 0;
                 consecutiveSilenceBuffers += 1;
             }
 
@@ -236,6 +264,23 @@ internal static class AudioRecorder
 
                 if (!speechStarted)
                 {
+                    TryDeleteFile(tempPath);
+                    completion.TrySetResult(null);
+                    return;
+                }
+
+                var averageSpeechRms = speechBufferCount == 0 ? 0 : totalSpeechRms / speechBufferCount;
+                if (isStandbyDetection
+                    && !ShouldKeepStandbyRecording(
+                        speechBufferCount,
+                        maxConsecutiveSpeechBuffers,
+                        maxSpeechPeak,
+                        maxSpeechRms,
+                        averageSpeechRms))
+                {
+                    DebugTrace.WriteEvent(
+                        "audio.recording_discarded",
+                        $"reason=weak-standby-audio, speechBuffers={speechBufferCount}, maxConsecutiveSpeechBuffers={maxConsecutiveSpeechBuffers}, maxSpeechPeak={maxSpeechPeak:F3}, maxSpeechRms={maxSpeechRms:F3}, averageSpeechRms={averageSpeechRms:F3}, filteredBuffers={speakerFilteredBufferCount}, speakerDominantBuffers={speakerDominantBufferCount}, speakerOnlyBuffers={speakerOnlyBufferCount}, maxExplainedRatio={maxSpeakerExplainedRatio:F2}");
                     TryDeleteFile(tempPath);
                     completion.TrySetResult(null);
                     return;
@@ -321,7 +366,11 @@ internal static class AudioRecorder
         return new AudioLevels(peakNormalized, rmsNormalized);
     }
 
-    internal static bool ShouldTreatChunkAsSpeech(double peak, double rms, SpeakerLeakAnalysis speakerLeakAnalysis)
+    internal static bool ShouldTreatChunkAsSpeech(
+        double peak,
+        double rms,
+        SpeakerLeakAnalysis speakerLeakAnalysis,
+        bool isStandbyDetection = false)
     {
         if (speakerLeakAnalysis.IsLikelySpeakerOnly)
         {
@@ -338,8 +387,25 @@ internal static class AudioRecorder
                        || rms >= SpeakerDominantSpeechRmsThreshold);
         }
 
+        if (isStandbyDetection)
+        {
+            return peak >= StandbySpeechPeakThreshold && rms >= StandbySpeechRmsThreshold;
+        }
+
         return peak >= SpeechPeakThreshold || rms >= SpeechRmsThreshold;
     }
+
+    internal static bool ShouldKeepStandbyRecording(
+        int speechBufferCount,
+        int maxConsecutiveSpeechBuffers,
+        double maxSpeechPeak,
+        double maxSpeechRms,
+        double averageSpeechRms)
+        => speechBufferCount >= StandbyMinimumSpeechBuffers
+           && maxConsecutiveSpeechBuffers >= StandbyMinimumConsecutiveSpeechBuffers
+           && maxSpeechPeak >= StandbySpeechPeakThreshold
+           && maxSpeechRms >= StandbyMinimumMaxSpeechRms
+           && averageSpeechRms >= StandbyMinimumAverageSpeechRms;
 
     internal static SpeakerLeakAnalysis FilterSpeakerLeak(short[] microphoneSamples, float[] renderReferenceHistory)
     {
