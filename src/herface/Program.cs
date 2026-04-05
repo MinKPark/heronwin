@@ -53,11 +53,19 @@ DebugTrace.WriteStructuredEvent(
         ["openAiModel"] = config.OpenAiModel,
         ["anthropicModel"] = config.AnthropicModel,
         ["whisperModel"] = config.WhisperModel,
+        ["voiceLanguages"] = config.VoiceLanguages.Select(static language => new Dictionary<string, object?>
+        {
+            ["displayName"] = language.DisplayName,
+            ["openAiLanguageCode"] = language.OpenAiLanguageCode,
+        }).ToArray(),
         ["ttsModel"] = config.TtsModel,
         ["ttsVoice"] = config.TtsVoice,
         ["wakeWord"] = config.WakeWord,
         ["maxContextTokens"] = config.MaxContextTokens,
         ["debugAudioPlayback"] = config.DebugAudioPlayback,
+        ["debugVoiceDirectory"] = DebugTrace.IsEnabled
+            ? ArtifactCleanup.GetDebugVoiceRecordingDirectory(AppContext.BaseDirectory)
+            : null,
         ["mcpServers"] = config.McpServers.Select(server => new Dictionary<string, object?>
         {
             ["name"] = server.Name,
@@ -72,7 +80,7 @@ DebugTrace.WriteStructuredEvent(
 
 DebugTrace.WriteEvent(
     "config.loaded",
-    $"mode={(consoleOptions.IsScripted ? "scripted" : "voice")}, llmProvider={config.LlmProvider}, openAiModel={config.OpenAiModel}, anthropicModel={config.AnthropicModel}, whisperModel={config.WhisperModel}, wakeWord={DebugTrace.SerializeObject(config.WakeWord)}, agentDefinitionPath={config.AgentDefinitionPath}, agentCoreDefinitionPath={config.AgentPrompts.CoreDefinitionPath ?? "(none)"}, agentSkills={config.AgentPrompts.Skills.Count}, mcpServers={config.McpServers.Count}, debugTrace={DebugTrace.IsEnabled}, debugAudioPlayback={config.DebugAudioPlayback}");
+    $"mode={(consoleOptions.IsScripted ? "scripted" : "voice")}, llmProvider={config.LlmProvider}, openAiModel={config.OpenAiModel}, anthropicModel={config.AnthropicModel}, whisperModel={config.WhisperModel}, voiceLanguages={DebugTrace.SerializeObject(config.VoiceLanguages.Select(static language => language.DisplayName).ToArray())}, wakeWord={DebugTrace.SerializeObject(config.WakeWord)}, agentDefinitionPath={config.AgentDefinitionPath}, agentCoreDefinitionPath={config.AgentPrompts.CoreDefinitionPath ?? "(none)"}, agentSkills={config.AgentPrompts.Skills.Count}, mcpServers={config.McpServers.Count}, debugTrace={DebugTrace.IsEnabled}, debugAudioPlayback={config.DebugAudioPlayback}");
 
 if (consoleOptions.IsScripted)
 {
@@ -81,7 +89,7 @@ if (consoleOptions.IsScripted)
     DebugTrace.WriteEvent("session.shutdown", "Application shutdown completed.");
     if (!DebugTrace.IsEnabled)
     {
-        ArtifactCleanup.CleanupCurrentRunArtifacts(DebugTrace.LogFilePath, DebugTrace.JsonLogFilePath);
+        ArtifactCleanup.CleanupCurrentRunArtifacts(DebugTrace.LogFilePath, DebugTrace.JsonLogFilePath, AppContext.BaseDirectory);
     }
 
     PrintDebugLogPathIfEnabled();
@@ -114,6 +122,7 @@ if (httpClientSetup.BypassedBrokenLoopbackProxy)
 Display.Info($"Microphone: {AudioDevices.DescribeDefaultMicrophone()}");
 Display.Info($"Speaker: {AudioDevices.DescribeDefaultSpeaker()}");
 Display.Info($"Mic capture: {AudioRecorder.DescribeRecordingFormat()}");
+Display.Info($"Voice languages: {string.Join(", ", config.VoiceLanguages.Select(static language => language.DisplayName))}");
 if (DebugTrace.IsEnabled && !string.IsNullOrWhiteSpace(DebugTrace.LogFilePath))
 {
     Display.Info($"Debug trace: {DebugTrace.LogFilePath}");
@@ -121,6 +130,8 @@ if (DebugTrace.IsEnabled && !string.IsNullOrWhiteSpace(DebugTrace.LogFilePath))
     {
         Display.Info($"Debug trace JSONL: {DebugTrace.JsonLogFilePath}");
     }
+
+    Display.Info($"Debug voice WAVs: {ArtifactCleanup.GetDebugVoiceRecordingDirectory(AppContext.BaseDirectory)}");
 }
 if (speechSynthesizer is not null)
 {
@@ -275,6 +286,7 @@ while (!cancellationSource.IsCancellationRequested)
                 $"Debug WAV span: {recording.WaveDurationMs:F0} ms from {recording.PcmDataBytes} PCM bytes; delta vs wall-clock: {deltaLabel} ({comparison})");
         }
 
+        PersistDebugRecordingIfEnabled(recording);
         userText = await TranscribeRecordingAsync(
             audioTranscriber,
             recording,
@@ -365,7 +377,7 @@ Display.Info("Shutting down...");
 DebugTrace.WriteEvent("session.shutdown", "Application shutdown completed.");
 if (!DebugTrace.IsEnabled)
 {
-    ArtifactCleanup.CleanupCurrentRunArtifacts(DebugTrace.LogFilePath, DebugTrace.JsonLogFilePath);
+    ArtifactCleanup.CleanupCurrentRunArtifacts(DebugTrace.LogFilePath, DebugTrace.JsonLogFilePath, AppContext.BaseDirectory);
 }
 PrintDebugLogPathIfEnabled();
 return;
@@ -491,6 +503,36 @@ static async Task<string> TranscribeRecordingAsync(
     return await transcriptionTask;
 }
 
+static void PersistDebugRecordingIfEnabled(RecordingResult recording)
+{
+    if (!DebugTrace.IsEnabled)
+    {
+        return;
+    }
+
+    try
+    {
+        var savedPath = ArtifactCleanup.SaveDebugVoiceRecording(AppContext.BaseDirectory, recording);
+        DebugTrace.WriteStructuredEvent(
+            "audio.debug_recording_saved",
+            new Dictionary<string, object?>
+            {
+                ["sourcePath"] = recording.FilePath,
+                ["savedPath"] = savedPath,
+                ["startedAt"] = recording.StartedAt,
+                ["endedAt"] = recording.EndedAt,
+                ["waveDurationMs"] = recording.WaveDurationMs,
+                ["pcmDataBytes"] = recording.PcmDataBytes,
+            });
+    }
+    catch (Exception ex)
+    {
+        DebugTrace.WriteEvent(
+            "audio.debug_recording_save_failed",
+            $"sourcePath={recording.FilePath}, error={DebugTrace.Preview(ex.ToString(), 600)}");
+    }
+}
+
 async Task PlayAudioOutputAsync(Func<Task> playback)
 {
     Interlocked.Increment(ref audioOutputActive);
@@ -524,5 +566,7 @@ static void PrintDebugLogPathIfEnabled()
         {
             Display.Info($"Debug JSONL saved to: {DebugTrace.JsonLogFilePath}");
         }
+
+        Display.Info($"Debug voice WAVs saved to: {ArtifactCleanup.GetDebugVoiceRecordingDirectory(AppContext.BaseDirectory)}");
     }
 }

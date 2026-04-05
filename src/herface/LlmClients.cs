@@ -34,7 +34,11 @@ internal static class LlmFactory
     public static IAudioTranscriber? CreateAudioTranscriber(AppConfig config, HttpClient httpClient)
         => string.IsNullOrWhiteSpace(config.OpenAiApiKey)
             ? null
-            : new OpenAiWhisperTranscriber(httpClient, config.OpenAiApiKey, config.WhisperModel);
+            : new OpenAiWhisperTranscriber(
+                httpClient,
+                config.OpenAiApiKey,
+                config.WhisperModel,
+                config.VoiceLanguages);
 
     public static ISpeechSynthesizer? CreateSpeechSynthesizer(AppConfig config, HttpClient httpClient)
         => string.IsNullOrWhiteSpace(config.OpenAiApiKey)
@@ -288,8 +292,15 @@ internal sealed class OpenAiApiClient(
         => !model.StartsWith("gpt-5", StringComparison.OrdinalIgnoreCase);
 }
 
-internal sealed class OpenAiWhisperTranscriber(HttpClient httpClient, string apiKey, string whisperModel) : IAudioTranscriber
+internal sealed class OpenAiWhisperTranscriber(
+    HttpClient httpClient,
+    string apiKey,
+    string whisperModel,
+    IReadOnlyList<VoiceLanguagePreference> preferredVoiceLanguages) : IAudioTranscriber
 {
+    private readonly string _transcriptionPrompt = VoiceLanguagePreferences.BuildTranscriptionPrompt(preferredVoiceLanguages);
+    private readonly string? _languageCode = VoiceLanguagePreferences.GetSingleOpenAiLanguageCode(preferredVoiceLanguages);
+
     public string DisplayName => $"OpenAI Whisper ({whisperModel})";
 
     public async Task<string> TranscribeAudioAsync(string audioFilePath, CancellationToken cancellationToken)
@@ -297,12 +308,18 @@ internal sealed class OpenAiWhisperTranscriber(HttpClient httpClient, string api
         var fileInfo = new FileInfo(audioFilePath);
         DebugTrace.WriteEvent(
             "audio.transcription.start",
-            $"provider=OpenAI Whisper, model={whisperModel}, path={audioFilePath}, bytes={(fileInfo.Exists ? fileInfo.Length : 0)}");
+            $"provider=OpenAI Whisper, model={whisperModel}, path={audioFilePath}, bytes={(fileInfo.Exists ? fileInfo.Length : 0)}, preferredLanguages={DebugTrace.SerializeObject(preferredVoiceLanguages.Select(static language => language.DisplayName).ToArray())}, languageHint={_languageCode ?? "(auto)"}");
         using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/audio/transcriptions");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 
         using var content = new MultipartFormDataContent();
         content.Add(new StringContent(whisperModel), "model");
+        content.Add(new StringContent(_transcriptionPrompt), "prompt");
+        if (!string.IsNullOrWhiteSpace(_languageCode))
+        {
+            content.Add(new StringContent(_languageCode), "language");
+        }
+
         var fileContent = new ByteArrayContent(await File.ReadAllBytesAsync(audioFilePath, cancellationToken));
         fileContent.Headers.ContentType = new MediaTypeHeaderValue("audio/wav");
         content.Add(fileContent, "file", "recording.wav");

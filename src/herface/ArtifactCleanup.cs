@@ -9,6 +9,9 @@ internal static class ArtifactCleanup
 
     internal static string GetEyesAndHandsScreenshotDirectory() => EyesAndHandsScreenshotDirectory;
 
+    internal static string GetDebugVoiceRecordingDirectory(string baseDirectory)
+        => Path.Combine(baseDirectory, "debug-voice");
+
     internal static void CleanupPreviousRunArtifacts(string baseDirectory, string? processPath)
     {
         var debugLogPath = DebugTrace.BuildLogFilePath(baseDirectory, processPath);
@@ -16,9 +19,10 @@ internal static class ArtifactCleanup
         TryDeleteFile(debugLogPath);
         TryDeleteFile(debugJsonLogPath);
         TryDeleteDirectory(EyesAndHandsScreenshotDirectory);
+        TryDeleteDirectory(GetDebugVoiceRecordingDirectory(baseDirectory));
     }
 
-    internal static void CleanupCurrentRunArtifacts(string? debugLogPath, string? debugJsonLogPath)
+    internal static void CleanupCurrentRunArtifacts(string? debugLogPath, string? debugJsonLogPath, string? baseDirectory = null)
     {
         if (!string.IsNullOrWhiteSpace(debugLogPath))
         {
@@ -31,6 +35,20 @@ internal static class ArtifactCleanup
         }
 
         TryDeleteDirectory(EyesAndHandsScreenshotDirectory);
+        if (!string.IsNullOrWhiteSpace(baseDirectory))
+        {
+            TryDeleteDirectory(GetDebugVoiceRecordingDirectory(baseDirectory));
+        }
+    }
+
+    internal static string SaveDebugVoiceRecording(string baseDirectory, RecordingResult recording)
+    {
+        var debugVoiceDirectory = GetDebugVoiceRecordingDirectory(baseDirectory);
+        Directory.CreateDirectory(debugVoiceDirectory);
+        var fileName = $"voice-{recording.StartedAt:yyyyMMdd-HHmmssfff}-{Guid.NewGuid():N}.wav";
+        var destinationPath = Path.Combine(debugVoiceDirectory, fileName);
+        File.Copy(recording.FilePath, destinationPath, overwrite: false);
+        return destinationPath;
     }
 
     private static void TryDeleteFile(string path)
