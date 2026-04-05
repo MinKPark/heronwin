@@ -83,4 +83,42 @@ public sealed class AgentPromptLoaderTests
             }
         }
     }
+
+    [Fact]
+    public void RepositoryNetflixSkill_IncludesPinAndHomeNavigationGuidance()
+    {
+        var skillsDirectory = Path.Combine(FindRepoRoot(), ".github", "agents", "skills");
+
+        var prompts = AgentPromptLoader.LoadSkillPrompts(skillsDirectory);
+
+        var prompt = prompts.Single(prompt => prompt.Key == "netflix-profile-selection-and-playback");
+        Assert.Contains("Profile Lock And PIN Rules", prompt.PromptText, StringComparison.Ordinal);
+        Assert.Contains("one digit at a time", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("obvious ASR variants", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Shows`, `Movies`, `Games`", prompt.PromptText, StringComparison.Ordinal);
+        Assert.Contains("Back to Browse", prompt.PromptText, StringComparison.Ordinal);
+    }
+
+    private static string FindRepoRoot()
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        while (current is not null)
+        {
+            var candidate = Path.Combine(
+                current.FullName,
+                ".github",
+                "agents",
+                "skills",
+                "netflix",
+                "netflix-profile-selection-and-playback.skill.md");
+            if (File.Exists(candidate))
+            {
+                return current.FullName;
+            }
+
+            current = current.Parent;
+        }
+
+        throw new DirectoryNotFoundException("Could not locate the repository root from the test base directory.");
+    }
 }

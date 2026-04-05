@@ -15,8 +15,11 @@ activation:
     - netflix
     - netflix com
     - who s watching
+    - profile lock
     - manage profiles
     - add profile
+    - forgot pin
+    - back to browse
     - continue watching
     - my list
     - profile
@@ -37,24 +40,41 @@ applies_when:
 
 1. Treat Netflix as a layered surface: browser host, Netflix chrome, then title or playback target.
 2. If a profile picker is visible, resolve that gate before browsing titles or claiming playback.
-3. Prefer exact named Netflix tiles, rows, profiles, and title matches over generic wrappers.
-4. After any play or open action, verify the resulting Netflix screen before continuing.
+3. If a Netflix profile lock or PIN screen is visible, stay inside that PIN flow until it is accepted, corrected, or the user changes course.
+4. Prefer exact named Netflix tiles, rows, profiles, navigation tabs, and title matches over generic wrappers.
+5. After any play or open action, verify the resulting Netflix screen before continuing.
 
 ## Profile Rules
 
 - If a Netflix profile picker is visible and the user named an exact profile, target that exact named profile tile.
+- If the spoken profile name is not exact but there is one obvious visible ASR repair, such as `mean` when only `Min` is visible, prefer that repaired exact visible profile over treating the request as absent.
+- If more than one visible profile could match the spoken name, do not guess; ask for a short clarification instead.
 - If the profile picker is visible but the user did not name a profile, stop after reporting that profile selection is still required.
 - Do not guess between visible profiles and do not treat `Manage Profiles`, `Add Profile`, or `Done` as substitutes for the requested profile.
 - When a named profile tile is exposed in the refreshed tree, reuse that exact full `path` or `uiPath` rather than shortening it to a parent wrapper.
 
-## Search And Title Rules
+## Profile Lock And PIN Rules
+
+- When Netflix shows a profile lock or PIN screen with separate digit boxes, treat that as a structured PIN-entry flow rather than a freeform text field.
+- Prefer per-digit entry over bulk text when focus advances box by box; one digit at a time is more reliable than sending the whole PIN as one text string.
+- After each digit or delete action, verify which PIN box is focused or filled before entering the next digit.
+- While the PIN screen is still active, treat bare spoken digits and obvious ASR variants as the next PIN digit when they fit the current sequence. Examples include `five`, `seven`, and a transcription like `nein` when the flow clearly indicates the user likely meant `nine`.
+- Do not switch languages or treat a likely spoken digit as casual conversation while Netflix is still waiting on the remaining PIN digit.
+- Do not claim the PIN was accepted until fresh Netflix home, browse, title-detail, or playback evidence replaces the lock prompt.
+
+## Home Navigation And Title Rules
+
+- If Netflix home or browse navigation is visible and the user asks to browse, watch, open, or go to `Shows`, `Movies`, `Games`, `New & Popular`, or another visible top-level Netflix section, activate that matching visible nav item instead of stopping with an ambiguity-only reply.
+- For title requests, accept minor ASR or spelling drift when there is one obvious visible Netflix near-match and then target the corrected exact visible title. Example: `Expandables` can map to a visible `The Expendables` title when it is the single clear match.
 
 - If the user asked for a Netflix title and an exact named result tile is already visible, prefer that exact tile over re-focusing the search field.
 - Treat Netflix hero banners, centered previews, and generic home navigation as lower-priority targets than an exact named title match.
+- If the hero banner itself is the single obvious corrected match for the requested title, it is acceptable to use that visible hero target.
 - If the search field or result list changes after entry, refresh the state before deciding the next click.
 
 ## Playback Rules
 
 - Do not claim that Netflix started playback until the refreshed UI or screenshot shows a playback or title-detail state consistent with the requested action.
+- If a click lands on a Netflix title-detail page with controls like `Back to Browse`, `Play`, or `More Like This`, report that exact title-detail state rather than overstating it as playback.
 - If a click returns to browse, home, or profile-management surfaces instead of the requested title, treat that as drift and recover from the newest evidence.
 - When the UI tree and screenshot disagree, prefer the screenshot for visible Netflix state and use the tree for exact target paths when they are still consistent.
