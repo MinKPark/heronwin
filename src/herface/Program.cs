@@ -63,9 +63,7 @@ DebugTrace.WriteStructuredEvent(
         ["wakeWord"] = config.WakeWord,
         ["maxContextTokens"] = config.MaxContextTokens,
         ["debugAudioPlayback"] = config.DebugAudioPlayback,
-        ["debugVoiceDirectory"] = DebugTrace.IsEnabled
-            ? ArtifactCleanup.GetDebugVoiceRecordingDirectory(AppContext.BaseDirectory)
-            : null,
+        ["logsDirectory"] = DebugTrace.BuildLogsDirectory(AppContext.BaseDirectory),
         ["mcpServers"] = config.McpServers.Select(server => new Dictionary<string, object?>
         {
             ["name"] = server.Name,
@@ -131,7 +129,7 @@ if (DebugTrace.IsEnabled && !string.IsNullOrWhiteSpace(DebugTrace.LogFilePath))
         Display.Info($"Debug trace JSONL: {DebugTrace.JsonLogFilePath}");
     }
 
-    Display.Info($"Debug voice WAVs: {ArtifactCleanup.GetDebugVoiceRecordingDirectory(AppContext.BaseDirectory)}");
+    Display.Info($"Debug artifacts: {DebugTrace.BuildLogsDirectory(AppContext.BaseDirectory)}");
 }
 if (speechSynthesizer is not null)
 {
@@ -567,6 +565,6 @@ static void PrintDebugLogPathIfEnabled()
             Display.Info($"Debug JSONL saved to: {DebugTrace.JsonLogFilePath}");
         }
 
-        Display.Info($"Debug voice WAVs saved to: {ArtifactCleanup.GetDebugVoiceRecordingDirectory(AppContext.BaseDirectory)}");
+        Display.Info($"Debug artifacts saved under: {DebugTrace.BuildLogsDirectory(AppContext.BaseDirectory)}");
     }
 }

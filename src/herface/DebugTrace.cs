@@ -54,6 +54,9 @@ internal static class DebugTrace
             });
     }
 
+    internal static string BuildLogsDirectory(string baseDirectory)
+        => Path.Combine(baseDirectory, "logs");
+
     internal static string BuildLogFilePath(string baseDirectory, string? processPath)
     {
         var executableName = Path.GetFileNameWithoutExtension(processPath);
@@ -62,7 +65,9 @@ internal static class DebugTrace
             executableName = "herface";
         }
 
-        return Path.Combine(baseDirectory, $"{executableName.ToLowerInvariant()}.debug.log");
+        return Path.Combine(
+            BuildLogsDirectory(baseDirectory),
+            $"{executableName.ToLowerInvariant()}.debug.log");
     }
 
     internal static string BuildJsonLogFilePath(string baseDirectory, string? processPath)
@@ -73,7 +78,9 @@ internal static class DebugTrace
             executableName = "herface";
         }
 
-        return Path.Combine(baseDirectory, $"{executableName.ToLowerInvariant()}.debug.jsonl");
+        return Path.Combine(
+            BuildLogsDirectory(baseDirectory),
+            $"{executableName.ToLowerInvariant()}.debug.jsonl");
     }
 
     internal static string FormatTimestampedLine(string message, DateTimeOffset timestamp, long sequenceNumber)

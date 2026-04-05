@@ -14,4 +14,12 @@ public sealed class WindowScreenshotNamingTests
 
         Assert.Equal(expected, actual);
     }
+
+    [Fact]
+    public void GetScreenshotDirectory_UsesConfiguredArtifactDirectory()
+    {
+        var actual = WindowAutomation.GetScreenshotDirectory(@"C:\apps\herface\bin\Debug\net10.0-windows\logs");
+
+        Assert.Equal(@"C:\apps\herface\bin\Debug\net10.0-windows\logs", actual);
+    }
 }

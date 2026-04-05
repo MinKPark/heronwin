@@ -82,7 +82,8 @@ internal static class WindowAutomation
     private static readonly TimeSpan UiSettleTimeout = TimeSpan.FromMinutes(3);
     private static readonly TimeSpan UiSettleWaitSlice = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan KeyboardNavigationStepDelay = TimeSpan.FromMilliseconds(120);
-    private static readonly string ScreenshotDirectory = Path.Combine(
+    private const string DebugArtifactDirectoryEnvironmentVariable = "HERFACE_DEBUG_ARTIFACT_DIR";
+    private static readonly string DefaultScreenshotDirectory = Path.Combine(
         Path.GetTempPath(),
         "heronwin",
         "eyesandhands");
@@ -355,9 +356,10 @@ internal static class WindowAutomation
             throw new InvalidOperationException("The active window does not have visible bounds to capture.");
         }
 
-        Directory.CreateDirectory(ScreenshotDirectory);
+        var screenshotDirectory = GetScreenshotDirectory();
+        Directory.CreateDirectory(screenshotDirectory);
         var filePath = Path.Combine(
-            ScreenshotDirectory,
+            screenshotDirectory,
             BuildScreenshotFileName(handle, NativeMethods.GetWindowText(handle)));
 
         using var bitmap = new Bitmap(width, height);
@@ -1809,6 +1811,17 @@ internal static class WindowAutomation
 
         sanitized = Regex.Replace(sanitized, "\\s+", "_").Trim('_');
         return string.IsNullOrWhiteSpace(sanitized) ? "window" : sanitized;
+    }
+
+    internal static string GetScreenshotDirectory(string? debugArtifactDirectory = null)
+    {
+        var configuredDirectory = string.IsNullOrWhiteSpace(debugArtifactDirectory)
+            ? Environment.GetEnvironmentVariable(DebugArtifactDirectoryEnvironmentVariable)
+            : debugArtifactDirectory;
+
+        return string.IsNullOrWhiteSpace(configuredDirectory)
+            ? DefaultScreenshotDirectory
+            : Path.GetFullPath(configuredDirectory);
     }
 
     internal static ushort ResolveVirtualKey(string key)

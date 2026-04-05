@@ -5,26 +5,26 @@ namespace HeronWin.HerFace.Tests;
 public sealed class DebugTraceTests
 {
     [Fact]
-    public void BuildLogFilePath_UsesExecutableNameBesideExecutable()
+    public void BuildLogFilePath_UsesLogsSubfolderBesideExecutable()
     {
         var actual = DebugTrace.BuildLogFilePath(
             @"C:\apps\herface\bin\Debug\net10.0-windows\",
             @"C:\apps\herface\bin\Debug\net10.0-windows\herface.exe");
 
         Assert.Equal(
-            @"C:\apps\herface\bin\Debug\net10.0-windows\herface.debug.log",
+            @"C:\apps\herface\bin\Debug\net10.0-windows\logs\herface.debug.log",
             actual);
     }
 
     [Fact]
-    public void BuildJsonLogFilePath_UsesExecutableNameBesideExecutable()
+    public void BuildJsonLogFilePath_UsesLogsSubfolderBesideExecutable()
     {
         var actual = DebugTrace.BuildJsonLogFilePath(
             @"C:\apps\herface\bin\Debug\net10.0-windows\",
             @"C:\apps\herface\bin\Debug\net10.0-windows\herface.exe");
 
         Assert.Equal(
-            @"C:\apps\herface\bin\Debug\net10.0-windows\herface.debug.jsonl",
+            @"C:\apps\herface\bin\Debug\net10.0-windows\logs\herface.debug.jsonl",
             actual);
     }
 

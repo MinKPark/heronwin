@@ -5,21 +5,29 @@ namespace HeronWin.HerFace.Tests;
 public sealed class ArtifactCleanupTests
 {
     [Fact]
-    public void GetEyesAndHandsScreenshotDirectory_PointsToSharedTempFolder()
+    public void GetLogsDirectory_PointsToLogsFolderBesideExecutable()
     {
-        var actual = ArtifactCleanup.GetEyesAndHandsScreenshotDirectory();
+        var actual = ArtifactCleanup.GetLogsDirectory(@"C:\temp\herface\");
 
         Assert.Equal(
-            Path.Combine(Path.GetTempPath(), "heronwin", "eyesandhands"),
+            Path.Combine(@"C:\temp\herface\", "logs"),
             actual);
     }
 
     [Fact]
-    public void GetDebugVoiceRecordingDirectory_PointsToBaseDirectorySubfolder()
+    public void GetEyesAndHandsScreenshotDirectory_PointsToLogsFolder()
+    {
+        var actual = ArtifactCleanup.GetEyesAndHandsScreenshotDirectory(@"C:\temp\herface\");
+
+        Assert.Equal(Path.Combine(@"C:\temp\herface\", "logs"), actual);
+    }
+
+    [Fact]
+    public void GetDebugVoiceRecordingDirectory_PointsToLogsFolder()
     {
         var actual = ArtifactCleanup.GetDebugVoiceRecordingDirectory(@"C:\temp\herface\");
 
-        Assert.Equal(Path.Combine(@"C:\temp\herface\", "debug-voice"), actual);
+        Assert.Equal(Path.Combine(@"C:\temp\herface\", "logs"), actual);
     }
 
     [Fact]

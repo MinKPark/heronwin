@@ -2,15 +2,14 @@ namespace HeronWin.HerFace;
 
 internal static class ArtifactCleanup
 {
-    private static readonly string EyesAndHandsScreenshotDirectory = Path.Combine(
-        Path.GetTempPath(),
-        "heronwin",
-        "eyesandhands");
+    internal static string GetLogsDirectory(string baseDirectory)
+        => DebugTrace.BuildLogsDirectory(baseDirectory);
 
-    internal static string GetEyesAndHandsScreenshotDirectory() => EyesAndHandsScreenshotDirectory;
+    internal static string GetEyesAndHandsScreenshotDirectory(string baseDirectory)
+        => GetLogsDirectory(baseDirectory);
 
     internal static string GetDebugVoiceRecordingDirectory(string baseDirectory)
-        => Path.Combine(baseDirectory, "debug-voice");
+        => GetLogsDirectory(baseDirectory);
 
     internal static void CleanupPreviousRunArtifacts(string baseDirectory, string? processPath)
     {
@@ -18,8 +17,7 @@ internal static class ArtifactCleanup
         var debugJsonLogPath = DebugTrace.BuildJsonLogFilePath(baseDirectory, processPath);
         TryDeleteFile(debugLogPath);
         TryDeleteFile(debugJsonLogPath);
-        TryDeleteDirectory(EyesAndHandsScreenshotDirectory);
-        TryDeleteDirectory(GetDebugVoiceRecordingDirectory(baseDirectory));
+        TryDeleteDirectory(GetLogsDirectory(baseDirectory));
     }
 
     internal static void CleanupCurrentRunArtifacts(string? debugLogPath, string? debugJsonLogPath, string? baseDirectory = null)
@@ -34,19 +32,18 @@ internal static class ArtifactCleanup
             TryDeleteFile(debugJsonLogPath);
         }
 
-        TryDeleteDirectory(EyesAndHandsScreenshotDirectory);
         if (!string.IsNullOrWhiteSpace(baseDirectory))
         {
-            TryDeleteDirectory(GetDebugVoiceRecordingDirectory(baseDirectory));
+            TryDeleteDirectory(GetLogsDirectory(baseDirectory));
         }
     }
 
     internal static string SaveDebugVoiceRecording(string baseDirectory, RecordingResult recording)
     {
-        var debugVoiceDirectory = GetDebugVoiceRecordingDirectory(baseDirectory);
-        Directory.CreateDirectory(debugVoiceDirectory);
+        var logsDirectory = GetLogsDirectory(baseDirectory);
+        Directory.CreateDirectory(logsDirectory);
         var fileName = $"voice-{recording.StartedAt:yyyyMMdd-HHmmssfff}-{Guid.NewGuid():N}.wav";
-        var destinationPath = Path.Combine(debugVoiceDirectory, fileName);
+        var destinationPath = Path.Combine(logsDirectory, fileName);
         File.Copy(recording.FilePath, destinationPath, overwrite: false);
         return destinationPath;
     }

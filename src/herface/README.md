@@ -73,7 +73,7 @@ Notes:
 - Scripted mode enables the debug JSONL trace automatically and marks a turn as failed when the log shows tool errors, reply contradictions, or an explicitly unresolved final outcome unless the scenario allows them.
 - Set `DEBUG_TRACE=1` if you also want persistent debug logs in normal voice mode.
 - `VOICE_LANGUAGES` accepts a comma-separated list of the user's main voice languages. The default is `American English, Korean`.
-- When debug trace is enabled, captured microphone WAVs are saved under `debug-voice` next to the debug log files, and old saved WAVs are cleared when the next session starts.
+- Debug artifacts such as `.log`, `.jsonl`, `.png`, and saved `.wav` files are written under a `logs` folder next to the executable, and old artifacts are cleared when the next session starts.
 - `MCP_TOOL_TIMEOUT_MS` can be set to override the default per-tool MCP timeout of 20 seconds.
 
 ## Debugging Safety On Windows

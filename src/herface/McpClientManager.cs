@@ -750,6 +750,11 @@ internal sealed class McpClientManager : IAsyncDisposable
     {
         environment["HERFACE_DEBUG_SESSION_ID"] = DebugTrace.SessionId;
 
+        if (IsEyesAndHandsServer(server))
+        {
+            environment["HERFACE_DEBUG_ARTIFACT_DIR"] = DebugTrace.BuildLogsDirectory(AppContext.BaseDirectory);
+        }
+
         if (DebugTrace.IsEnabled && IsEyesAndHandsServer(server))
         {
             environment["EYESANDHANDS_DEBUG"] = "1";
