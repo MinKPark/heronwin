@@ -1271,6 +1271,51 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void TryRewriteGenericContainerActionToNamedTarget_RewritesAsrVariantProfileNameToExactNamedHyperlink()
+    {
+        var snapshot =
+            """
+            {
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0",
+                    "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0",
+                    "Name": "Min",
+                    "ControlType": "ListItem",
+                    "ClassName": "profile",
+                    "AvailableActions": [ "scroll_into_view" ],
+                    "Children": [
+                      {
+                        "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0/0",
+                        "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0/0",
+                        "Name": "Min",
+                        "ControlType": "Hyperlink",
+                        "ClassName": "profile-link",
+                        "AvailableActions": [ "focus", "invoke", "scroll_into_view" ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+            """;
+
+        var rewritten = AgentRunner.TryRewriteGenericContainerActionToNamedTarget(
+            "Let's pick men.",
+            "invoke_selected_window_element",
+            new Dictionary<string, object?> { ["elementPath"] = "1/0/0/1/1/0/0/0/0/0/0/2/0/0" },
+            snapshot,
+            out var rewrittenArgs);
+
+        Assert.True(rewritten);
+        Assert.Equal("1/0/0/1/1/0/0/0/0/0/0/0/0/2/0/0", rewrittenArgs["elementPath"]);
+    }
+
+    [Fact]
     public void TryRewriteGenericContainerActionToNamedTarget_PrefersInteractiveChildForClickWhenNamesDuplicate()
     {
         var snapshot =

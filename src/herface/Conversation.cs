@@ -3609,7 +3609,37 @@ internal static class AgentRunner
     }
 
     private static bool UserTextMentionsElementName(string userText, string elementName)
-        => TextContainsNormalizedName(userText, elementName);
+    {
+        if (TextContainsNormalizedName(userText, elementName))
+        {
+            return true;
+        }
+
+        var userTokens = GetNormalizedTokens(userText);
+        var elementNameTokens = GetNormalizedTokens(elementName);
+        if (userTokens.Length == 0 || elementNameTokens.Length == 0)
+        {
+            return false;
+        }
+
+        foreach (var elementNameToken in elementNameTokens)
+        {
+            if (elementNameToken.Length < 3)
+            {
+                continue;
+            }
+
+            foreach (var userToken in userTokens)
+            {
+                if (LooksLikeObviousAsrVariant(userToken, elementNameToken))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
 
     private static bool TextContainsNormalizedName(string text, string name)
     {
@@ -3647,6 +3677,113 @@ internal static class AgentRunner
 
         builder.Append(' ');
         return Regex.Replace(builder.ToString(), @"\s+", " ");
+    }
+
+    private static string[] GetNormalizedTokens(string text)
+    {
+        var normalized = NormalizeForNameMatching(text).Trim();
+        return string.IsNullOrWhiteSpace(normalized)
+            ? []
+            : normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
+
+    private static bool LooksLikeObviousAsrVariant(string userToken, string elementNameToken)
+    {
+        if (string.IsNullOrWhiteSpace(userToken) ||
+            string.IsNullOrWhiteSpace(elementNameToken) ||
+            string.Equals(userToken, elementNameToken, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (userToken.Length < 3 ||
+            elementNameToken.Length < 3 ||
+            Math.Abs(userToken.Length - elementNameToken.Length) > 2)
+        {
+            return false;
+        }
+
+        if (ComputeLevenshteinDistance(userToken, elementNameToken) <= 1)
+        {
+            return true;
+        }
+
+        return userToken[0] == elementNameToken[0] &&
+               string.Equals(
+                   BuildLoosePhoneticKey(userToken),
+                   BuildLoosePhoneticKey(elementNameToken),
+                   StringComparison.Ordinal);
+    }
+
+    private static string BuildLoosePhoneticKey(string token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return string.Empty;
+        }
+
+        var builder = new StringBuilder(token.Length);
+        for (var index = 0; index < token.Length; index += 1)
+        {
+            var character = token[index];
+            if (index == 0)
+            {
+                builder.Append(character);
+                continue;
+            }
+
+            if (IsLoosePhoneticVowel(character))
+            {
+                continue;
+            }
+
+            if (builder.Length == 0 || builder[^1] != character)
+            {
+                builder.Append(character);
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private static bool IsLoosePhoneticVowel(char character)
+        => character is 'a' or 'e' or 'i' or 'o' or 'u' or 'y';
+
+    private static int ComputeLevenshteinDistance(string left, string right)
+    {
+        if (string.IsNullOrEmpty(left))
+        {
+            return right.Length;
+        }
+
+        if (string.IsNullOrEmpty(right))
+        {
+            return left.Length;
+        }
+
+        var previous = new int[right.Length + 1];
+        var current = new int[right.Length + 1];
+
+        for (var column = 0; column <= right.Length; column += 1)
+        {
+            previous[column] = column;
+        }
+
+        for (var row = 1; row <= left.Length; row += 1)
+        {
+            current[0] = row;
+            for (var column = 1; column <= right.Length; column += 1)
+            {
+                var cost = left[row - 1] == right[column - 1] ? 0 : 1;
+                current[column] = Math.Min(
+                    Math.Min(current[column - 1] + 1, previous[column] + 1),
+                    previous[column - 1] + cost);
+            }
+
+            (previous, current) = (current, previous);
+        }
+
+        return previous[right.Length];
     }
 
     private static bool WindowLooksLikeBrowser(JsonElement window)
