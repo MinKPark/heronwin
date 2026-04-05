@@ -704,6 +704,28 @@ internal static class AgentRunner
                         });
                 }
 
+                if (TryRewriteGenericContainerActionToNamedTarget(
+                        userText,
+                        toolCall.Name,
+                        executableArgs,
+                        recentWindowContext,
+                        out var rewrittenNamedTargetArgs))
+                {
+                    executableArgs = rewrittenNamedTargetArgs;
+                    effectiveArgumentsText = JsonSerializer.Serialize(executableArgs, JsonSerializerOptionsCache.Default);
+                    DebugTrace.WriteStructuredEvent(
+                        "agent.tool_call_arguments_rewritten",
+                        new Dictionary<string, object?>
+                        {
+                            ["turn"] = turnId,
+                            ["toolCallId"] = toolCall.Id,
+                            ["tool"] = toolCall.Name,
+                            ["reason"] = "exact_named_visible_target_preferred",
+                            ["originalArgumentsPreview"] = DebugTrace.Preview(toolCall.Arguments, 600),
+                            ["rewrittenArgumentsPreview"] = DebugTrace.Preview(effectiveArgumentsText, 600),
+                        });
+                }
+
                 if (TryRewriteBrowserSearchFieldValueEntryToTyping(
                         userText,
                         toolCall.Name,
@@ -2249,6 +2271,52 @@ internal static class AgentRunner
         return true;
     }
 
+    internal static bool TryRewriteGenericContainerActionToNamedTarget(
+        string userText,
+        string toolName,
+        IReadOnlyDictionary<string, object?> args,
+        string? recentWindowContext,
+        out Dictionary<string, object?> rewrittenArgs)
+    {
+        rewrittenArgs = new Dictionary<string, object?>(StringComparer.Ordinal);
+        if (toolName is not "click_selected_window_element"
+            and not "invoke_selected_window_element"
+            and not "focus_selected_window_element")
+        {
+            return false;
+        }
+
+        var elementPath = TryGetStringArgument(args, "elementPath") ?? TryGetStringArgument(args, "uiPath");
+        if (string.IsNullOrWhiteSpace(elementPath) ||
+            !TryFindElementByPath(recentWindowContext, elementPath, out var requestedElement) ||
+            !ElementLooksLikeGenericContainerTarget(requestedElement))
+        {
+            return false;
+        }
+
+        var requiredAction = toolName switch
+        {
+            "focus_selected_window_element" => "focus",
+            "invoke_selected_window_element" => "invoke",
+            _ => null
+        };
+
+        if (!TryFindUniqueNamedActionTargetFromUserText(
+                recentWindowContext,
+                userText,
+                requiredAction,
+                out var matchedPath,
+                preferredAncestorPath: elementPath))
+        {
+            return false;
+        }
+
+        rewrittenArgs = CloneArguments(args);
+        rewrittenArgs["elementPath"] = matchedPath;
+        rewrittenArgs.Remove("uiPath");
+        return true;
+    }
+
     internal static bool ShouldExitBrowserFullscreenBeforeBrowserShortcut(string? recentWindowContext)
     {
         if (!SnapshotLooksLikeBrowserWindow(recentWindowContext) ||
@@ -2707,6 +2775,165 @@ internal static class AgentRunner
         var controlType = TryGetJsonStringProperty(element, "controlType");
         return string.Equals(controlType, "Document", StringComparison.OrdinalIgnoreCase)
                && !string.IsNullOrWhiteSpace(TryGetJsonStringProperty(element, "className"));
+    }
+
+    private static bool ElementLooksLikeGenericContainerTarget(JsonElement element)
+    {
+        var controlType = TryGetJsonStringProperty(element, "controlType");
+        if (string.IsNullOrWhiteSpace(controlType))
+        {
+            return false;
+        }
+
+        return controlType.Equals("Group", StringComparison.OrdinalIgnoreCase)
+               || controlType.Equals("Pane", StringComparison.OrdinalIgnoreCase)
+               || controlType.Equals("List", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryFindUniqueNamedActionTargetFromUserText(
+        string? snapshotText,
+        string userText,
+        string? requiredAction,
+        out string matchedPath,
+        string? preferredAncestorPath = null)
+    {
+        matchedPath = string.Empty;
+        if (string.IsNullOrWhiteSpace(snapshotText) ||
+            string.IsNullOrWhiteSpace(userText))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(snapshotText);
+            if (!TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree) ||
+                elementTree.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            var candidateMatches = new List<string>();
+            if (!string.IsNullOrWhiteSpace(preferredAncestorPath) &&
+                TryFindElementByPath(elementTree, preferredAncestorPath, out var preferredAncestor))
+            {
+                CollectNamedActionTargetPathsFromUserText(
+                    preferredAncestor,
+                    userText,
+                    requiredAction,
+                    candidateMatches);
+
+                if (candidateMatches.Count == 1)
+                {
+                    matchedPath = candidateMatches[0];
+                    return true;
+                }
+
+                candidateMatches.Clear();
+            }
+
+            CollectNamedActionTargetPathsFromUserText(
+                elementTree,
+                userText,
+                requiredAction,
+                candidateMatches);
+            if (candidateMatches.Count != 1)
+            {
+                return false;
+            }
+
+            matchedPath = candidateMatches[0];
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void CollectNamedActionTargetPathsFromUserText(
+        JsonElement element,
+        string userText,
+        string? requiredAction,
+        List<string> matches)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        var path = TryGetJsonStringProperty(element, "uiPath") ?? TryGetJsonStringProperty(element, "path");
+        var name = TryGetJsonStringProperty(element, "name");
+        if (!string.IsNullOrWhiteSpace(path) &&
+            !string.IsNullOrWhiteSpace(name) &&
+            ElementLooksLikePreciseActionTarget(element) &&
+            UserTextMentionsElementName(userText, name) &&
+            (requiredAction is null || ElementHasAction(element, requiredAction)))
+        {
+            matches.Add(path);
+        }
+
+        if (!TryGetJsonProperty(element, "children", out var children) ||
+            children.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (var child in children.EnumerateArray())
+        {
+            CollectNamedActionTargetPathsFromUserText(child, userText, requiredAction, matches);
+        }
+    }
+
+    private static bool ElementLooksLikePreciseActionTarget(JsonElement element)
+    {
+        var controlType = TryGetJsonStringProperty(element, "controlType");
+        return controlType is not null &&
+               (controlType.Equals("Button", StringComparison.OrdinalIgnoreCase)
+                || controlType.Equals("Hyperlink", StringComparison.OrdinalIgnoreCase)
+                || controlType.Equals("Link", StringComparison.OrdinalIgnoreCase)
+                || controlType.Equals("ListItem", StringComparison.OrdinalIgnoreCase)
+                || controlType.Equals("MenuItem", StringComparison.OrdinalIgnoreCase)
+                || controlType.Equals("TreeItem", StringComparison.OrdinalIgnoreCase)
+                || controlType.Equals("TabItem", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool UserTextMentionsElementName(string userText, string elementName)
+    {
+        var normalizedUserText = NormalizeForNameMatching(userText);
+        var normalizedElementName = NormalizeForNameMatching(elementName).Trim();
+        if (string.IsNullOrWhiteSpace(normalizedUserText) ||
+            string.IsNullOrWhiteSpace(normalizedElementName))
+        {
+            return false;
+        }
+
+        return normalizedUserText.Contains($" {normalizedElementName} ", StringComparison.Ordinal);
+    }
+
+    private static string NormalizeForNameMatching(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return string.Empty;
+        }
+
+        var builder = new StringBuilder(text.Length + 2);
+        builder.Append(' ');
+        foreach (var character in text)
+        {
+            if (char.IsLetterOrDigit(character))
+            {
+                builder.Append(char.ToLowerInvariant(character));
+            }
+            else
+            {
+                builder.Append(' ');
+            }
+        }
+
+        builder.Append(' ');
+        return Regex.Replace(builder.ToString(), @"\s+", " ");
     }
 
     private static bool WindowLooksLikeBrowser(JsonElement window)
