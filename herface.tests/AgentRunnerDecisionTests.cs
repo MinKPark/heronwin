@@ -620,7 +620,7 @@ public sealed class AgentRunnerDecisionTests
             "launch_app_via_taskbar_search",
             new Dictionary<string, object?> { ["appName"] = "Netflix" });
 
-        Assert.Equal("I'm launching Netflix from Search.", actual);
+        Assert.Equal("Okay, let me open Netflix.", actual);
     }
 
     [Fact]
@@ -631,7 +631,7 @@ public sealed class AgentRunnerDecisionTests
             "send_input_to_window",
             new Dictionary<string, object?> { ["key"] = "L", ["modifiers"] = modifiers.RootElement.Clone() });
 
-        Assert.Equal("I'm pressing Control plus L.", actual);
+        Assert.Equal("Okay, I'm pressing Control plus L.", actual);
     }
 
     [Fact]
@@ -641,7 +641,7 @@ public sealed class AgentRunnerDecisionTests
             "send_input_to_window",
             new Dictionary<string, object?> { ["text"] = "https://www.netflix.com" });
 
-        Assert.Equal("I'm typing the URL.", actual);
+        Assert.Equal("Okay, I'm putting the site in.", actual);
     }
 
     [Fact]
@@ -677,7 +677,7 @@ public sealed class AgentRunnerDecisionTests
             new Dictionary<string, object?>());
 
         Assert.NotNull(actual);
-        Assert.Equal("I'm checking what's already open.", actual!.Text);
+        Assert.Equal("Let me see what's already open.", actual!.Text);
         Assert.Equal("tool_fallback", actual.Source);
     }
 

@@ -1320,22 +1320,22 @@ internal static class AgentRunner
     {
         return toolName switch
         {
-            "list_windows" => "I'm checking what's already open.",
+            "list_windows" => "Let me see what's already open.",
             "select_window" => BuildSelectWindowNarration(args),
-            "describe_selected_window" => "I'm checking the current window.",
-            "describe_selected_window_focus" => "I'm checking where focus landed.",
-            "capture_selected_window_screenshot" => "I'm taking a quick screenshot.",
-            "list_taskbar_elements" => "I'm checking the taskbar.",
+            "describe_selected_window" => "Hang on, I'm taking a look.",
+            "describe_selected_window_focus" => "Let me see where focus landed.",
+            "capture_selected_window_screenshot" => "Hang on, I'm taking a quick look.",
+            "list_taskbar_elements" => "Let me check the taskbar.",
             "select_taskbar_app" => BuildTaskbarSelectionNarration(args),
             "launch_app_via_taskbar_search" => BuildTaskbarSearchLaunchNarration(args),
-            "list_main_menu_items" => "I'm checking the app menu.",
-            "invoke_main_menu_item" => "I'm choosing that menu item.",
-            "list_context_menu_items" => "I'm checking the context menu.",
-            "invoke_context_menu_item" => "I'm choosing that context menu item.",
-            "click_selected_window_element" => "I'm clicking that control.",
+            "list_main_menu_items" => "Let me check the menu.",
+            "invoke_main_menu_item" => "Okay, I'm trying that menu option.",
+            "list_context_menu_items" => "Let me check that menu.",
+            "invoke_context_menu_item" => "Okay, I'm trying that option.",
+            "click_selected_window_element" => "Okay, I'm clicking that.",
             "focus_selected_window_element" => BuildElementFocusNarration(args),
             "invoke_selected_window_element" => BuildElementInvokeNarration(args),
-            "set_selected_window_element_value" => "I'm entering text into that field.",
+            "set_selected_window_element_value" => "Okay, I'm typing that in.",
             "send_input_to_window" => BuildSendInputNarration(args),
             _ => null
         };
@@ -1423,40 +1423,40 @@ internal static class AgentRunner
     {
         var title = TryGetShortSpeechLabel(TryGetStringArgument(args, "titleContains"));
         return title is not null
-            ? $"I'm switching to {title}."
-            : "I'm switching to the right window.";
+            ? $"Okay, I'm switching to {title}."
+            : "Okay, I'm switching over.";
     }
 
     private static string BuildTaskbarSelectionNarration(IReadOnlyDictionary<string, object?> args)
     {
         var title = TryGetShortSpeechLabel(TryGetStringArgument(args, "titleContains"));
         return title is not null
-            ? $"I'm opening {title} from the taskbar."
-            : "I'm opening it from the taskbar.";
+            ? $"Okay, I'm opening {title}."
+            : "Okay, I'm opening it.";
     }
 
     private static string BuildTaskbarSearchLaunchNarration(IReadOnlyDictionary<string, object?> args)
     {
         var appName = TryGetShortSpeechLabel(TryGetStringArgument(args, "appName"));
         return appName is not null
-            ? $"I'm launching {appName} from Search."
-            : "I'm launching it from Search.";
+            ? $"Okay, let me open {appName}."
+            : "Okay, let me open that.";
     }
 
     private static string BuildElementFocusNarration(IReadOnlyDictionary<string, object?> args)
     {
         var elementPath = TryGetStringArgument(args, "elementPath");
         return string.Equals(elementPath, "root", StringComparison.OrdinalIgnoreCase)
-            ? "I'm refocusing the current window."
-            : "I'm focusing that control.";
+            ? "Okay, I'm bringing that back into focus."
+            : "Okay, I'm focusing that.";
     }
 
     private static string BuildElementInvokeNarration(IReadOnlyDictionary<string, object?> args)
     {
         var elementPath = TryGetStringArgument(args, "elementPath");
         return string.Equals(elementPath, "root", StringComparison.OrdinalIgnoreCase)
-            ? "I'm activating the current page."
-            : "I'm activating that control.";
+            ? "Okay, I'm trying that now."
+            : "Okay, I'm trying that.";
     }
 
     private static string BuildSendInputNarration(IReadOnlyDictionary<string, object?> args)
@@ -1465,14 +1465,14 @@ internal static class AgentRunner
         if (!string.IsNullOrWhiteSpace(text))
         {
             return LooksLikeUrl(text)
-                ? "I'm typing the URL."
-                : "I'm typing the requested text.";
+                ? "Okay, I'm putting the site in."
+                : "Okay, I'm typing that in.";
         }
 
         var key = TryGetStringArgument(args, "key");
         if (string.IsNullOrWhiteSpace(key))
         {
-            return "I'm sending the next input.";
+            return "Okay, one second.";
         }
 
         var modifiers = GetModifierNames(args);
@@ -1481,17 +1481,17 @@ internal static class AgentRunner
             var shortcutParts = modifiers
                 .Select(NormalizeModifierLabel)
                 .Append(NormalizeKeyLabel(key));
-            return $"I'm pressing {string.Join(" plus ", shortcutParts)}.";
+            return $"Okay, I'm pressing {string.Join(" plus ", shortcutParts)}.";
         }
 
         return key.Trim() switch
         {
-            "Tab" => "I'm moving to the next field.",
-            "Left" => "I'm moving left.",
-            "Right" => "I'm moving right.",
-            "Up" => "I'm moving up.",
-            "Down" => "I'm moving down.",
-            _ => $"I'm pressing {NormalizeKeyLabel(key)}."
+            "Tab" => "Okay, moving to the next field.",
+            "Left" => "Okay, moving left.",
+            "Right" => "Okay, moving right.",
+            "Up" => "Okay, moving up.",
+            "Down" => "Okay, moving down.",
+            _ => $"Okay, I'm pressing {NormalizeKeyLabel(key)}."
         };
     }
 
