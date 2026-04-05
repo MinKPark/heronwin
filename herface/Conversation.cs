@@ -1246,6 +1246,42 @@ internal static class AgentRunner
                                 ["sourceOfTruth"] = postActionSnapshot.Images.Count > 0 ? "uia_plus_screenshot" : "uia_tree",
                             });
 
+                        if (ShouldCapturePostActionDebugScreenshot(executableToolName, DebugTrace.IsEnabled, availableToolNames))
+                        {
+                            try
+                            {
+                                var debugScreenshotStopwatch = Stopwatch.StartNew();
+                                var debugScreenshot = await mcpManager.CallToolAsync(
+                                    "capture_selected_window_screenshot",
+                                    new Dictionary<string, object?>(),
+                                    cancellationToken);
+                                DebugTrace.WriteStructuredEvent(
+                                    "agent.desktop_followup_debug_screenshot",
+                                    new Dictionary<string, object?>
+                                    {
+                                        ["turn"] = turnId,
+                                        ["tool"] = executableToolName,
+                                        ["elapsedMs"] = (int)Math.Round(debugScreenshotStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
+                                        ["isError"] = debugScreenshot.IsError,
+                                        ["screenshotWindow"] = DescribePrimaryWindowFromToolOutput(debugScreenshot.Text),
+                                        ["images"] = debugScreenshot.Images.Count,
+                                        ["sharedWithModel"] = false,
+                                        ["resultPreview"] = DebugTrace.Preview(debugScreenshot.Text, 700),
+                                    });
+                            }
+                            catch (Exception ex)
+                            {
+                                DebugTrace.WriteStructuredEvent(
+                                    "agent.desktop_followup_debug_screenshot_failed",
+                                    new Dictionary<string, object?>
+                                    {
+                                        ["turn"] = turnId,
+                                        ["tool"] = executableToolName,
+                                        ["error"] = DebugTrace.Preview(ex.ToString(), 700),
+                                    });
+                            }
+                        }
+
                         if (ShouldCollectFocusSnapshotAfterAction(executableToolName, executableArgs))
                         {
                             var focusSnapshotStopwatch = Stopwatch.StartNew();
@@ -1332,6 +1368,14 @@ internal static class AgentRunner
             or "invoke_context_menu_item"
             or "send_input_to_window"
             or "set_selected_window_element_value";
+
+    internal static bool ShouldCapturePostActionDebugScreenshot(
+        string toolName,
+        bool debugTraceEnabled,
+        IReadOnlySet<string> availableToolNames)
+        => debugTraceEnabled
+            && IsDesktopActionTool(toolName)
+            && availableToolNames.Contains("capture_selected_window_screenshot");
 
     internal static string? BuildRuntimeToolPolicy(IReadOnlyList<ToolDefinition> tools)
     {

@@ -1392,6 +1392,50 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void ShouldCapturePostActionDebugScreenshot_ReturnsTrue_WhenDebugTraceIsEnabledAndScreenshotToolExists()
+    {
+        var actual = AgentRunner.ShouldCapturePostActionDebugScreenshot(
+            "click_selected_window_element",
+            debugTraceEnabled: true,
+            new HashSet<string>(StringComparer.Ordinal) { "capture_selected_window_screenshot" });
+
+        Assert.True(actual);
+    }
+
+    [Fact]
+    public void ShouldCapturePostActionDebugScreenshot_ReturnsFalse_WhenDebugTraceIsDisabled()
+    {
+        var actual = AgentRunner.ShouldCapturePostActionDebugScreenshot(
+            "click_selected_window_element",
+            debugTraceEnabled: false,
+            new HashSet<string>(StringComparer.Ordinal) { "capture_selected_window_screenshot" });
+
+        Assert.False(actual);
+    }
+
+    [Fact]
+    public void ShouldCapturePostActionDebugScreenshot_ReturnsFalse_WhenToolIsNotDesktopAction()
+    {
+        var actual = AgentRunner.ShouldCapturePostActionDebugScreenshot(
+            "describe_selected_window",
+            debugTraceEnabled: true,
+            new HashSet<string>(StringComparer.Ordinal) { "capture_selected_window_screenshot" });
+
+        Assert.False(actual);
+    }
+
+    [Fact]
+    public void ShouldCapturePostActionDebugScreenshot_ReturnsFalse_WhenScreenshotToolIsUnavailable()
+    {
+        var actual = AgentRunner.ShouldCapturePostActionDebugScreenshot(
+            "click_selected_window_element",
+            debugTraceEnabled: true,
+            new HashSet<string>(StringComparer.Ordinal));
+
+        Assert.False(actual);
+    }
+
+    [Fact]
     public void BuildToolSpecificGuidance_ReturnsPostActionVerificationHint_ForClick()
     {
         var actual = AgentRunner.BuildToolSpecificGuidance(
