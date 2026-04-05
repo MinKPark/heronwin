@@ -103,6 +103,20 @@ public sealed class AgentPromptLoaderTests
         Assert.Contains("Do not say `I'm turning them off`", prompt.PromptText, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void RepositoryBrowserSkill_IncludesOfficialInstructionLookupGuidance()
+    {
+        var skillsDirectory = Path.Combine(FindRepoRoot(), ".github", "agents", "skills");
+
+        var prompts = AgentPromptLoader.LoadSkillPrompts(skillsDirectory);
+
+        var prompt = prompts.Single(prompt => prompt.Key == "browser-navigation-and-web-operations");
+        Assert.Contains("instruction lookup", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("official help, support, or documentation pages", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("support.microsoft.com", prompt.PromptText, StringComparison.Ordinal);
+        Assert.Contains("help.netflix.com", prompt.PromptText, StringComparison.Ordinal);
+    }
+
     private static string FindRepoRoot()
     {
         var current = new DirectoryInfo(AppContext.BaseDirectory);

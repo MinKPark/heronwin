@@ -85,6 +85,42 @@ public sealed class AgentPromptComposerTests
     }
 
     [Fact]
+    public void Compose_ActivatesBrowserSkill_ForInstructionLookupRequests()
+    {
+        var catalog = CreateCatalog();
+
+        var actual = AgentPromptComposer.Compose(
+            catalog,
+            "How do I turn off subtitles in Hulu? Look up the official instructions.",
+            [
+                new ToolDefinition("describe_selected_window", "desc", default),
+                new ToolDefinition("send_input_to_window", "desc", default),
+                new ToolDefinition("capture_selected_window_screenshot", "desc", default)
+            ]);
+
+        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "browser-navigation-and-web-operations");
+        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "ui-refresh-and-evidence");
+        Assert.DoesNotContain(actual.ActiveSkills, skill => skill.Key == "action-discovery-and-invocation");
+    }
+
+    [Fact]
+    public void Compose_DoesNotActivateBrowserSkill_ForGenericHowDoIAppActionRequests()
+    {
+        var catalog = CreateCatalog();
+
+        var actual = AgentPromptComposer.Compose(
+            catalog,
+            "How do I click the Save button?",
+            [
+                new ToolDefinition("click_selected_window_element", "desc", default),
+                new ToolDefinition("describe_selected_window", "desc", default)
+            ]);
+
+        Assert.DoesNotContain(actual.ActiveSkills, skill => skill.Key == "browser-navigation-and-web-operations");
+        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "action-discovery-and-invocation");
+    }
+
+    [Fact]
     public void Compose_ActivatesBrowserSkill_WhenClickToolCanDriveWebControls()
     {
         var catalog = CreateCatalog();
@@ -323,7 +359,7 @@ public sealed class AgentPromptComposerTests
                     "browser-navigation-and-web-operations",
                     "browser skill",
                     Activation(
-                        whenAnyIntents: ["browser_request"],
+                        whenAnyIntents: ["browser_request", "instruction_lookup_request"],
                         whenAnyTools:
                         [
                             "describe_selected_window",

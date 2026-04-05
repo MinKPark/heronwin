@@ -1464,6 +1464,15 @@ internal static class AgentRunner
                 "Treat `send_input_to_window` as explicit keyboard or text input that still requires follow-up verification; key presses and text entry alone do not confirm that the intended visible UI result occurred.");
         }
 
+        if (toolNames.Contains("launch_app_via_taskbar_search")
+            && toolNames.Contains("send_input_to_window")
+            && (toolNames.Contains("describe_selected_window")
+                || toolNames.Contains("capture_selected_window_screenshot")))
+        {
+            parts.Add(
+                "If no more-specific app or site skill clearly applies and the user needs product-specific instructions, use the browser to look up guidance instead of improvising. Prefer official help, support, or documentation pages for well-known apps and services before third-party guides.");
+        }
+
         if (toolNames.Overlaps(
                 [
                     "click_selected_window_element",

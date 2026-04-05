@@ -102,7 +102,7 @@ Skills can prefer MCP tools from `eyesandhands`, but they should not redefine th
 - Skill activation now prefers structured frontmatter metadata under `activation`.
 - Skill loading now recurses under `skills/` instead of assuming a single flat folder.
 - Skills can declare `group` and `priority` frontmatter so the composed prompt stays layered from shared behavior to specific app/site guidance.
-- Supported request-intent keys are `launch_request`, `browser_request`, `direct_browser_navigation_request`, `search_or_enumeration_request`, and `action_request`.
+- Supported request-intent keys are `launch_request`, `browser_request`, `instruction_lookup_request`, `direct_browser_navigation_request`, `search_or_enumeration_request`, and `action_request`.
 - Supported activation clauses are `when_any_intents`, `when_all_intents`, `unless_any_intents`, `when_any_tools`, `when_all_tools`, `when_any_keywords`, `when_all_keywords`, and `unless_any_keywords`.
 - Keyword activation can match against the current request plus recent conversation context, which helps grouped app/site skills stay active across follow-up turns.
 - Older skills without structured activation metadata still fall back to filename-based compatibility heuristics.

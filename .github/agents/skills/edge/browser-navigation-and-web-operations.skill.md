@@ -4,6 +4,9 @@ group: edge
 priority: 300
 summary: "Operate browser chrome and navigate directly to websites without turning URLs into search queries."
 preferred_tools:
+  - eyesandhands/list_windows
+  - eyesandhands/select_window
+  - eyesandhands/launch_app_via_taskbar_search
   - eyesandhands/describe_selected_window
   - eyesandhands/describe_selected_window_focus
   - eyesandhands/click_selected_window_element
@@ -15,7 +18,11 @@ preferred_tools:
 activation:
   when_any_intents:
     - browser_request
+    - instruction_lookup_request
   when_any_tools:
+    - list_windows
+    - select_window
+    - launch_app_via_taskbar_search
     - describe_selected_window
     - describe_selected_window_focus
     - invoke_selected_window_element
@@ -26,20 +33,22 @@ activation:
     - capture_selected_window_screenshot
 applies_when:
   - The user asks to go to a website, URL, address bar, page, tab, or other browser chrome control.
+  - The user asks to look up instructions, help, documentation, or an official support page for an app or service.
 ---
 
 # Skill: Browser Navigation And Web Operations
 
 ## Workflow
 
-1. Determine whether the user wants direct website navigation, web search, browser chrome control, or page interaction.
+1. Determine whether the user wants direct website navigation, web search, browser chrome control, instruction lookup, or page interaction.
 2. Distinguish browser chrome controls such as the address bar, tabs, back, forward, and refresh from the web page content and from site-native search controls inside the page.
 3. If the current selected window is not a browser, first switch to an existing browser window or launch the browser before interacting with controls in the current non-browser window.
 4. In Microsoft Edge, when the user wants to open a new website or web page, open a new tab first unless the user explicitly asked to reuse the current tab.
 5. When the user wants a website, navigate through the browser address bar with a clean URL.
-6. When the user wants to search within the currently visible website, stay inside that site and use the site's own search surface rather than Windows Search or a generic web-search route.
-7. Unless the user explicitly wants to modify the existing address-bar text in place, clear the current address-bar contents before entering a new address or URL.
-8. After navigation or site-search actions, refresh the visible browser state and verify that the page actually changed to the intended site or result state.
+6. When the user wants web instructions or help for an app or service, prefer the official help, support, or documentation surface when it is known or easily discoverable.
+7. When the user wants to search within the currently visible website, stay inside that site and use the site's own search surface rather than Windows Search or a generic web-search route.
+8. Unless the user explicitly wants to modify the existing address-bar text in place, clear the current address-bar contents before entering a new address or URL.
+9. After navigation or site-search actions, refresh the visible browser state and verify that the page actually changed to the intended site or result state.
 
 ## Direct Website Navigation Rules
 
@@ -80,6 +89,16 @@ applies_when:
 - Do not claim a site search step succeeded until the search field, query text, or visible results for the requested title are actually on screen.
 - If the browser lands on a web search engine results page during a request to search within the current site, treat that as a wrong surface and repair back to the intended site-native flow.
 - If the browser lands on a search page for a malformed string such as a search term glued to a URL, report that the direct navigation did not succeed and repair it by returning to the address bar, replacing the full contents, and retrying with a clean URL.
+
+## Instruction Lookup And Official Source Rules
+
+- Use this as the fallback when no more-specific app or site skill clearly covers the requested product-specific workflow, or when the current UI does not expose enough app-specific guidance to act confidently.
+- For well-known apps and services, prefer official help, support, or documentation pages before third-party blogs, forums, or videos.
+- If the official help site is obvious, go there directly. Examples include domains such as `support.microsoft.com`, `support.apple.com`, `support.google.com`, or `help.netflix.com`.
+- If the official help site is not obvious, search the web for the app or service name plus the requested task and then prefer the official result.
+- When scanning search results for instructions, prioritize official domains, product help centers, and vendor support pages over SEO-style blog posts.
+- After opening an instruction page, verify from the visible page content that it really belongs to the expected vendor or product support surface before relying on it.
+- Once the relevant instruction is found, summarize only the steps that matter to the user’s request, and if the user still wants you to act in the app, return to the app and try the documented flow.
 
 ## Verification Rules
 

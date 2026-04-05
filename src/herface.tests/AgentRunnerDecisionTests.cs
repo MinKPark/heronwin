@@ -191,6 +191,21 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void BuildRuntimeToolPolicy_IncludesOfficialInstructionLookupFallback_WhenBrowserCapableToolsExist()
+    {
+        var actual = AgentRunner.BuildRuntimeToolPolicy(
+            [
+                new ToolDefinition("launch_app_via_taskbar_search", "desc", default),
+                new ToolDefinition("send_input_to_window", "desc", default),
+                new ToolDefinition("describe_selected_window", "desc", default)
+            ]);
+
+        Assert.NotNull(actual);
+        Assert.Contains("product-specific instructions", actual!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("official help, support, or documentation pages", actual, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void BuildToolSpecificGuidance_ReturnsHint_ForNavigationKeyFallback()
     {
         var actual = AgentRunner.BuildToolSpecificGuidance(

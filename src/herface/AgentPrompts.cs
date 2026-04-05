@@ -703,6 +703,12 @@ internal static class AgentPromptComposer
             requestIntents.Add("browser_request");
         }
 
+        if (MatchesInstructionLookupRequest(userText, normalizedText))
+        {
+            requestIntents.Add("instruction_lookup_request");
+            requestIntents.Add("browser_request");
+        }
+
         if (MatchesDirectBrowserNavigationRequest(userText, normalizedText))
         {
             requestIntents.Add("direct_browser_navigation_request");
@@ -771,6 +777,11 @@ internal static class AgentPromptComposer
 
     private static bool MatchesBrowserRequest(string rawText, string normalizedText)
     {
+        if (MatchesInstructionLookupRequest(rawText, normalizedText))
+        {
+            return true;
+        }
+
         if (ContainsAny(
                 normalizedText,
                 "website",
@@ -804,6 +815,67 @@ internal static class AgentPromptComposer
 
         return Regex.IsMatch(rawText, @"\b(?:https?://|www\.)\S+", RegexOptions.IgnoreCase)
                || Regex.IsMatch(rawText, @"\b[\w-]+\.(?:com|org|net|io|ai|gov|edu|app|dev|tv|co)\b", RegexOptions.IgnoreCase);
+    }
+
+    private static bool MatchesInstructionLookupRequest(string rawText, string normalizedText)
+    {
+        if (ContainsAny(
+                normalizedText,
+                "search the web",
+                "search web",
+                "search the internet",
+                "look it up",
+                "look up",
+                "find instructions",
+                "find the instructions",
+                "find official instructions",
+                "official website",
+                "official site",
+                "official help",
+                "official support",
+                "official docs",
+                "official documentation",
+                "support article",
+                "help article",
+                "documentation",
+                "manual"))
+        {
+            return true;
+        }
+
+        var asksHowTo = ContainsAny(
+            normalizedText,
+            "how do i",
+            "how to",
+            "what are the steps",
+            "what s the steps",
+            "what is the steps",
+            "where is the setting",
+            "where do i find",
+            "what s the official way",
+            "what is the official way");
+        if (!asksHowTo)
+        {
+            return false;
+        }
+
+        return ContainsAny(
+            normalizedText,
+            " instruction",
+            " instructions",
+            " guide",
+            " guides",
+            " steps",
+            " docs",
+            " help",
+            " support",
+            " official",
+            " app",
+            " program",
+            " service",
+            " in ",
+            " on ",
+            " for ");
     }
 
     private static bool MatchesDirectBrowserNavigationRequest(string rawText, string normalizedText)
