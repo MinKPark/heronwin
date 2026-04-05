@@ -300,8 +300,11 @@ internal static class AgentRunner
                 var effectiveArgumentsText = toolCall.Arguments;
                 var executableToolName = toolCall.Name;
                 string? toolRewriteNote = null;
+                string? browserSearchFieldReplacementPath = null;
+                var rewroteBrowserSearchFieldValueEntry = false;
                 var attemptedBrowserFullscreenExit = false;
                 var attemptedBrowserWindowPreflight = false;
+                var attemptedBrowserSearchFieldTypingPrime = false;
 
                 async Task MaybeExitBrowserFullscreenAsync(string reason)
                 {
@@ -522,6 +525,170 @@ internal static class AgentRunner
                     }
                 }
 
+                async Task MaybePrimeBrowserSearchFieldForReplacementTypingAsync(string reason)
+                {
+                    if (attemptedBrowserSearchFieldTypingPrime ||
+                        string.IsNullOrWhiteSpace(browserSearchFieldReplacementPath))
+                    {
+                        return;
+                    }
+
+                    attemptedBrowserSearchFieldTypingPrime = true;
+
+                    if (availableToolNames.Contains("focus_selected_window_element"))
+                    {
+                        try
+                        {
+                            var focusArgs = new Dictionary<string, object?>
+                            {
+                                ["elementPath"] = browserSearchFieldReplacementPath,
+                            };
+                            var focusResult = await mcpManager.CallToolAsync(
+                                "focus_selected_window_element",
+                                focusArgs,
+                                cancellationToken);
+                            DebugTrace.WriteStructuredEvent(
+                                "agent.browser_site_search_field_focus_completed",
+                                new Dictionary<string, object?>
+                                {
+                                    ["turn"] = turnId,
+                                    ["toolCallId"] = toolCall.Id,
+                                    ["reason"] = reason,
+                                    ["elementPath"] = browserSearchFieldReplacementPath,
+                                    ["isError"] = focusResult.IsError,
+                                    ["resultPreview"] = DebugTrace.Preview(focusResult.Text, 600),
+                                });
+
+                            if (!focusResult.IsError)
+                            {
+                                if (DescribePrimaryWindowFromToolOutput(focusResult.Text) is not null)
+                                {
+                                    recentWindowContext = focusResult.Text;
+                                }
+
+                                recentFocusContext = focusResult.Text;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            DebugTrace.WriteStructuredEvent(
+                                "agent.browser_site_search_field_focus_failed",
+                                new Dictionary<string, object?>
+                                {
+                                    ["turn"] = turnId,
+                                    ["toolCallId"] = toolCall.Id,
+                                    ["reason"] = reason,
+                                    ["elementPath"] = browserSearchFieldReplacementPath,
+                                    ["error"] = DebugTrace.Preview(ex.ToString(), 700),
+                                });
+                        }
+                    }
+
+                    try
+                    {
+                        var selectAllArgs = new Dictionary<string, object?>
+                        {
+                            ["key"] = "A",
+                            ["modifiers"] = new[] { "Control" },
+                        };
+                        var selectAllResult = await mcpManager.CallToolAsync(
+                            "send_input_to_window",
+                            selectAllArgs,
+                            cancellationToken);
+                        DebugTrace.WriteStructuredEvent(
+                            "agent.browser_site_search_field_select_all_completed",
+                            new Dictionary<string, object?>
+                            {
+                                ["turn"] = turnId,
+                                ["toolCallId"] = toolCall.Id,
+                                ["reason"] = reason,
+                                ["elementPath"] = browserSearchFieldReplacementPath,
+                                ["isError"] = selectAllResult.IsError,
+                                ["resultPreview"] = DebugTrace.Preview(selectAllResult.Text, 600),
+                            });
+
+                        if (!selectAllResult.IsError &&
+                            DescribePrimaryWindowFromToolOutput(selectAllResult.Text) is not null)
+                        {
+                            recentWindowContext = selectAllResult.Text;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugTrace.WriteStructuredEvent(
+                            "agent.browser_site_search_field_select_all_failed",
+                            new Dictionary<string, object?>
+                            {
+                                ["turn"] = turnId,
+                                ["toolCallId"] = toolCall.Id,
+                                ["reason"] = reason,
+                                ["elementPath"] = browserSearchFieldReplacementPath,
+                                ["error"] = DebugTrace.Preview(ex.ToString(), 700),
+                            });
+                    }
+                }
+
+                async Task MaybeSubmitBrowserSearchFieldAfterTypingAsync(string reason)
+                {
+                    if (!rewroteBrowserSearchFieldValueEntry)
+                    {
+                        return;
+                    }
+
+                    try
+                    {
+                        var submitArgs = new Dictionary<string, object?>
+                        {
+                            ["key"] = "Enter",
+                        };
+                        var submitResult = await mcpManager.CallToolAsync(
+                            "send_input_to_window",
+                            submitArgs,
+                            cancellationToken);
+                        DebugTrace.WriteStructuredEvent(
+                            "agent.browser_site_search_field_submit_completed",
+                            new Dictionary<string, object?>
+                            {
+                                ["turn"] = turnId,
+                                ["toolCallId"] = toolCall.Id,
+                                ["reason"] = reason,
+                                ["elementPath"] = browserSearchFieldReplacementPath,
+                                ["isError"] = submitResult.IsError,
+                                ["resultPreview"] = DebugTrace.Preview(submitResult.Text, 600),
+                            });
+
+                        if (!submitResult.IsError &&
+                            DescribePrimaryWindowFromToolOutput(submitResult.Text) is not null)
+                        {
+                            recentWindowContext = submitResult.Text;
+                        }
+
+                        await Task.Delay(1200, cancellationToken);
+                        DebugTrace.WriteStructuredEvent(
+                            "agent.browser_site_search_field_submit_wait_complete",
+                            new Dictionary<string, object?>
+                            {
+                                ["turn"] = turnId,
+                                ["toolCallId"] = toolCall.Id,
+                                ["reason"] = reason,
+                                ["waitMs"] = 1200,
+                            });
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugTrace.WriteStructuredEvent(
+                            "agent.browser_site_search_field_submit_failed",
+                            new Dictionary<string, object?>
+                            {
+                                ["turn"] = turnId,
+                                ["toolCallId"] = toolCall.Id,
+                                ["reason"] = reason,
+                                ["elementPath"] = browserSearchFieldReplacementPath,
+                                ["error"] = DebugTrace.Preview(ex.ToString(), 700),
+                            });
+                    }
+                }
+
                 if (toolCall.Name == "select_window" &&
                     TryRewriteSelectWindowArguments(executableArgs, recentListWindowsOutput, out var rewrittenSelectArgs))
                 {
@@ -557,6 +724,35 @@ internal static class AgentRunner
                             ["toolCallId"] = toolCall.Id,
                             ["tool"] = toolCall.Name,
                             ["reason"] = "browser_site_search_control_preferred",
+                            ["originalArgumentsPreview"] = DebugTrace.Preview(toolCall.Arguments, 600),
+                            ["rewrittenArgumentsPreview"] = DebugTrace.Preview(effectiveArgumentsText, 600),
+                        });
+                }
+
+                if (TryRewriteBrowserSearchFieldValueEntryToTyping(
+                        userText,
+                        toolCall.Name,
+                        executableArgs,
+                        recentWindowContext,
+                        out var rewrittenBrowserSearchTypingArgs,
+                        out var rewrittenBrowserSearchFieldPath))
+                {
+                    executableToolName = "send_input_to_window";
+                    executableArgs = rewrittenBrowserSearchTypingArgs;
+                    effectiveArgumentsText = JsonSerializer.Serialize(executableArgs, JsonSerializerOptionsCache.Default);
+                    browserSearchFieldReplacementPath = rewrittenBrowserSearchFieldPath;
+                    rewroteBrowserSearchFieldValueEntry = true;
+                    toolRewriteNote =
+                        "Internal site-search field fallback used real keyboard typing in the focused search field because some browser sites do not react reliably to direct value-setting alone.";
+                    DebugTrace.WriteStructuredEvent(
+                        "agent.browser_site_search_field_value_entry_rewritten",
+                        new Dictionary<string, object?>
+                        {
+                            ["turn"] = turnId,
+                            ["toolCallId"] = toolCall.Id,
+                            ["requestedTool"] = toolCall.Name,
+                            ["executedTool"] = executableToolName,
+                            ["elementPath"] = browserSearchFieldReplacementPath,
                             ["originalArgumentsPreview"] = DebugTrace.Preview(toolCall.Arguments, 600),
                             ["rewrittenArgumentsPreview"] = DebugTrace.Preview(effectiveArgumentsText, 600),
                         });
@@ -718,6 +914,12 @@ internal static class AgentRunner
                     continue;
                 }
 
+                if (executableToolName == "send_input_to_window" &&
+                    !string.IsNullOrWhiteSpace(browserSearchFieldReplacementPath))
+                {
+                    await MaybePrimeBrowserSearchFieldForReplacementTypingAsync("browser_site_search_field_typing");
+                }
+
                 Display.ToolCall(executableToolName, effectiveArgumentsText);
 
                 var toolCallStopwatch = Stopwatch.StartNew();
@@ -753,6 +955,12 @@ internal static class AgentRunner
 
                 if (!toolOutput.IsError)
                 {
+                    if (rewroteBrowserSearchFieldValueEntry &&
+                        executableToolName == "send_input_to_window")
+                    {
+                        await MaybeSubmitBrowserSearchFieldAfterTypingAsync("browser_site_search_field_typing_submit");
+                    }
+
                     if (toolCall.Name == "list_windows")
                     {
                         recentListWindowsOutput = toolOutput.Text;
@@ -957,15 +1165,17 @@ internal static class AgentRunner
         }
     }
 
-    private static bool IsDesktopActionTool(string toolName)
+    internal static bool IsDesktopActionTool(string toolName)
         => toolName is "launch_app_via_taskbar_search"
             or "select_taskbar_app"
             or "select_window"
+            or "click_selected_window_element"
             or "focus_selected_window_element"
             or "invoke_selected_window_element"
             or "invoke_main_menu_item"
             or "invoke_context_menu_item"
-            or "send_input_to_window";
+            or "send_input_to_window"
+            or "set_selected_window_element_value";
 
     internal static string? BuildRuntimeToolPolicy(IReadOnlyList<ToolDefinition> tools)
     {
@@ -1054,8 +1264,10 @@ internal static class AgentRunner
             "invoke_main_menu_item" => "I'm choosing that menu item.",
             "list_context_menu_items" => "I'm checking the context menu.",
             "invoke_context_menu_item" => "I'm choosing that context menu item.",
+            "click_selected_window_element" => "I'm clicking that control.",
             "focus_selected_window_element" => BuildElementFocusNarration(args),
             "invoke_selected_window_element" => BuildElementInvokeNarration(args),
+            "set_selected_window_element_value" => "I'm entering text into that field.",
             "send_input_to_window" => BuildSendInputNarration(args),
             _ => null
         };
@@ -1076,6 +1288,16 @@ internal static class AgentRunner
                     "The taskbar search launch did not surface a launched app window. Do not imply that the app opened successfully, do not assume a same-title app window exists just because Search shows a matching result, and do not treat the unchanged current window as the requested app just because it is still visible. Use fresh evidence before deciding what happened, and if another materially different launch route is available, prefer that next.",
                 _ => null
             };
+        }
+
+        if (toolName is "click_selected_window_element" or "invoke_selected_window_element")
+        {
+            return "Treat this direct UI activation as unconfirmed until the freshest post-action snapshot or screenshot shows the requested screen change. A screenshot from before the click does not verify the post-click state, and if the same picker, dialog, or page is still visible after the action, continue from that fresh evidence instead of claiming success.";
+        }
+
+        if (toolName == "set_selected_window_element_value")
+        {
+            return "Treat this direct field entry as unconfirmed until the freshest post-action snapshot or screenshot shows the intended text or the resulting screen change. If the field still looks empty or unchanged after entry, retry with a materially different method or report that the entry is not yet confirmed.";
         }
 
         if (toolName != "send_input_to_window")
@@ -1926,6 +2148,39 @@ internal static class AgentRunner
         return true;
     }
 
+    internal static bool TryRewriteBrowserSearchFieldValueEntryToTyping(
+        string userText,
+        string toolName,
+        IReadOnlyDictionary<string, object?> args,
+        string? recentWindowContext,
+        out Dictionary<string, object?> rewrittenArgs,
+        out string? browserSearchFieldPath)
+    {
+        rewrittenArgs = new Dictionary<string, object?>(StringComparer.Ordinal);
+        browserSearchFieldPath = null;
+
+        if (toolName != "set_selected_window_element_value" ||
+            !SnapshotLooksLikeBrowserWindow(recentWindowContext) ||
+            !UserRequestLooksLikeBrowserContentSearch(userText))
+        {
+            return false;
+        }
+
+        var value = TryGetStringArgument(args, "value");
+        var elementPath = TryGetStringArgument(args, "elementPath") ?? TryGetStringArgument(args, "uiPath");
+        if (string.IsNullOrWhiteSpace(value) ||
+            string.IsNullOrWhiteSpace(elementPath) ||
+            !TryFindElementByPath(recentWindowContext, elementPath, out var element) ||
+            !ElementLooksLikeBrowserSiteSearchField(element))
+        {
+            return false;
+        }
+
+        rewrittenArgs["text"] = value;
+        browserSearchFieldPath = elementPath;
+        return true;
+    }
+
     internal static bool ShouldExitBrowserFullscreenBeforeBrowserShortcut(string? recentWindowContext)
     {
         if (!SnapshotLooksLikeBrowserWindow(recentWindowContext) ||
@@ -2087,7 +2342,8 @@ internal static class AgentRunner
         {
             using var document = JsonDocument.Parse(snapshotText);
             return TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree) &&
-                   ContainsMatchingElement(elementTree, ElementLooksLikeBrowserAddressBar);
+                   (ContainsMatchingElement(elementTree, ElementLooksLikeBrowserAddressBar)
+                    || ContainsMatchingElement(elementTree, ElementLooksLikeBrowserWebDocument));
         }
         catch
         {
@@ -2349,6 +2605,40 @@ internal static class AgentRunner
         var automationId = TryGetJsonStringProperty(element, "automationId");
         return !string.IsNullOrWhiteSpace(automationId) &&
                automationId.Contains("fullscreen", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool ElementLooksLikeBrowserSiteSearchField(JsonElement element)
+    {
+        var controlType = TryGetJsonStringProperty(element, "controlType");
+        if (!string.Equals(controlType, "Edit", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var name = TryGetJsonStringProperty(element, "name");
+        if (!string.IsNullOrWhiteSpace(name) &&
+            name.Contains("search", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var automationId = TryGetJsonStringProperty(element, "automationId");
+        return !string.IsNullOrWhiteSpace(automationId) &&
+               automationId.Contains("search", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool ElementLooksLikeBrowserWebDocument(JsonElement element)
+    {
+        var automationId = TryGetJsonStringProperty(element, "automationId");
+        if (!string.IsNullOrWhiteSpace(automationId) &&
+            string.Equals(automationId, "RootWebArea", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var controlType = TryGetJsonStringProperty(element, "controlType");
+        return string.Equals(controlType, "Document", StringComparison.OrdinalIgnoreCase)
+               && !string.IsNullOrWhiteSpace(TryGetJsonStringProperty(element, "className"));
     }
 
     private static bool WindowLooksLikeBrowser(JsonElement window)

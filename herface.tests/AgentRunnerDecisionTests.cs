@@ -644,6 +644,96 @@ public sealed class AgentRunnerDecisionTests
         Assert.Equal("I'm typing the URL.", actual);
     }
 
+    [Theory]
+    [InlineData("click_selected_window_element")]
+    [InlineData("set_selected_window_element_value")]
+    public void IsDesktopActionTool_ReturnsTrue_ForDirectUiStateChanges(string toolName)
+    {
+        var actual = AgentRunner.IsDesktopActionTool(toolName);
+
+        Assert.True(actual);
+    }
+
+    [Fact]
+    public void BuildToolSpecificGuidance_ReturnsPostActionVerificationHint_ForClick()
+    {
+        var actual = AgentRunner.BuildToolSpecificGuidance(
+            "click_selected_window_element",
+            "{}",
+            new Dictionary<string, object?>());
+
+        Assert.NotNull(actual);
+        Assert.Contains("freshest post-action snapshot or screenshot", actual!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("before the click does not verify the post-click state", actual, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildToolSpecificGuidance_ReturnsPostActionVerificationHint_ForDirectValueEntry()
+    {
+        var actual = AgentRunner.BuildToolSpecificGuidance(
+            "set_selected_window_element_value",
+            "{}",
+            new Dictionary<string, object?>());
+
+        Assert.NotNull(actual);
+        Assert.Contains("intended text", actual!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("not yet confirmed", actual, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void TryRewriteBrowserSearchFieldValueEntryToTyping_ReturnsTrue_ForBrowserSearchInput()
+    {
+        var snapshot =
+            """
+            {
+              "Window": {
+                "Handle": "0x00060A88",
+                "Title": "Netflix",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "1/0/0/1/1/0/0/0/0/0/0",
+                    "UiPath": "1/0/0/1/1/0/0/0/0/0/0",
+                    "Name": "Netflix",
+                    "ControlType": "Document",
+                    "AutomationId": "RootWebArea",
+                    "ClassName": "RootWebArea"
+                  },
+                  {
+                    "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/0/3",
+                    "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/0/3",
+                    "Name": "Search",
+                    "ControlType": "Edit",
+                    "AutomationId": "searchInput",
+                    "AvailableActions": [ "focus", "set_value" ]
+                  }
+                ]
+              }
+            }
+            """;
+
+        var actual = AgentRunner.TryRewriteBrowserSearchFieldValueEntryToTyping(
+            "Search for Boyfriend on Demand within Netflix.",
+            "set_selected_window_element_value",
+            new Dictionary<string, object?>
+            {
+                ["elementPath"] = "1/0/0/1/1/0/0/0/0/0/0/0/0/0/3",
+                ["value"] = "Boyfriend on Demand"
+            },
+            snapshot,
+            out var rewrittenArgs,
+            out var browserSearchFieldPath);
+
+        Assert.True(actual);
+        Assert.Equal("Boyfriend on Demand", rewrittenArgs["text"]);
+        Assert.Equal("1/0/0/1/1/0/0/0/0/0/0/0/0/0/3", browserSearchFieldPath);
+    }
+
     [Fact]
     public void BuildToolSpecificGuidance_ReturnsNull_ForModifiedShortcut()
     {
