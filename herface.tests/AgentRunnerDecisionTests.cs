@@ -156,6 +156,7 @@ public sealed class AgentRunnerDecisionTests
         Assert.NotNull(actual);
         Assert.Contains("conditional step as a successful no-op", actual!, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("perform that action instead of stopping just because the target is visible", actual, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("do not guess between profile tiles", actual, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("keep the interaction inside the browser", actual, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -536,6 +537,178 @@ public sealed class AgentRunnerDecisionTests
             """{"Window":{"Handle":"0x00060A88","Title":"Netflix - Microsoft Edge","ClassName":"Chrome_WidgetWin_1"}}""");
 
         Assert.False(actual);
+    }
+
+    [Fact]
+    public void ShouldBlockUnnamedProfilePickerAction_ReturnsTrue_ForGuessedManageProfilesClick()
+    {
+        var snapshot =
+            """
+            {
+              "Window": {
+                "Handle": "0x00250450",
+                "Title": "Netflix - Microsoft Edge",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "1/0/0/1/1/0/0/0/0/0/0",
+                    "UiPath": "1/0/0/1/1/0/0/0/0/0/0",
+                    "Name": "Netflix",
+                    "ControlType": "Document",
+                    "Children": [
+                      {
+                        "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/1",
+                        "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/1",
+                        "Name": "Who's watching?",
+                        "ControlType": "Text",
+                        "ClassName": "profile-gate-label"
+                      },
+                      {
+                        "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0",
+                        "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0",
+                        "Name": "Min",
+                        "ControlType": "ListItem",
+                        "ClassName": "profile"
+                      },
+                      {
+                        "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/3",
+                        "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/3",
+                        "Name": "Manage Profiles",
+                        "ControlType": "Hyperlink",
+                        "ClassName": "profile-button",
+                        "AvailableActions": [ "invoke" ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+            """;
+
+        var actual = AgentRunner.ShouldBlockUnnamedProfilePickerAction(
+            "Play Netflix.",
+            "click_selected_window_element",
+            new Dictionary<string, object?> { ["elementPath"] = "1/0/0/1/1/0/0/0/0/0/0/0/0/3" },
+            snapshot,
+            out var blockedMessage);
+
+        Assert.True(actual);
+        Assert.Contains("profile picker is visible", blockedMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Do not guess which profile to choose", blockedMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ShouldBlockUnnamedProfilePickerAction_ReturnsFalse_ForExplicitProfileSelection()
+    {
+        var snapshot =
+            """
+            {
+              "Window": {
+                "Handle": "0x00250450",
+                "Title": "Netflix - Microsoft Edge",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "1/0/0/1/1/0/0/0/0/0/0",
+                    "UiPath": "1/0/0/1/1/0/0/0/0/0/0",
+                    "Name": "Netflix",
+                    "ControlType": "Document",
+                    "Children": [
+                      {
+                        "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/1",
+                        "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/1",
+                        "Name": "Who's watching?",
+                        "ControlType": "Text",
+                        "ClassName": "profile-gate-label"
+                      },
+                      {
+                        "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0",
+                        "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0",
+                        "Name": "Min",
+                        "ControlType": "ListItem",
+                        "ClassName": "profile"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+            """;
+
+        var actual = AgentRunner.ShouldBlockUnnamedProfilePickerAction(
+            "Select Min.",
+            "click_selected_window_element",
+            new Dictionary<string, object?> { ["elementPath"] = "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0" },
+            snapshot,
+            out var blockedMessage);
+
+        Assert.False(actual);
+        Assert.Equal(string.Empty, blockedMessage);
+    }
+
+    [Fact]
+    public void ShouldBlockUnnamedProfilePickerAction_ReturnsFalse_ForExplicitManageProfilesRequest()
+    {
+        var snapshot =
+            """
+            {
+              "Window": {
+                "Handle": "0x00250450",
+                "Title": "Netflix - Microsoft Edge",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "1/0/0/1/1/0/0/0/0/0/0",
+                    "UiPath": "1/0/0/1/1/0/0/0/0/0/0",
+                    "Name": "Netflix",
+                    "ControlType": "Document",
+                    "Children": [
+                      {
+                        "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/1",
+                        "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/1",
+                        "Name": "Who's watching?",
+                        "ControlType": "Text",
+                        "ClassName": "profile-gate-label"
+                      },
+                      {
+                        "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/3",
+                        "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/3",
+                        "Name": "Manage Profiles",
+                        "ControlType": "Hyperlink",
+                        "ClassName": "profile-button",
+                        "AvailableActions": [ "invoke" ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+            """;
+
+        var actual = AgentRunner.ShouldBlockUnnamedProfilePickerAction(
+            "Open Manage Profiles.",
+            "click_selected_window_element",
+            new Dictionary<string, object?> { ["elementPath"] = "1/0/0/1/1/0/0/0/0/0/0/0/0/3" },
+            snapshot,
+            out var blockedMessage);
+
+        Assert.False(actual);
+        Assert.Equal(string.Empty, blockedMessage);
     }
 
     [Fact]

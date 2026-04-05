@@ -170,34 +170,39 @@ public sealed class UiSnapshotCompactorTests
                             "UiPath": "3/0/0/0/1",
                             "Name": "Min",
                             "ControlType": "ListItem",
-                            "ClassName": "profile"
+                            "ClassName": "profile",
+                            "AvailableActions": [ "scroll_into_view" ]
                           },
                           {
                             "Path": "3/0/0/0/2",
                             "UiPath": "3/0/0/0/2",
                             "Name": "Esther",
                             "ControlType": "ListItem",
-                            "ClassName": "profile"
+                            "ClassName": "profile",
+                            "AvailableActions": [ "scroll_into_view" ]
                           },
                           {
                             "Path": "3/0/0/0/3",
                             "UiPath": "3/0/0/0/3",
                             "Name": "Henry",
                             "ControlType": "ListItem",
-                            "ClassName": "profile"
+                            "ClassName": "profile",
+                            "AvailableActions": [ "scroll_into_view" ]
                           },
                           {
                             "Path": "3/0/0/0/4",
                             "UiPath": "3/0/0/0/4",
                             "Name": "Yoon",
                             "ControlType": "ListItem",
-                            "ClassName": "profile"
+                            "ClassName": "profile",
+                            "AvailableActions": [ "scroll_into_view" ]
                           },
                           {
                             "Path": "3/0/0/0/5",
                             "UiPath": "3/0/0/0/5",
                             "Name": "\uE716Add Profile",
-                            "ControlType": "ListItem"
+                            "ControlType": "ListItem",
+                            "AvailableActions": [ "scroll_into_view" ]
                           },
                           {
                             "Path": "3/0/0/0/6",
@@ -231,6 +236,8 @@ public sealed class UiSnapshotCompactorTests
             profile);
 
         Assert.Contains("Min", actual, StringComparison.Ordinal);
+        Assert.Contains("3/0/0/0/1: ListItem \"Min\"", actual, StringComparison.Ordinal);
+        Assert.Contains("3/0/0/0/2: ListItem \"Esther\"", actual, StringComparison.Ordinal);
         Assert.Contains("Add Profile", actual, StringComparison.Ordinal);
         Assert.Contains("Manage Profiles", actual, StringComparison.Ordinal);
         Assert.Contains("Address and search bar", actual, StringComparison.Ordinal);
@@ -403,6 +410,80 @@ public sealed class UiSnapshotCompactorTests
         Assert.Contains("Boyfriend on Demand", actual, StringComparison.Ordinal);
         Assert.Contains("1/0/0/0/0", actual, StringComparison.Ordinal);
         Assert.Contains("Anaconda", actual, StringComparison.Ordinal);
+        Assert.True(actual.Length <= profile.WindowSnapshotCharBudget);
+    }
+
+    [Fact]
+    public void CompactToolTextForContext_PreservesDeepNamedElements_WhenTheyHaveNoActions()
+    {
+        var snapshot = """
+        {
+          "Window": {
+            "Handle": "0x00070EC4",
+            "Title": "Netflix - Personal - Microsoft Edge",
+            "ClassName": "Chrome_WidgetWin_1"
+          },
+          "ElementTree": {
+            "Path": "root",
+            "UiPath": "root",
+            "Name": "Netflix - Personal - Microsoft Edge",
+            "ControlType": "Window",
+            "Children": [
+              {
+                "Path": "1/0",
+                "UiPath": "1/0",
+                "Name": "Netflix",
+                "ControlType": "Document",
+                "AutomationId": "RootWebArea",
+                "Children": [
+                  {
+                    "Path": "1/0/0",
+                    "UiPath": "1/0/0",
+                    "ControlType": "Pane",
+                    "Children": [
+                      {
+                        "Path": "1/0/0/0",
+                        "UiPath": "1/0/0/0",
+                        "ControlType": "Pane",
+                        "Children": [
+                          {
+                            "Path": "1/0/0/0/0",
+                            "UiPath": "1/0/0/0/0",
+                            "Name": "Continue Watching",
+                            "ControlType": "Text"
+                          },
+                          {
+                            "Path": "1/0/0/0/1",
+                            "UiPath": "1/0/0/0/1",
+                            "Name": "Boyfriend on Demand",
+                            "ControlType": "Text"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+        """;
+
+        var profile = new LlmModelProfile(
+            LlmProviderId.OpenAiApi,
+            "gpt-5.4-mini",
+            ContextCompressionTriggerRatio: 0.55,
+            WindowSnapshotCharBudget: 1_200,
+            FocusSnapshotCharBudget: 320,
+            MaxThrottleRetries: 2);
+
+        var actual = UiSnapshotCompactor.CompactToolTextForContext(
+            "describe_selected_window",
+            snapshot,
+            profile);
+
+        Assert.Contains("1/0/0/0/0: Text \"Continue Watching\"", actual, StringComparison.Ordinal);
+        Assert.Contains("1/0/0/0/1: Text \"Boyfriend on Demand\"", actual, StringComparison.Ordinal);
         Assert.True(actual.Length <= profile.WindowSnapshotCharBudget);
     }
 

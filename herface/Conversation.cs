@@ -1005,6 +1005,43 @@ internal static class AgentRunner
                     continue;
                 }
 
+                if (ShouldBlockUnnamedProfilePickerAction(
+                        userText,
+                        executableToolName,
+                        executableArgs,
+                        actionableUiTreeContext,
+                        out var blockedProfilePickerMessage))
+                {
+                    Display.ToolCall(executableToolName, effectiveArgumentsText);
+                    Display.ToolResult(executableToolName, blockedProfilePickerMessage, 0);
+                    DebugTrace.WriteStructuredEvent(
+                        "agent.tool_call_blocked",
+                        new Dictionary<string, object?>
+                        {
+                            ["turn"] = turnId,
+                            ["toolCallId"] = toolCall.Id,
+                            ["tool"] = toolCall.Name,
+                            ["executedTool"] = executableToolName,
+                            ["reason"] = "unnamed_profile_picker_target_blocked",
+                            ["resultPreview"] = DebugTrace.Preview(blockedProfilePickerMessage, 900),
+                        });
+                    DebugTrace.WriteStructuredEvent(
+                        "agent.tool_call_completed",
+                        new Dictionary<string, object?>
+                        {
+                            ["turn"] = turnId,
+                            ["toolCallId"] = toolCall.Id,
+                            ["tool"] = toolCall.Name,
+                            ["executedTool"] = executableToolName,
+                            ["elapsedMs"] = 0,
+                            ["isError"] = true,
+                            ["images"] = 0,
+                            ["resultPreview"] = DebugTrace.Preview(blockedProfilePickerMessage, 900),
+                        });
+                    messages.Add(new AgentMessage.ToolResult(toolCall.Id, toolCall.Name, blockedProfilePickerMessage));
+                    continue;
+                }
+
                 if (executableToolName == "send_input_to_window" &&
                     !string.IsNullOrWhiteSpace(browserSearchFieldReplacementPath))
                 {
@@ -1323,6 +1360,8 @@ internal static class AgentRunner
         {
             parts.Add(
                 "For conditional instructions such as \"if profile selection is visible\" or \"if a passcode is required\", inspect the current UI first. If the condition is present and the user named a target or action, perform that action instead of stopping just because the target is visible. If the condition is absent, treat that conditional step as a successful no-op instead of forcing a click, and phrase the reply as \"condition not present, so no action was needed\" rather than as an incomplete or failed outcome.");
+            parts.Add(
+                "If a profile picker is visible, do not guess between profile tiles or click controls such as `Manage Profiles`, `Add Profile`, or `Done` unless the user explicitly named that exact target. If no exact profile or picker control was requested, stop after reporting that profile selection is still required.");
         }
 
         if (toolNames.Contains("launch_app_via_taskbar_search"))
@@ -2537,6 +2576,61 @@ internal static class AgentRunner
         return true;
     }
 
+    internal static bool ShouldBlockUnnamedProfilePickerAction(
+        string userText,
+        string toolName,
+        IReadOnlyDictionary<string, object?> args,
+        string? recentWindowContext,
+        out string blockedMessage)
+    {
+        blockedMessage = string.Empty;
+        if (toolName is not "click_selected_window_element"
+            and not "invoke_selected_window_element"
+            and not "focus_selected_window_element"
+            || string.IsNullOrWhiteSpace(recentWindowContext))
+        {
+            return false;
+        }
+
+        var elementPath = TryGetStringArgument(args, "elementPath") ?? TryGetStringArgument(args, "uiPath");
+        if (string.IsNullOrWhiteSpace(elementPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(recentWindowContext);
+            if (!TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree) ||
+                elementTree.ValueKind != JsonValueKind.Object ||
+                !SnapshotContainsVisibleProfilePicker(elementTree) ||
+                !TryFindElementByPath(elementTree, elementPath, out var requestedElement))
+            {
+                return false;
+            }
+
+            var requiredAction = toolName switch
+            {
+                "focus_selected_window_element" => "focus",
+                "invoke_selected_window_element" => "invoke",
+                _ => null
+            };
+
+            if (ElementAlreadyLooksLikeRequestedNamedTarget(requestedElement, userText, requiredAction))
+            {
+                return false;
+            }
+
+            blockedMessage =
+                "Blocked internal policy: a profile picker is visible, but this action does not match an exact profile or picker control named by the user. Do not guess which profile to choose or enter Manage Profiles/Add Profile/Done. Report that profile selection is still required instead.";
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     internal static bool ShouldExitBrowserFullscreenBeforeBrowserShortcut(string? recentWindowContext)
     {
         if (!SnapshotLooksLikeBrowserWindow(recentWindowContext) ||
@@ -3127,6 +3221,45 @@ internal static class AgentRunner
         return controlType.Equals("Group", StringComparison.OrdinalIgnoreCase)
                || controlType.Equals("Pane", StringComparison.OrdinalIgnoreCase)
                || controlType.Equals("List", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool SnapshotContainsVisibleProfilePicker(JsonElement elementTree)
+        => ContainsMatchingElement(elementTree, ElementLooksLikeProfilePickerTile)
+           && ContainsMatchingElement(elementTree, ElementLooksLikeProfilePickerCue);
+
+    private static bool ElementLooksLikeProfilePickerTile(JsonElement element)
+    {
+        var controlType = TryGetJsonStringProperty(element, "controlType");
+        var name = TryGetJsonStringProperty(element, "name");
+        var className = TryGetJsonStringProperty(element, "className");
+        return TryGetJsonBooleanProperty(element, "isOffscreen") != true
+               && !string.IsNullOrWhiteSpace(name)
+               && string.Equals(controlType, "ListItem", StringComparison.OrdinalIgnoreCase)
+               && ((!string.IsNullOrWhiteSpace(className) &&
+                    className.Contains("profile", StringComparison.OrdinalIgnoreCase))
+                   || name.Contains("Add Profile", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool ElementLooksLikeProfilePickerCue(JsonElement element)
+    {
+        if (TryGetJsonBooleanProperty(element, "isOffscreen") == true)
+        {
+            return false;
+        }
+
+        var name = TryGetJsonStringProperty(element, "name");
+        if (!string.IsNullOrWhiteSpace(name) &&
+            (name.Contains("Who's watching", StringComparison.OrdinalIgnoreCase)
+             || name.Contains("Manage Profiles", StringComparison.OrdinalIgnoreCase)
+             || string.Equals(name, "Done", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        var className = TryGetJsonStringProperty(element, "className");
+        return !string.IsNullOrWhiteSpace(className)
+               && (className.Contains("profile-gate", StringComparison.OrdinalIgnoreCase)
+                   || className.Contains("profile-button", StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool TryFindUniqueNamedActionTargetFromUserText(

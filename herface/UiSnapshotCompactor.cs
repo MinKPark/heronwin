@@ -205,9 +205,21 @@ internal static class UiSnapshotCompactor
             return true;
         }
 
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            return true;
+        }
+
         if (!focusMode &&
             hasInterestingAction &&
             namedActionablePageContent)
+        {
+            return true;
+        }
+
+        if (!focusMode &&
+            IsLikelyVisible(element) &&
+            LooksLikeProfilePickerTile(name, controlType, className))
         {
             return true;
         }
@@ -403,6 +415,11 @@ internal static class UiSnapshotCompactor
             priority += 320;
         }
 
+        if (LooksLikeProfilePickerTile(name, controlType, className))
+        {
+            priority += 340;
+        }
+
         if (LooksLikeMeaningfulPageContent(name, controlType, className))
         {
             priority += 220;
@@ -589,6 +606,19 @@ internal static class UiSnapshotCompactor
                || string.Equals(controlType, "Document", StringComparison.OrdinalIgnoreCase)
                || (!string.IsNullOrWhiteSpace(className) &&
                    className.Contains("profile", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool LooksLikeProfilePickerTile(string? name, string? controlType, string? className)
+    {
+        if (string.IsNullOrWhiteSpace(name) ||
+            !string.Equals(controlType, "ListItem", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return (!string.IsNullOrWhiteSpace(className) &&
+                className.Contains("profile", StringComparison.OrdinalIgnoreCase))
+               || name.Contains("add profile", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? TryGetContentHints(JsonElement element, string? elementName)
