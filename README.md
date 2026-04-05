@@ -6,10 +6,13 @@
 
 ```
 heronwin/
-├── herface/          # Node.js/TypeScript AI agent UI (voice input → LLM → text output)
-└── herbody/          # MCP servers (TypeScript / C#)
-    ├── process-manager/   # Start, stop, and list processes on the local machine
-    └── eyesandhands/      # Inspect Windows UI and interact with windows via UI Automation
+└── src/
+    ├── herface/          # .NET 10 AI agent UI (voice input, scripted runs, MCP client)
+    ├── herface.tests/    # xUnit tests for herface
+    ├── herbody/          # MCP servers (TypeScript / C#)
+    │   ├── process-manager/   # Start, stop, and list processes on the local machine
+    │   └── eyesandhands/      # Inspect Windows UI and interact with windows via UI Automation
+    └── scenarios/        # YAML scenarios for scripted runs
 ```
 
 ## Quick Start
@@ -17,29 +20,25 @@ heronwin/
 ### 1. Start the process-manager MCP server (build once)
 
 ```bash
-cd herbody/process-manager
+cd src/herbody/process-manager
 npm install
 npm run build
 ```
 
 ### 2. Configure and start the herface agent
 
-```bash
-cd herface
-npm install
-cp .env.example .env
-# Edit .env — set OPENAI_API_KEY and update MCP_SERVERS to point at the built server
-npm run build
-npm start
+```powershell
+# Edit src/herface/.env as needed, then run:
+dotnet run --project src/herface
 ```
 
 ### Running without a build step
 
-The TypeScript packages support `npm run dev` (via [tsx](https://tsx.is)) for hot-reload development. The C# server can be started directly with `dotnet run --project herbody/eyesandhands/eyesandhands.csproj`.
+The TypeScript MCP server supports `npm run dev` (via [tsx](https://tsx.is)) for hot-reload development. The C# server can be started directly with `dotnet run --project src/herbody/eyesandhands/eyesandhands.csproj`.
 
 ## Documentation
 
-- [herface README](./herface/README.md)
-- [herbody README](./herbody/README.md)
-- [process-manager README](./herbody/process-manager/README.md)
-- [eyesandhands README](./herbody/eyesandhands/README.md)
+- [herface README](./src/herface/README.md)
+- [herbody README](./src/herbody/README.md)
+- [process-manager README](./src/herbody/process-manager/README.md)
+- [eyesandhands README](./src/herbody/eyesandhands/README.md)

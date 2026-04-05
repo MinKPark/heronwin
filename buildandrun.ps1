@@ -1,9 +1,9 @@
 $ErrorActionPreference = "Stop"
 
-$projectPath = Join-Path $PSScriptRoot "herface\Herface.csproj"
+$projectPath = Join-Path $PSScriptRoot "src\herface\Herface.csproj"
 $configuration = "Debug"
 $targetFramework = "net10.0-windows"
-$binaryPath = Join-Path $PSScriptRoot "herface\bin\$configuration\$targetFramework\Herface.dll"
+$binaryPath = Join-Path $PSScriptRoot "src\herface\bin\$configuration\$targetFramework\Herface.dll"
 
 if (-not (Test-Path $projectPath)) {
     throw "Project file not found: $projectPath"

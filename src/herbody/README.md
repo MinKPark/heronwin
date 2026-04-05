@@ -13,9 +13,9 @@ Each subdirectory is a standalone MCP server that can be consumed by the `herfac
 
 ## Adding a New Server
 
-1. Create a new subdirectory (e.g. `herbody/my-server/`).
+1. Create a new subdirectory (e.g. `src/herbody/my-server/`).
 2. Implement a stdio-based MCP server using the [`@modelcontextprotocol/sdk`](https://github.com/modelcontextprotocol/typescript-sdk) (TypeScript) or the [C# SDK](https://github.com/modelcontextprotocol/csharp-sdk).
-3. Register the server in `herface/.env` by adding an entry to `MCP_SERVERS`.
+3. Register the server in `src/herface/.env` by adding an entry to `MCP_SERVERS`.
 
 ## Prerequisites
 

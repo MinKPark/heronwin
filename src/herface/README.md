@@ -20,24 +20,24 @@ Development approach:
 - Prefer prompt and skill updates first when a scenario needs better action ordering, search behavior, verification standards, or conditional handling.
 - Use runtime code only for general guardrails, deterministic recovery, tool interpretation, or cases that are mostly impossible to stabilize through prompt guidance alone.
 
-Run with:
+Run from this directory with:
 
 ```powershell
-dotnet run --project herface
+dotnet run --project .
 ```
 
 Run scripted commands without waiting for voice input:
 
 ```powershell
-dotnet run --project herface -- --command "open netflix"
-dotnet run --project herface -- --command "open netflix" --command "play the trailer"
-dotnet run --project herface -- --commands-file .\steps.yml
+dotnet run --project . -- --command "open netflix"
+dotnet run --project . -- --command "open netflix" --command "play the trailer"
+dotnet run --project . -- --commands-file .\steps.yml
 ```
 
 Run a scenario file with log-based assertions:
 
 ```powershell
-dotnet run --project herface -- --scenario .\scenario.yml
+dotnet run --project . -- --scenario .\scenario.yml
 ```
 
 Example `steps.yml`:

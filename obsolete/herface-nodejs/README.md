@@ -60,7 +60,7 @@ npm run mcp:eyesandhands:direct
 
 That script launches the bundled `eyesandhands.exe` directly and calls `list_windows`.
 
-To validate the MCP configuration currently defined in `herface/.env`:
+To validate the MCP configuration currently defined in this project's `.env`:
 
 ```bash
 npm run mcp:eyesandhands:configured
@@ -97,7 +97,7 @@ npm run mcp:eyesandhands:configured
   {
     "name": "process-manager",
     "command": "node",
-    "args": ["../herbody/process-manager/dist/index.js"]
+    "args": ["../../src/herbody/process-manager/dist/index.js"]
   }
 ]
 ```

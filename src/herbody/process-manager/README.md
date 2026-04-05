@@ -36,7 +36,7 @@ Add this server to your MCP client's configuration:
 {
   "name": "process-manager",
   "command": "node",
-  "args": ["path/to/herbody/process-manager/dist/index.js"]
+  "args": ["path/to/src/herbody/process-manager/dist/index.js"]
 }
 ```
 

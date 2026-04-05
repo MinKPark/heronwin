@@ -4,7 +4,7 @@ import { McpClientManager } from "../src/mcp/client.js";
 async function main(): Promise<void> {
   const config = loadConfig();
   if (config.mcpServers.length === 0) {
-    throw new Error("No MCP servers are configured in herface/.env.");
+    throw new Error("No MCP servers are configured in this project's .env.");
   }
 
   const manager = new McpClientManager();

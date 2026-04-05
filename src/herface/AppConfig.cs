@@ -208,6 +208,7 @@ internal static class DotEnvLoader
         {
             yield return Path.Combine(current.FullName, ".env");
             yield return Path.Combine(current.FullName, "herface", ".env");
+            yield return Path.Combine(current.FullName, "src", "herface", ".env");
             current = current.Parent;
         }
     }
