@@ -182,6 +182,33 @@ public sealed class AgentPromptComposerTests
         Assert.DoesNotContain(actual.ActiveSkills, skill => skill.Key == "browser-navigation-and-web-operations");
     }
 
+    [Fact]
+    public void Compose_UsesLegacyCompatibility_WhenSkillLacksStructuredActivationMetadata()
+    {
+        var catalog = new AgentPromptCatalog(
+            FallbackDefinitionPath: "fallback/her.agent.md",
+            FallbackDefinition: "fallback prompt",
+            CoreDefinitionPath: "core/her.agent.core.md",
+            CoreDefinition: "core prompt",
+            Skills:
+            [
+                CreateSkill("desktop-launch-and-first-look", "launch skill", EmptyActivation),
+                CreateSkill("ui-refresh-and-evidence", "refresh skill", EmptyActivation)
+            ]);
+
+        var actual = AgentPromptComposer.Compose(
+            catalog,
+            "Open Spotify.",
+            [
+                new ToolDefinition("list_windows", "desc", default),
+                new ToolDefinition("select_window", "desc", default),
+                new ToolDefinition("describe_selected_window", "desc", default)
+            ]);
+
+        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "desktop-launch-and-first-look");
+        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "ui-refresh-and-evidence");
+    }
+
     private static AgentPromptCatalog CreateCatalog()
         => new(
             FallbackDefinitionPath: "fallback/her.agent.md",
@@ -190,10 +217,103 @@ public sealed class AgentPromptComposerTests
             CoreDefinition: "core prompt",
             Skills:
             [
-                new AgentSkillPrompt("action-discovery-and-invocation", "skills/action.skill.md", "action skill"),
-                new AgentSkillPrompt("browser-navigation-and-web-operations", "skills/browser.skill.md", "browser skill"),
-                new AgentSkillPrompt("desktop-launch-and-first-look", "skills/launch.skill.md", "launch skill"),
-                new AgentSkillPrompt("search-and-enumeration", "skills/search.skill.md", "search skill"),
-                new AgentSkillPrompt("ui-refresh-and-evidence", "skills/refresh.skill.md", "refresh skill")
+                CreateSkill(
+                    "action-discovery-and-invocation",
+                    "action skill",
+                    Activation(
+                        whenAnyIntents: ["action_request"],
+                        unlessAnyIntents: ["browser_request"],
+                        whenAnyTools:
+                        [
+                            "list_main_menu_items",
+                            "list_context_menu_items",
+                            "invoke_main_menu_item",
+                            "invoke_context_menu_item",
+                            "invoke_selected_window_element",
+                            "click_selected_window_element",
+                            "focus_selected_window_element",
+                            "send_input_to_window"
+                        ])),
+                CreateSkill(
+                    "browser-navigation-and-web-operations",
+                    "browser skill",
+                    Activation(
+                        whenAnyIntents: ["browser_request"],
+                        whenAnyTools:
+                        [
+                            "describe_selected_window",
+                            "describe_selected_window_focus",
+                            "invoke_selected_window_element",
+                            "click_selected_window_element",
+                            "focus_selected_window_element",
+                            "set_selected_window_element_value",
+                            "send_input_to_window",
+                            "capture_selected_window_screenshot"
+                        ])),
+                CreateSkill(
+                    "desktop-launch-and-first-look",
+                    "launch skill",
+                    Activation(
+                        whenAnyIntents: ["launch_request", "direct_browser_navigation_request"],
+                        whenAnyTools:
+                        [
+                            "list_windows",
+                            "select_window",
+                            "list_taskbar_elements",
+                            "select_taskbar_app",
+                            "launch_app_via_taskbar_search"
+                        ])),
+                CreateSkill(
+                    "search-and-enumeration",
+                    "search skill",
+                    Activation(
+                        whenAnyIntents: ["search_or_enumeration_request"],
+                        whenAnyTools:
+                        [
+                            "describe_selected_window",
+                            "describe_selected_window_focus",
+                            "capture_selected_window_screenshot"
+                        ])),
+                CreateSkill(
+                    "ui-refresh-and-evidence",
+                    "refresh skill",
+                    Activation(
+                        whenAnyTools:
+                        [
+                            "describe_selected_window",
+                            "describe_selected_window_focus",
+                            "capture_selected_window_screenshot"
+                        ]))
             ]);
+
+    private static AgentSkillPrompt CreateSkill(
+        string key,
+        string promptText,
+        AgentSkillActivation activation)
+        => new(
+            key,
+            $"skills/{key}.skill.md",
+            promptText,
+            new AgentSkillMetadata(
+                key,
+                Summary: null,
+                PreferredTools: [],
+                AppliesWhen: [],
+                Activation: activation));
+
+    private static AgentSkillActivation Activation(
+        string[]? whenAnyIntents = null,
+        string[]? whenAllIntents = null,
+        string[]? unlessAnyIntents = null,
+        string[]? whenAnyTools = null,
+        string[]? whenAllTools = null)
+        => new(
+            whenAnyIntents ?? Array.Empty<string>(),
+            whenAllIntents ?? Array.Empty<string>(),
+            unlessAnyIntents ?? Array.Empty<string>(),
+            whenAnyTools ?? Array.Empty<string>(),
+            whenAllTools ?? Array.Empty<string>());
+
+    private static AgentSkillActivation EmptyActivation
+        => Activation();
 }

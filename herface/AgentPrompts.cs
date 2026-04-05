@@ -3,10 +3,36 @@ using System.Text.RegularExpressions;
 
 namespace HeronWin.HerFace;
 
+internal sealed record AgentSkillActivation(
+    IReadOnlyList<string> WhenAnyIntents,
+    IReadOnlyList<string> WhenAllIntents,
+    IReadOnlyList<string> UnlessAnyIntents,
+    IReadOnlyList<string> WhenAnyTools,
+    IReadOnlyList<string> WhenAllTools)
+{
+    public bool HasCriteria =>
+        WhenAnyIntents.Count > 0 ||
+        WhenAllIntents.Count > 0 ||
+        UnlessAnyIntents.Count > 0 ||
+        WhenAnyTools.Count > 0 ||
+        WhenAllTools.Count > 0;
+}
+
+internal sealed record AgentSkillMetadata(
+    string Id,
+    string? Summary,
+    IReadOnlyList<string> PreferredTools,
+    IReadOnlyList<string> AppliesWhen,
+    AgentSkillActivation Activation)
+{
+    public bool HasStructuredActivation => Activation.HasCriteria;
+}
+
 internal sealed record AgentSkillPrompt(
     string Key,
     string FilePath,
-    string PromptText);
+    string PromptText,
+    AgentSkillMetadata Metadata);
 
 internal sealed record AgentPromptCatalog(
     string FallbackDefinitionPath,
@@ -104,30 +130,148 @@ internal static class AgentPromptLoader
         var skills = new List<AgentSkillPrompt>();
         foreach (var path in Directory.EnumerateFiles(skillsDirectory, "*.skill.md").OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase))
         {
-            var promptText = LoadPromptText(
-                path,
-                $"agent skill \"{Path.GetFileName(path)}\"",
-                warnIfMissing: false,
-                stripFrontMatter: true);
-            if (string.IsNullOrWhiteSpace(promptText))
+            var prompt = LoadSkillPrompt(path);
+            if (prompt is not null)
             {
-                continue;
+                skills.Add(prompt);
             }
-
-            skills.Add(new AgentSkillPrompt(
-                GetSkillKey(path),
-                path,
-                promptText));
         }
 
         return skills;
     }
+
+    private static AgentSkillPrompt? LoadSkillPrompt(string path)
+    {
+        var rawContent = LoadPromptFile(
+            path,
+            $"agent skill \"{Path.GetFileName(path)}\"",
+            warnIfMissing: false);
+        if (string.IsNullOrWhiteSpace(rawContent))
+        {
+            return null;
+        }
+
+        var splitContent = SplitFrontMatter(rawContent);
+        if (string.IsNullOrWhiteSpace(splitContent.BodyText))
+        {
+            return null;
+        }
+
+        var metadata = ParseSkillMetadata(path, splitContent.HasFrontMatter ? splitContent.FrontMatterText : null);
+        return new AgentSkillPrompt(
+            metadata.Id,
+            path,
+            splitContent.BodyText,
+            metadata);
+    }
+
+    private static AgentSkillMetadata ParseSkillMetadata(string path, string? frontMatterText)
+    {
+        var fallbackId = GetSkillKey(path);
+        if (string.IsNullOrWhiteSpace(frontMatterText))
+        {
+            return BuildDefaultSkillMetadata(fallbackId);
+        }
+
+        try
+        {
+            if (HerfaceYamlParser.Parse(frontMatterText) is not HerfaceYamlMapping mapping)
+            {
+                throw new InvalidOperationException("Skill frontmatter must be a YAML mapping.");
+            }
+
+            var id = ReadOptionalScalar(mapping, "id");
+            var summary = ReadOptionalScalar(mapping, "summary");
+
+            return new AgentSkillMetadata(
+                string.IsNullOrWhiteSpace(id) ? fallbackId : id.Trim(),
+                string.IsNullOrWhiteSpace(summary) ? null : summary.Trim(),
+                ReadStringValues(mapping, "preferred_tools"),
+                ReadStringValues(mapping, "applies_when"),
+                ParseSkillActivation(mapping));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(
+                $"Warning: failed to parse agent skill metadata at \"{path}\"; continuing with filename-based compatibility. {ex.Message}");
+            return BuildDefaultSkillMetadata(fallbackId);
+        }
+    }
+
+    private static AgentSkillMetadata BuildDefaultSkillMetadata(string fallbackId)
+        => new(
+            fallbackId,
+            Summary: null,
+            PreferredTools: [],
+            AppliesWhen: [],
+            Activation: new AgentSkillActivation([], [], [], [], []));
+
+    private static AgentSkillActivation ParseSkillActivation(HerfaceYamlMapping mapping)
+    {
+        if (!mapping.TryGetValue("activation", out var activationNode))
+        {
+            return new AgentSkillActivation([], [], [], [], []);
+        }
+
+        if (activationNode is not HerfaceYamlMapping activationMapping)
+        {
+            throw new InvalidOperationException("Skill activation metadata must be a YAML mapping.");
+        }
+
+        return new AgentSkillActivation(
+            ReadStringValues(activationMapping, "when_any_intents"),
+            ReadStringValues(activationMapping, "when_all_intents"),
+            ReadStringValues(activationMapping, "unless_any_intents"),
+            ReadStringValues(activationMapping, "when_any_tools"),
+            ReadStringValues(activationMapping, "when_all_tools"));
+    }
+
+    private static IReadOnlyList<string> ReadStringValues(HerfaceYamlMapping mapping, string key)
+    {
+        if (!mapping.TryGetValue(key, out var node))
+        {
+            return [];
+        }
+
+        return node switch
+        {
+            HerfaceYamlScalar scalar when !string.IsNullOrWhiteSpace(scalar.Value)
+                => [scalar.Value.Trim()],
+            HerfaceYamlSequence sequence => sequence.Items
+                .OfType<HerfaceYamlScalar>()
+                .Select(item => item.Value.Trim())
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .ToArray(),
+            _ => []
+        };
+    }
+
+    private static string? ReadOptionalScalar(HerfaceYamlMapping mapping, string key)
+        => mapping.TryGetValue(key, out var node) && node is HerfaceYamlScalar scalar
+            ? scalar.Value
+            : null;
 
     private static string LoadPromptText(
         string path,
         string description,
         bool warnIfMissing,
         bool stripFrontMatter)
+    {
+        var content = LoadPromptFile(path, description, warnIfMissing);
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return string.Empty;
+        }
+
+        return stripFrontMatter
+            ? StripFrontMatter(content)
+            : content;
+    }
+
+    private static string LoadPromptFile(
+        string path,
+        string description,
+        bool warnIfMissing)
     {
         if (!File.Exists(path))
         {
@@ -142,10 +286,7 @@ internal static class AgentPromptLoader
 
         try
         {
-            var content = File.ReadAllText(path).Trim();
-            return stripFrontMatter
-                ? StripFrontMatter(content)
-                : content;
+            return File.ReadAllText(path).Trim();
         }
         catch (Exception ex)
         {
@@ -162,13 +303,27 @@ internal static class AgentPromptLoader
             return string.Empty;
         }
 
+        var splitContent = SplitFrontMatter(text);
+        return splitContent.HasFrontMatter
+            ? splitContent.BodyText
+            : text.Trim();
+    }
+
+    private static FrontMatterSplitResult SplitFrontMatter(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return new FrontMatterSplitResult(false, string.Empty, string.Empty);
+        }
+
         using var reader = new StringReader(text);
         var firstLine = reader.ReadLine();
         if (!string.Equals(firstLine?.Trim(), "---", StringComparison.Ordinal))
         {
-            return text.Trim();
+            return new FrontMatterSplitResult(false, string.Empty, text.Trim());
         }
 
+        var frontMatter = new StringBuilder();
         var body = new StringBuilder();
         var closingMarkerFound = false;
         string? line;
@@ -179,8 +334,10 @@ internal static class AgentPromptLoader
                 if (string.Equals(line.Trim(), "---", StringComparison.Ordinal))
                 {
                     closingMarkerFound = true;
+                    continue;
                 }
 
+                frontMatter.AppendLine(line);
                 continue;
             }
 
@@ -188,8 +345,8 @@ internal static class AgentPromptLoader
         }
 
         return closingMarkerFound
-            ? body.ToString().Trim()
-            : text.Trim();
+            ? new FrontMatterSplitResult(true, frontMatter.ToString().Trim(), body.ToString().Trim())
+            : new FrontMatterSplitResult(false, string.Empty, text.Trim());
     }
 
     private static string GetSkillKey(string path)
@@ -199,6 +356,11 @@ internal static class AgentPromptLoader
             ? fileName[..^".skill.md".Length]
             : Path.GetFileNameWithoutExtension(fileName);
     }
+
+    private sealed record FrontMatterSplitResult(
+        bool HasFrontMatter,
+        string FrontMatterText,
+        string BodyText);
 }
 
 internal static class AgentPromptComposer
@@ -250,46 +412,129 @@ internal static class AgentPromptComposer
             return [];
         }
 
-        var toolNames = tools.Select(tool => tool.Name).ToHashSet(StringComparer.Ordinal);
-        var selectedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var normalizedText = NormalizeText(userText);
-        var matchesBrowserRequest = MatchesBrowserRequest(userText, normalizedText);
-        var matchesDirectBrowserNavigationRequest = MatchesDirectBrowserNavigationRequest(userText, normalizedText);
-        var hasLaunchTools = HasAnyTool(toolNames, "list_windows", "select_window", "list_taskbar_elements", "select_taskbar_app", "launch_app_via_taskbar_search");
-
-        if (HasAnyTool(toolNames, "describe_selected_window", "describe_selected_window_focus", "capture_selected_window_screenshot"))
-        {
-            selectedKeys.Add("ui-refresh-and-evidence");
-        }
-
-        if ((MatchesLaunchRequest(normalizedText) || matchesDirectBrowserNavigationRequest)
-            && hasLaunchTools)
-        {
-            selectedKeys.Add("desktop-launch-and-first-look");
-        }
-
-        if (matchesBrowserRequest
-            && HasAnyTool(toolNames, "describe_selected_window", "describe_selected_window_focus", "invoke_selected_window_element", "click_selected_window_element", "focus_selected_window_element", "send_input_to_window", "capture_selected_window_screenshot"))
-        {
-            selectedKeys.Add("browser-navigation-and-web-operations");
-        }
-
-        if (MatchesSearchOrEnumerationRequest(normalizedText)
-            && HasAnyTool(toolNames, "describe_selected_window", "describe_selected_window_focus", "capture_selected_window_screenshot"))
-        {
-            selectedKeys.Add("search-and-enumeration");
-        }
-
-        if (!matchesBrowserRequest
-            && MatchesActionRequest(normalizedText)
-            && HasAnyTool(toolNames, "list_main_menu_items", "list_context_menu_items", "invoke_main_menu_item", "invoke_context_menu_item", "invoke_selected_window_element", "click_selected_window_element", "focus_selected_window_element", "send_input_to_window"))
-        {
-            selectedKeys.Add("action-discovery-and-invocation");
-        }
+        var requestIntents = BuildRequestIntentSet(userText);
+        var availableToolNames = tools
+            .Select(tool => NormalizeToolIdentifier(tool.Name))
+            .Where(toolName => !string.IsNullOrWhiteSpace(toolName))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         return catalog.Skills
-            .Where(skill => selectedKeys.Contains(skill.Key))
+            .Where(skill => ShouldActivateSkill(skill, requestIntents, availableToolNames))
             .ToList();
+    }
+
+    private static bool ShouldActivateSkill(
+        AgentSkillPrompt skill,
+        IReadOnlySet<string> requestIntents,
+        IReadOnlySet<string> availableToolNames)
+    {
+        if (skill.Metadata.HasStructuredActivation)
+        {
+            return EvaluateStructuredSkillActivation(skill.Metadata.Activation, requestIntents, availableToolNames);
+        }
+
+        return EvaluateLegacySkillActivation(skill.Key, requestIntents, availableToolNames);
+    }
+
+    private static bool EvaluateStructuredSkillActivation(
+        AgentSkillActivation activation,
+        IReadOnlySet<string> requestIntents,
+        IReadOnlySet<string> availableToolNames)
+    {
+        if (!activation.HasCriteria)
+        {
+            return false;
+        }
+
+        if (activation.WhenAnyIntents.Count > 0 &&
+            !MatchesAny(requestIntents, activation.WhenAnyIntents, NormalizeIntentIdentifier))
+        {
+            return false;
+        }
+
+        if (activation.WhenAllIntents.Count > 0 &&
+            !MatchesAll(requestIntents, activation.WhenAllIntents, NormalizeIntentIdentifier))
+        {
+            return false;
+        }
+
+        if (activation.UnlessAnyIntents.Count > 0 &&
+            MatchesAny(requestIntents, activation.UnlessAnyIntents, NormalizeIntentIdentifier))
+        {
+            return false;
+        }
+
+        if (activation.WhenAnyTools.Count > 0 &&
+            !MatchesAny(availableToolNames, activation.WhenAnyTools, NormalizeToolIdentifier))
+        {
+            return false;
+        }
+
+        if (activation.WhenAllTools.Count > 0 &&
+            !MatchesAll(availableToolNames, activation.WhenAllTools, NormalizeToolIdentifier))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool EvaluateLegacySkillActivation(
+        string skillKey,
+        IReadOnlySet<string> requestIntents,
+        IReadOnlySet<string> availableToolNames)
+    {
+        var hasLaunchTools = HasAnyNamedTools(
+            availableToolNames,
+            "list_windows",
+            "select_window",
+            "list_taskbar_elements",
+            "select_taskbar_app",
+            "launch_app_via_taskbar_search");
+
+        return skillKey switch
+        {
+            "ui-refresh-and-evidence" => HasAnyNamedTools(
+                availableToolNames,
+                "describe_selected_window",
+                "describe_selected_window_focus",
+                "capture_selected_window_screenshot"),
+            "desktop-launch-and-first-look"
+                => (requestIntents.Contains("launch_request") || requestIntents.Contains("direct_browser_navigation_request"))
+                   && hasLaunchTools,
+            "browser-navigation-and-web-operations"
+                => requestIntents.Contains("browser_request")
+                   && HasAnyNamedTools(
+                       availableToolNames,
+                       "describe_selected_window",
+                       "describe_selected_window_focus",
+                       "invoke_selected_window_element",
+                       "click_selected_window_element",
+                       "focus_selected_window_element",
+                       "send_input_to_window",
+                       "capture_selected_window_screenshot"),
+            "search-and-enumeration"
+                => requestIntents.Contains("search_or_enumeration_request")
+                   && HasAnyNamedTools(
+                       availableToolNames,
+                       "describe_selected_window",
+                       "describe_selected_window_focus",
+                       "capture_selected_window_screenshot"),
+            "action-discovery-and-invocation"
+                => !requestIntents.Contains("browser_request")
+                   && requestIntents.Contains("action_request")
+                   && HasAnyNamedTools(
+                       availableToolNames,
+                       "list_main_menu_items",
+                       "list_context_menu_items",
+                       "invoke_main_menu_item",
+                       "invoke_context_menu_item",
+                       "invoke_selected_window_element",
+                       "click_selected_window_element",
+                       "focus_selected_window_element",
+                       "send_input_to_window"),
+            _ => false
+        };
     }
 
     private static ComposedAgentPrompt BuildFallbackPrompt(AgentPromptCatalog catalog)
@@ -298,6 +543,40 @@ internal static class AgentPromptComposer
             $"fallback:{Path.GetFileName(catalog.FallbackDefinitionPath)}",
             UsesFallbackDefinition: true,
             []);
+
+    private static IReadOnlySet<string> BuildRequestIntentSet(string userText)
+    {
+        var normalizedText = NormalizeText(userText);
+        var requestIntents = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var matchesBrowserRequest = MatchesBrowserRequest(userText, normalizedText);
+
+        if (MatchesLaunchRequest(normalizedText))
+        {
+            requestIntents.Add("launch_request");
+        }
+
+        if (matchesBrowserRequest)
+        {
+            requestIntents.Add("browser_request");
+        }
+
+        if (MatchesDirectBrowserNavigationRequest(userText, normalizedText))
+        {
+            requestIntents.Add("direct_browser_navigation_request");
+        }
+
+        if (MatchesSearchOrEnumerationRequest(normalizedText))
+        {
+            requestIntents.Add("search_or_enumeration_request");
+        }
+
+        if (MatchesActionRequest(normalizedText))
+        {
+            requestIntents.Add("action_request");
+        }
+
+        return requestIntents;
+    }
 
     private static bool MatchesLaunchRequest(string normalizedText)
     {
@@ -475,8 +754,45 @@ internal static class AgentPromptComposer
                 .Split(' ', StringSplitOptions.RemoveEmptyEntries));
     }
 
-    private static bool HasAnyTool(IReadOnlySet<string> toolNames, params string[] candidateNames)
-        => candidateNames.Any(toolNames.Contains);
+    private static string NormalizeIntentIdentifier(string intent)
+        => string.IsNullOrWhiteSpace(intent)
+            ? string.Empty
+            : intent.Trim().ToLowerInvariant();
+
+    private static string NormalizeToolIdentifier(string toolName)
+    {
+        if (string.IsNullOrWhiteSpace(toolName))
+        {
+            return string.Empty;
+        }
+
+        var normalized = toolName.Trim();
+        var separatorIndex = normalized.LastIndexOf('/');
+        return separatorIndex >= 0 && separatorIndex < normalized.Length - 1
+            ? normalized[(separatorIndex + 1)..]
+            : normalized;
+    }
+
+    private static bool HasAnyNamedTools(IReadOnlySet<string> availableToolNames, params string[] candidateNames)
+        => MatchesAny(availableToolNames, candidateNames, NormalizeToolIdentifier);
+
+    private static bool MatchesAny(
+        IReadOnlySet<string> availableValues,
+        IEnumerable<string> candidates,
+        Func<string, string> normalize)
+        => candidates
+            .Select(normalize)
+            .Where(candidate => !string.IsNullOrWhiteSpace(candidate))
+            .Any(availableValues.Contains);
+
+    private static bool MatchesAll(
+        IReadOnlySet<string> availableValues,
+        IEnumerable<string> candidates,
+        Func<string, string> normalize)
+        => candidates
+            .Select(normalize)
+            .Where(candidate => !string.IsNullOrWhiteSpace(candidate))
+            .All(availableValues.Contains);
 
     private static bool ContainsAny(string text, params string[] candidates)
         => candidates.Any(candidate => text.Contains(candidate, StringComparison.Ordinal));

@@ -41,6 +41,7 @@ Splitting the prompt layer the same way keeps durable agent policy separate from
   Defines stable behavior: response contract, evidence rules, retry budget, uncertainty handling, and how skills interact.
 - `skills/*.skill.md`
   Defines scenario playbooks. A skill should say when it applies, which tools it prefers, what success looks like, and what it must not assume.
+  Skills can now also declare structured `activation` metadata that the runtime evaluates generically.
 
 This keeps hard rules in the core agent and keeps scenarios modular.
 
@@ -74,7 +75,10 @@ Skills can prefer MCP tools from `eyesandhands`, but they should not redefine th
 
 ## Current Runtime Notes
 
-- Skill activation is currently heuristic and based on the current user turn plus available MCP tools.
+- Skill activation now prefers structured frontmatter metadata under `activation`.
+- Supported request-intent keys are `launch_request`, `browser_request`, `direct_browser_navigation_request`, `search_or_enumeration_request`, and `action_request`.
+- Supported activation clauses are `when_any_intents`, `when_all_intents`, `unless_any_intents`, `when_any_tools`, and `when_all_tools`.
+- Older skills without structured activation metadata still fall back to filename-based compatibility heuristics.
 - `ui-refresh-and-evidence.skill.md` is activated whenever the relevant evidence tools are present.
 - `her.agent.md` remains the compatibility fallback during rollout.
 
@@ -85,4 +89,4 @@ Skills can prefer MCP tools from `eyesandhands`, but they should not redefine th
 
 ## Good Next Step
 
-The next improvement would be making skill activation more data-driven by reading structured skill metadata instead of relying only on code-side heuristics.
+The next improvement would be broadening the intent vocabulary so skills can activate from richer request shapes without adding new skill-name-specific code.

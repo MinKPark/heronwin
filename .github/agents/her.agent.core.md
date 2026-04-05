@@ -45,18 +45,15 @@ Drive or inspect Windows applications calmly and accurately through the availabl
 
 - When a refreshed UI tree exposes an exact `path` or `uiPath`, reuse that full identifier exactly as shown. Do not shorten it, normalize it, or invent a nearby path from memory.
 - If a direct element path fails once, refresh the window state or screenshot before choosing the next action. Do not mutate the failed path into a guessed variant.
-- When a refreshed UI tree exposes a visible editable control and the tools include an exact-path value-entry tool such as `eyesandhands/set_selected_window_element_value`, prefer that direct field-targeted entry path over blind window-level text typing.
-- When a refreshed UI tree exposes the exact visible result tile, play button, or other on-screen target and the tools include `eyesandhands/click_selected_window_element`, prefer that exact-path click over guessed keyboard wandering when direct invocation is unavailable or has already failed.
+- When a refreshed UI tree exposes a visible editable control that supports direct value entry, prefer that direct field-targeted path over blind window-level text typing.
+- When refreshed evidence exposes the exact visible target the user asked for, prefer direct element targeting over guessed keyboard wandering.
 - After text entry into a visible field, verify that the intended text is actually present on screen before treating the entry stage as complete.
-- If the current screen already shows the requested visible search result, title tile, or row, target that visible result directly instead of re-running the search stage.
-- If a requested title is visibly present as a named result tile and a hover preview or play overlay is also on screen, prefer the named matching tile unless the preview itself clearly shows the same requested title.
-- If the refreshed UI tree contains a named actionable element whose text exactly matches the requested title, use that exact named path. Do not click or invoke an unnamed or differently named wrapper, overlay, or nearby result while that exact match exists.
-- If the user asked to search within the current site or app, do not switch to the browser address bar, Windows search, or a web search engine unless they explicitly asked for external search.
+- If the current screen already shows the requested visible target, continue from that visible target instead of restarting the earlier stage.
+- If the refreshed UI tree contains a named actionable element whose text exactly matches the requested target, use that exact named path instead of a nearby generic wrapper.
 - If the currently selected window already appears to be the correct app or site, inspect that current window before calling broad discovery tools such as `list_windows` or `list_taskbar_elements`.
-- If the current site is in a transient mode such as fullscreen playback, a preview overlay, or a modal that hides the requested in-site search surface, first recover a normal in-site browsing surface with site-native controls such as Back, Back to Browse, Escape, or the site header before searching.
 - If the user explicitly asked to wait until a visible result, title, row, or playback state is on screen, do not stop after a single sparse refresh with "still loading" language while stronger evidence such as a screenshot can still confirm the visible state.
 - For conditional instructions, first determine whether the condition is actually present on the current screen.
-- For conditional prompts, dialogs, passcodes, overlays, or profile pickers, inspect the current selected window first with the freshest window-level evidence before attempting focus changes, window reselection, or element activation.
+- For conditional prompts, dialogs, passcodes, or overlays, inspect the current selected window first with the freshest window-level evidence before attempting focus changes, window reselection, or element activation.
 - If the condition is present and the user named a target or action, perform that action and verify the resulting state.
 - If the condition is absent, treat the step as a successful no-op and say that plainly instead of framing it as a failure.
 - For a successful conditional no-op, prefer wording such as "No action was needed because the prompt was not present" or "The condition was absent, so nothing needed to be done."
@@ -65,7 +62,6 @@ Drive or inspect Windows applications calmly and accurately through the availabl
 - For multi-step requests such as search, open, and play, do not treat an earlier stage as complete until the requested visible state for that stage is actually on screen.
 - For requests that already include a wait condition such as "wait until visible results are on screen," perform the wait-and-refresh loop within the same turn instead of asking the user whether you should keep waiting.
 - For multi-step requests such as open then play, do not stop after the first successful click if the later requested stage is still unfinished. Refresh, verify, and continue toward the remaining requested stage.
-- If an external search engine page appears during a request that explicitly said "within Netflix" or another current site/app, treat that as drift that must be repaired, not as a successful result state.
 
 ## Skill Contract
 

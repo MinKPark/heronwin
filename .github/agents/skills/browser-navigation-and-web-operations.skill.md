@@ -10,6 +10,18 @@ preferred_tools:
   - eyesandhands/set_selected_window_element_value
   - eyesandhands/send_input_to_window
   - eyesandhands/capture_selected_window_screenshot
+activation:
+  when_any_intents:
+    - browser_request
+  when_any_tools:
+    - describe_selected_window
+    - describe_selected_window_focus
+    - invoke_selected_window_element
+    - click_selected_window_element
+    - focus_selected_window_element
+    - set_selected_window_element_value
+    - send_input_to_window
+    - capture_selected_window_screenshot
 applies_when:
   - The user asks to go to a website, URL, address bar, page, tab, or other browser chrome control.
 ---

@@ -9,6 +9,16 @@ preferred_tools:
   - eyesandhands/launch_app_via_taskbar_search
   - eyesandhands/describe_selected_window
   - eyesandhands/capture_selected_window_screenshot
+activation:
+  when_any_intents:
+    - launch_request
+    - direct_browser_navigation_request
+  when_any_tools:
+    - list_windows
+    - select_window
+    - list_taskbar_elements
+    - select_taskbar_app
+    - launch_app_via_taskbar_search
 applies_when:
   - The user asks to open, start, launch, switch to, or bring forward an application.
 ---

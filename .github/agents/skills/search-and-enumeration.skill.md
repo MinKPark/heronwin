@@ -10,6 +10,13 @@ preferred_tools:
   - eyesandhands/set_selected_window_element_value
   - eyesandhands/send_input_to_window
   - eyesandhands/capture_selected_window_screenshot
+activation:
+  when_any_intents:
+    - search_or_enumeration_request
+  when_any_tools:
+    - describe_selected_window
+    - describe_selected_window_focus
+    - capture_selected_window_screenshot
 applies_when:
   - The user asks to search within an app.
   - The user asks what is visible, what results are present, or which items are available.

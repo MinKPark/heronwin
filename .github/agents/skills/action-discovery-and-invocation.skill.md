@@ -10,6 +10,20 @@ preferred_tools:
   - eyesandhands/invoke_selected_window_element
   - eyesandhands/focus_selected_window_element
   - eyesandhands/send_input_to_window
+activation:
+  when_any_intents:
+    - action_request
+  unless_any_intents:
+    - browser_request
+  when_any_tools:
+    - list_main_menu_items
+    - list_context_menu_items
+    - invoke_main_menu_item
+    - invoke_context_menu_item
+    - invoke_selected_window_element
+    - click_selected_window_element
+    - focus_selected_window_element
+    - send_input_to_window
 applies_when:
   - The user asks to click, press, open, select, save, rename, or otherwise activate something in the current app.
 ---

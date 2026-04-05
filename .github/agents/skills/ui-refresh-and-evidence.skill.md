@@ -5,6 +5,11 @@ preferred_tools:
   - eyesandhands/describe_selected_window
   - eyesandhands/describe_selected_window_focus
   - eyesandhands/capture_selected_window_screenshot
+activation:
+  when_any_tools:
+    - describe_selected_window
+    - describe_selected_window_focus
+    - capture_selected_window_screenshot
 applies_when:
   - The UI may have changed after an action.
   - The current UI Automation tree looks sparse, stale, ambiguous, or misleading.
