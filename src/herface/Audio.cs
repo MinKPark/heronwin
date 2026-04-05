@@ -48,6 +48,15 @@ internal static class AudioRecorder
     private const int ConsecutiveSpeechBuffers = 2;
     private const double SpeechPeakThreshold = 0.03;
     private const double SpeechRmsThreshold = 0.009;
+    private const int SpeakerReferenceHistoryMs = 2_000;
+    private const int SpeakerLagSearchMs = 250;
+    private const int SpeakerLagSearchStepMs = 10;
+    private const int SpeakerReferenceHistorySamples = SampleRate * SpeakerReferenceHistoryMs / 1000;
+    private const int SpeakerLagSearchSamples = SampleRate * SpeakerLagSearchMs / 1000;
+    private const int SpeakerLagSearchStepSamples = SampleRate * SpeakerLagSearchStepMs / 1000;
+    private const double SpeakerReferenceRmsThreshold = 0.0035;
+    private const double SpeakerLeakExplainedRatioThreshold = 0.35;
+    private const double SpeakerLeakScaleLimit = 4.0;
 
     public static string DescribeRecordingFormat()
         => $"{SampleRate} Hz, {ChannelCount} channel, {BitsPerSample}-bit PCM";
@@ -64,6 +73,7 @@ internal static class AudioRecorder
             WaveFormat = new WaveFormat(SampleRate, BitsPerSample, ChannelCount),
         };
         var writer = new WaveFileWriter(tempPath, waveIn.WaveFormat);
+        var speakerReference = SpeakerReferenceCapture.TryStart();
 
         DateTimeOffset? startedAt = null;
         DateTimeOffset? firstSpeechAt = null;
@@ -78,6 +88,7 @@ internal static class AudioRecorder
         var preRollBytesLimit = waveIn.WaveFormat.AverageBytesPerSecond * PreRollMilliseconds / 1000;
         var preRollBytes = 0;
         var preRollBuffers = new Queue<BufferedAudioChunk>();
+        var speakerFilteredBufferCount = 0;
 
         using var cancellationRegistration = cancellationToken.Register(() => RequestStop());
         using var waitForSpeechTimer = maxWaitForSpeechMs is int waitMs
@@ -96,8 +107,17 @@ internal static class AudioRecorder
             var chunkDuration = TimeSpan.FromSeconds((double)eventArgs.BytesRecorded / waveIn.WaveFormat.AverageBytesPerSecond);
             var chunkEndedAt = now;
             var chunkStartedAt = chunkEndedAt - chunkDuration;
+            var levels = AnalyzeAudioLevels(eventArgs.Buffer, eventArgs.BytesRecorded);
             var chunk = BufferedAudioChunk.Create(eventArgs.Buffer, eventArgs.BytesRecorded, chunkStartedAt, chunkEndedAt);
-            var levels = AnalyzeAudioLevels(chunk.Bytes, chunk.BytesRecorded);
+            var speakerLeakAnalysis = FilterSpeakerLeak(eventArgs.Buffer, eventArgs.BytesRecorded, speakerReference);
+            if (speakerLeakAnalysis.Applied && speakerLeakAnalysis.FilteredSamples is not null)
+            {
+                var filteredBytes = EncodePcm16Samples(speakerLeakAnalysis.FilteredSamples);
+                chunk = new BufferedAudioChunk(filteredBytes, filteredBytes.Length, chunkStartedAt, chunkEndedAt);
+                levels = AnalyzeAudioLevels(filteredBytes, filteredBytes.Length);
+                speakerFilteredBufferCount += 1;
+            }
+
             var looksLikeSpeech = levels.Peak >= SpeechPeakThreshold || levels.Rms >= SpeechRmsThreshold;
 
             if (!speechStarted)
@@ -178,6 +198,7 @@ internal static class AudioRecorder
         {
             try
             {
+                speakerReference?.Dispose();
                 writer.Flush();
                 writer.Dispose();
                 waveIn.Dispose();
@@ -192,6 +213,13 @@ internal static class AudioRecorder
                     TryDeleteFile(tempPath);
                     completion.TrySetResult(null);
                     return;
+                }
+
+                if (speakerFilteredBufferCount > 0)
+                {
+                    DebugTrace.WriteEvent(
+                        "audio.speaker_filter",
+                        $"filteredBuffers={speakerFilteredBufferCount}, speechStarted={speechStarted}");
                 }
 
                 var finalEndedAt = endedAt ?? DateTimeOffset.UtcNow;
@@ -216,7 +244,18 @@ internal static class AudioRecorder
             }
         };
 
-        waveIn.StartRecording();
+        try
+        {
+            waveIn.StartRecording();
+        }
+        catch
+        {
+            speakerReference?.Dispose();
+            writer.Dispose();
+            waveIn.Dispose();
+            throw;
+        }
+
         return completion.Task;
 
         void RequestStop(DateTimeOffset? stopAt = null)
@@ -256,6 +295,288 @@ internal static class AudioRecorder
         return new AudioLevels(peakNormalized, rmsNormalized);
     }
 
+    internal static SpeakerLeakAnalysis FilterSpeakerLeak(short[] microphoneSamples, float[] renderReferenceHistory)
+    {
+        if (microphoneSamples.Length == 0)
+        {
+            return SpeakerLeakAnalysis.None();
+        }
+
+        var microphoneNormalized = new float[microphoneSamples.Length];
+        double micEnergy = 0;
+        for (var i = 0; i < microphoneSamples.Length; i += 1)
+        {
+            var normalized = microphoneSamples[i] / 32768f;
+            microphoneNormalized[i] = normalized;
+            micEnergy += normalized * normalized;
+        }
+
+        if (micEnergy <= 0 || renderReferenceHistory.Length < microphoneSamples.Length)
+        {
+            return SpeakerLeakAnalysis.None(Math.Sqrt(micEnergy / Math.Max(1, microphoneSamples.Length)));
+        }
+
+        var minimumReferenceEnergy = microphoneSamples.Length * SpeakerReferenceRmsThreshold * SpeakerReferenceRmsThreshold;
+        var maxLagSamples = Math.Min(
+            SpeakerLagSearchSamples,
+            renderReferenceHistory.Length - microphoneSamples.Length);
+
+        var bestExplainedRatio = 0d;
+        var bestDot = 0d;
+        var bestReferenceEnergy = 0d;
+        var bestLagSamples = -1;
+        var bestStart = -1;
+
+        EvaluateLag(0);
+        for (var lag = SpeakerLagSearchStepSamples; lag <= maxLagSamples; lag += SpeakerLagSearchStepSamples)
+        {
+            EvaluateLag(lag);
+        }
+
+        if (bestLagSamples != maxLagSamples)
+        {
+            EvaluateLag(maxLagSamples);
+        }
+
+        if (bestStart < 0 || bestReferenceEnergy <= minimumReferenceEnergy || bestExplainedRatio < SpeakerLeakExplainedRatioThreshold)
+        {
+            return SpeakerLeakAnalysis.None(Math.Sqrt(micEnergy / microphoneSamples.Length));
+        }
+
+        var scale = Math.Clamp(bestDot / bestReferenceEnergy, -SpeakerLeakScaleLimit, SpeakerLeakScaleLimit);
+        var filteredSamples = new short[microphoneSamples.Length];
+        double filteredEnergy = 0;
+        for (var i = 0; i < microphoneSamples.Length; i += 1)
+        {
+            var residual = microphoneNormalized[i] - scale * renderReferenceHistory[bestStart + i];
+            filteredEnergy += residual * residual;
+            filteredSamples[i] = ConvertToPcm16(residual);
+        }
+
+        if (filteredEnergy >= micEnergy * 0.95)
+        {
+            return SpeakerLeakAnalysis.None(Math.Sqrt(micEnergy / microphoneSamples.Length));
+        }
+
+        return new SpeakerLeakAnalysis(
+            true,
+            filteredSamples,
+            Math.Sqrt(micEnergy / microphoneSamples.Length),
+            Math.Sqrt(filteredEnergy / microphoneSamples.Length),
+            Math.Sqrt(bestReferenceEnergy / microphoneSamples.Length),
+            bestDot / Math.Sqrt(micEnergy * bestReferenceEnergy),
+            bestExplainedRatio,
+            bestLagSamples,
+            scale);
+
+        void EvaluateLag(int lagSamples)
+        {
+            if (lagSamples < 0)
+            {
+                return;
+            }
+
+            var start = renderReferenceHistory.Length - microphoneSamples.Length - lagSamples;
+            if (start < 0)
+            {
+                return;
+            }
+
+            double dot = 0;
+            double referenceEnergy = 0;
+            for (var i = 0; i < microphoneSamples.Length; i += 1)
+            {
+                var referenceSample = renderReferenceHistory[start + i];
+                dot += microphoneNormalized[i] * referenceSample;
+                referenceEnergy += referenceSample * referenceSample;
+            }
+
+            if (referenceEnergy <= minimumReferenceEnergy)
+            {
+                return;
+            }
+
+            var explainedRatio = dot * dot / (micEnergy * referenceEnergy);
+            if (explainedRatio <= bestExplainedRatio)
+            {
+                return;
+            }
+
+            bestExplainedRatio = explainedRatio;
+            bestDot = dot;
+            bestReferenceEnergy = referenceEnergy;
+            bestLagSamples = lagSamples;
+            bestStart = start;
+        }
+    }
+
+    private static SpeakerLeakAnalysis FilterSpeakerLeak(
+        byte[] microphoneBuffer,
+        int bytesRecorded,
+        SpeakerReferenceCapture? speakerReference)
+    {
+        if (speakerReference is null || bytesRecorded < 2)
+        {
+            return SpeakerLeakAnalysis.None();
+        }
+
+        var microphoneSamples = DecodePcm16Samples(microphoneBuffer, bytesRecorded);
+        if (microphoneSamples.Length == 0)
+        {
+            return SpeakerLeakAnalysis.None();
+        }
+
+        var renderHistory = speakerReference.CopyRecentSamples(microphoneSamples.Length + SpeakerLagSearchSamples);
+        return FilterSpeakerLeak(microphoneSamples, renderHistory);
+    }
+
+    private static short[] DecodePcm16Samples(byte[] buffer, int bytesRecorded)
+    {
+        if (bytesRecorded < 2)
+        {
+            return [];
+        }
+
+        var sampleCount = bytesRecorded / 2;
+        var samples = new short[sampleCount];
+        Buffer.BlockCopy(buffer, 0, samples, 0, sampleCount * 2);
+        return samples;
+    }
+
+    private static byte[] EncodePcm16Samples(short[] samples)
+    {
+        var buffer = new byte[samples.Length * 2];
+        Buffer.BlockCopy(samples, 0, buffer, 0, buffer.Length);
+        return buffer;
+    }
+
+    private static short ConvertToPcm16(double normalizedSample)
+    {
+        var clamped = Math.Clamp(normalizedSample, -1d, 1d);
+        if (clamped <= -1d)
+        {
+            return short.MinValue;
+        }
+
+        if (clamped >= 1d)
+        {
+            return short.MaxValue;
+        }
+
+        return (short)Math.Round(clamped * short.MaxValue);
+    }
+
+    private static bool IsFloatFormat(WaveFormat waveFormat)
+    {
+        if (waveFormat.Encoding == WaveFormatEncoding.IeeeFloat)
+        {
+            return true;
+        }
+
+        if (waveFormat.Encoding != WaveFormatEncoding.Extensible)
+        {
+            return false;
+        }
+
+        var subFormat = waveFormat.GetType().GetProperty("SubFormat")?.GetValue(waveFormat);
+        return subFormat is Guid guid && guid == new Guid("00000003-0000-0010-8000-00aa00389b71");
+    }
+
+    private static float[] DecodeRenderSamples(byte[] buffer, int bytesRecorded, WaveFormat waveFormat)
+    {
+        if (bytesRecorded <= 0 || waveFormat.BlockAlign <= 0)
+        {
+            return [];
+        }
+
+        var channelCount = Math.Max(1, waveFormat.Channels);
+        var bytesPerSample = Math.Max(1, waveFormat.BlockAlign / channelCount);
+        var frameCount = bytesRecorded / waveFormat.BlockAlign;
+        if (frameCount <= 0)
+        {
+            return [];
+        }
+
+        var isFloat = IsFloatFormat(waveFormat);
+        var monoSamples = new float[frameCount];
+        for (var frameIndex = 0; frameIndex < frameCount; frameIndex += 1)
+        {
+            var frameOffset = frameIndex * waveFormat.BlockAlign;
+            double sampleSum = 0;
+            for (var channelIndex = 0; channelIndex < channelCount; channelIndex += 1)
+            {
+                var sampleOffset = frameOffset + channelIndex * bytesPerSample;
+                sampleSum += ReadNormalizedSample(buffer, sampleOffset, waveFormat.BitsPerSample, bytesPerSample, isFloat);
+            }
+
+            monoSamples[frameIndex] = (float)(sampleSum / channelCount);
+        }
+
+        if (waveFormat.SampleRate == SampleRate)
+        {
+            return monoSamples;
+        }
+
+        var resampledCount = Math.Max(1, (int)Math.Round((double)monoSamples.Length * SampleRate / waveFormat.SampleRate));
+        var resampled = new float[resampledCount];
+        if (monoSamples.Length == 1)
+        {
+            Array.Fill(resampled, monoSamples[0]);
+            return resampled;
+        }
+
+        for (var index = 0; index < resampledCount; index += 1)
+        {
+            var sourceIndex = resampledCount == 1
+                ? 0
+                : (double)index * (monoSamples.Length - 1) / (resampledCount - 1);
+            var leftIndex = (int)sourceIndex;
+            var rightIndex = Math.Min(leftIndex + 1, monoSamples.Length - 1);
+            var blend = sourceIndex - leftIndex;
+            resampled[index] = (float)(monoSamples[leftIndex] + (monoSamples[rightIndex] - monoSamples[leftIndex]) * blend);
+        }
+
+        return resampled;
+    }
+
+    private static double ReadNormalizedSample(
+        byte[] buffer,
+        int offset,
+        int bitsPerSample,
+        int bytesPerSample,
+        bool isFloat)
+    {
+        if (isFloat)
+        {
+            return bitsPerSample switch
+            {
+                32 when offset + 4 <= buffer.Length => Math.Clamp(BitConverter.ToSingle(buffer, offset), -1f, 1f),
+                64 when offset + 8 <= buffer.Length => Math.Clamp(BitConverter.ToDouble(buffer, offset), -1d, 1d),
+                _ => 0d,
+            };
+        }
+
+        return bitsPerSample switch
+        {
+            8 when offset + 1 <= buffer.Length => (buffer[offset] - 128) / 128d,
+            16 when offset + 2 <= buffer.Length => BitConverter.ToInt16(buffer, offset) / 32768d,
+            24 when offset + 3 <= buffer.Length => ReadInt24(buffer, offset) / 8388608d,
+            32 when offset + 4 <= buffer.Length && bytesPerSample >= 4 => BitConverter.ToInt32(buffer, offset) / 2147483648d,
+            _ => 0d,
+        };
+    }
+
+    private static int ReadInt24(byte[] buffer, int offset)
+    {
+        var value = buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16);
+        if ((value & 0x800000) != 0)
+        {
+            value |= unchecked((int)0xFF000000);
+        }
+
+        return value;
+    }
+
     private static DateTimeOffset Max(DateTimeOffset left, DateTimeOffset right)
         => left >= right ? left : right;
 
@@ -275,6 +596,21 @@ internal static class AudioRecorder
     }
 
     private readonly record struct AudioLevels(double Peak, double Rms);
+    internal readonly record struct SpeakerLeakAnalysis(
+        bool Applied,
+        short[]? FilteredSamples,
+        double OriginalRms,
+        double FilteredRms,
+        double ReferenceRms,
+        double Correlation,
+        double ExplainedRatio,
+        int BestLagSamples,
+        double Scale)
+    {
+        public static SpeakerLeakAnalysis None(double originalRms = 0)
+            => new(false, null, originalRms, originalRms, 0, 0, 0, -1, 0);
+    }
+
     private readonly record struct BufferedAudioChunk(byte[] Bytes, int BytesRecorded, DateTimeOffset StartedAt, DateTimeOffset EndedAt)
     {
         public static BufferedAudioChunk Create(byte[] sourceBuffer, int bytesRecorded, DateTimeOffset startedAt, DateTimeOffset endedAt)
@@ -282,6 +618,117 @@ internal static class AudioRecorder
             var copy = new byte[bytesRecorded];
             Buffer.BlockCopy(sourceBuffer, 0, copy, 0, bytesRecorded);
             return new BufferedAudioChunk(copy, bytesRecorded, startedAt, endedAt);
+        }
+    }
+
+    private sealed class SpeakerReferenceCapture : IDisposable
+    {
+        private readonly object _syncRoot = new();
+        private readonly WasapiLoopbackCapture _capture;
+        private readonly float[] _history = new float[SpeakerReferenceHistorySamples];
+        private int _nextWriteIndex;
+        private int _storedSamples;
+        private int _disposed;
+
+        private SpeakerReferenceCapture()
+        {
+            _capture = new WasapiLoopbackCapture();
+            try
+            {
+                _capture.DataAvailable += OnDataAvailable;
+                _capture.StartRecording();
+            }
+            catch
+            {
+                _capture.DataAvailable -= OnDataAvailable;
+                _capture.Dispose();
+                throw;
+            }
+        }
+
+        public static SpeakerReferenceCapture? TryStart()
+        {
+            try
+            {
+                return new SpeakerReferenceCapture();
+            }
+            catch (Exception ex)
+            {
+                DebugTrace.WriteEvent(
+                    "audio.speaker_reference",
+                    $"status=unavailable, error={DebugTrace.Preview(ex.Message, 300)}");
+                return null;
+            }
+        }
+
+        public float[] CopyRecentSamples(int sampleCount)
+        {
+            lock (_syncRoot)
+            {
+                var copyCount = Math.Min(sampleCount, _storedSamples);
+                if (copyCount <= 0)
+                {
+                    return [];
+                }
+
+                var snapshot = new float[copyCount];
+                var start = (_nextWriteIndex - copyCount + _history.Length) % _history.Length;
+                var firstCopyCount = Math.Min(copyCount, _history.Length - start);
+                Array.Copy(_history, start, snapshot, 0, firstCopyCount);
+                if (firstCopyCount < copyCount)
+                {
+                    Array.Copy(_history, 0, snapshot, firstCopyCount, copyCount - firstCopyCount);
+                }
+
+                return snapshot;
+            }
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            {
+                return;
+            }
+
+            _capture.DataAvailable -= OnDataAvailable;
+            try
+            {
+                _capture.StopRecording();
+            }
+            catch
+            {
+                // Best effort cleanup.
+            }
+
+            _capture.Dispose();
+        }
+
+        private void OnDataAvailable(object? sender, WaveInEventArgs eventArgs)
+        {
+            if (Volatile.Read(ref _disposed) != 0)
+            {
+                return;
+            }
+
+            var samples = DecodeRenderSamples(eventArgs.Buffer, eventArgs.BytesRecorded, _capture.WaveFormat);
+            if (samples.Length == 0)
+            {
+                return;
+            }
+
+            lock (_syncRoot)
+            {
+                for (var index = 0; index < samples.Length; index += 1)
+                {
+                    _history[_nextWriteIndex] = samples[index];
+                    _nextWriteIndex = (_nextWriteIndex + 1) % _history.Length;
+                    if (_storedSamples < _history.Length)
+                    {
+                        _storedSamples += 1;
+                    }
+                }
+            }
         }
     }
 }
