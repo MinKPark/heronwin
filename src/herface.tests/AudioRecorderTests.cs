@@ -78,6 +78,43 @@ public sealed class AudioRecorderTests
         Assert.InRange(analysis.ResidualEnergyRatio, 0.01, 0.45);
     }
 
+    [Fact]
+    public void ShouldTreatChunkAsSpeech_ReturnsFalse_ForSpeakerDominantResidualAudio()
+    {
+        var renderChunk = BuildPseudoSpeech(sampleCount: 1600, seed: 101, amplitude: 0.65);
+        var primaryPath = Scale(renderChunk, 0.23);
+        var echoPath = DelayAndScale(renderChunk, delaySamples: 70, factor: 0.12);
+        var lateEchoPath = DelayAndScale(renderChunk, delaySamples: 155, factor: 0.07);
+        var microphoneChunk = Mix(primaryPath, Mix(echoPath, lateEchoPath));
+        var lagSamples = AudioRecorder.SampleRate * 95 / 1000;
+        var renderHistory = BuildRenderHistory(renderChunk, lagSamples, leadInSeed: 131);
+
+        var analysis = AudioRecorder.FilterSpeakerLeak(microphoneChunk, renderHistory);
+        var (peak, rms) = ComputeLevels(analysis.FilteredSamples!);
+
+        Assert.True(analysis.CanUseFilteredAudio);
+        Assert.True(analysis.IsLikelySpeakerDominant);
+        Assert.False(AudioRecorder.ShouldTreatChunkAsSpeech(peak, rms, analysis));
+    }
+
+    [Fact]
+    public void ShouldTreatChunkAsSpeech_ReturnsTrue_ForUserOverlapAfterFiltering()
+    {
+        var renderChunk = BuildPseudoSpeech(sampleCount: 1600, seed: 7, amplitude: 0.65);
+        var userChunk = BuildPseudoSpeech(sampleCount: 1600, seed: 53, amplitude: 0.30);
+        var microphoneChunk = Mix(Scale(renderChunk, 0.38), userChunk);
+        var lagSamples = AudioRecorder.SampleRate * 60 / 1000;
+        var renderHistory = BuildRenderHistory(renderChunk, lagSamples, leadInSeed: 71);
+
+        var analysis = AudioRecorder.FilterSpeakerLeak(microphoneChunk, renderHistory);
+        var effectiveChunk = analysis.FilteredSamples ?? microphoneChunk;
+        var (peak, rms) = ComputeLevels(effectiveChunk);
+
+        Assert.True(analysis.CanUseFilteredAudio);
+        Assert.False(analysis.IsLikelySpeakerOnly);
+        Assert.True(AudioRecorder.ShouldTreatChunkAsSpeech(peak, rms, analysis));
+    }
+
     private static short[] BuildPseudoSpeech(int sampleCount, int seed, double amplitude)
     {
         var random = new Random(seed);
@@ -154,6 +191,25 @@ public sealed class AudioRecorderTests
         }
 
         return Math.Sqrt(energy / length);
+    }
+
+    private static (double Peak, double Rms) ComputeLevels(short[] samples)
+    {
+        if (samples.Length == 0)
+        {
+            return (0, 0);
+        }
+
+        var peak = 0d;
+        double energy = 0;
+        foreach (var sample in samples)
+        {
+            var normalized = sample / 32768d;
+            peak = Math.Max(peak, Math.Abs(normalized));
+            energy += normalized * normalized;
+        }
+
+        return (peak, Math.Sqrt(energy / samples.Length));
     }
 
     private static void CopyNormalized(short[] source, float[] destination, int destinationOffset)

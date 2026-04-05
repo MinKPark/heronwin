@@ -1068,6 +1068,18 @@ internal static class AgentRunner
                     await MaybePrimeBrowserSearchFieldForReplacementTypingAsync("browser_site_search_field_typing");
                 }
 
+                var useStructuredNetflixPinEntry = TryExtractStructuredNetflixPinDigits(
+                    executableToolName,
+                    executableArgs,
+                    recentWindowContext,
+                    recentFocusContext,
+                    out var structuredNetflixPinDigits);
+                if (useStructuredNetflixPinEntry)
+                {
+                    toolRewriteNote =
+                        "Internal Netflix PIN fallback entered the code one digit at a time because the visible profile lock uses separate single-character PIN boxes.";
+                }
+
                 var intermediateStep = ResolveToolStepNarration(
                     result.Text,
                     result.ToolCalls.Count,
@@ -1086,7 +1098,14 @@ internal static class AgentRunner
                 ToolCallOutcome toolOutput;
                 try
                 {
-                    toolOutput = await mcpManager.CallToolAsync(executableToolName, executableArgs, cancellationToken);
+                    toolOutput = useStructuredNetflixPinEntry
+                        ? await ExecuteStructuredNetflixPinEntryAsync(
+                            turnId,
+                            toolCall.Id,
+                            structuredNetflixPinDigits,
+                            mcpManager,
+                            cancellationToken)
+                        : await mcpManager.CallToolAsync(executableToolName, executableArgs, cancellationToken);
                 }
                 catch (Exception ex)
                 {
@@ -2629,6 +2648,37 @@ internal static class AgentRunner
         return true;
     }
 
+    internal static bool TryExtractStructuredNetflixPinDigits(
+        string toolName,
+        IReadOnlyDictionary<string, object?> args,
+        string? recentWindowContext,
+        string? recentFocusContext,
+        out string digits)
+    {
+        digits = string.Empty;
+        if (toolName != "send_input_to_window")
+        {
+            return false;
+        }
+
+        var text = TryGetStringArgument(args, "text");
+        if (!TryExtractMultiDigitPinText(text, out digits))
+        {
+            digits = string.Empty;
+            return false;
+        }
+
+        var matchesPinContext =
+            SnapshotLooksLikeNetflixPinFocus(recentFocusContext)
+            || SnapshotLooksLikeNetflixPinWindow(recentWindowContext);
+        if (!matchesPinContext)
+        {
+            digits = string.Empty;
+        }
+
+        return matchesPinContext;
+    }
+
     internal static bool TryRewriteGenericContainerActionToNamedTarget(
         string userText,
         string toolName,
@@ -2687,6 +2737,83 @@ internal static class AgentRunner
         rewrittenArgs["elementPath"] = matchedPath;
         rewrittenArgs.Remove("uiPath");
         return true;
+    }
+
+    private static async Task<ToolCallOutcome> ExecuteStructuredNetflixPinEntryAsync(
+        long turnId,
+        string toolCallId,
+        string digits,
+        McpClientManager mcpManager,
+        CancellationToken cancellationToken)
+    {
+        var lines = new List<string>
+        {
+            $"Structured Netflix PIN entry used {digits.Length} separate digit inputs."
+        };
+
+        DebugTrace.WriteStructuredEvent(
+            "agent.netflix_pin_entry.start",
+            new Dictionary<string, object?>
+            {
+                ["turn"] = turnId,
+                ["toolCallId"] = toolCallId,
+                ["digitCount"] = digits.Length,
+            });
+
+        for (var index = 0; index < digits.Length; index += 1)
+        {
+            var digit = digits[index].ToString();
+            var inputArgs = new Dictionary<string, object?> { ["text"] = digit };
+            var inputResult = await mcpManager.CallToolAsync("send_input_to_window", inputArgs, cancellationToken);
+            DebugTrace.WriteStructuredEvent(
+                "agent.netflix_pin_entry.digit_input",
+                new Dictionary<string, object?>
+                {
+                    ["turn"] = turnId,
+                    ["toolCallId"] = toolCallId,
+                    ["digitIndex"] = index + 1,
+                    ["digit"] = digit,
+                    ["isError"] = inputResult.IsError,
+                    ["resultPreview"] = DebugTrace.Preview(inputResult.Text, 500),
+                });
+
+            if (inputResult.IsError)
+            {
+                lines.Add($"Digit {index + 1} '{digit}' failed: {DebugTrace.Preview(inputResult.Text, 220)}");
+                return new ToolCallOutcome(string.Join(Environment.NewLine, lines), [], true);
+            }
+
+            var focusResult = await mcpManager.CallToolAsync(
+                "describe_selected_window_focus",
+                new Dictionary<string, object?> { ["maxDepth"] = 3 },
+                cancellationToken);
+            var focusSummary = DescribeFocusedElementFromToolOutput(focusResult.Text);
+            DebugTrace.WriteStructuredEvent(
+                "agent.netflix_pin_entry.focus_verification",
+                new Dictionary<string, object?>
+                {
+                    ["turn"] = turnId,
+                    ["toolCallId"] = toolCallId,
+                    ["digitIndex"] = index + 1,
+                    ["digit"] = digit,
+                    ["isError"] = focusResult.IsError,
+                    ["focusedElement"] = focusSummary,
+                    ["resultPreview"] = DebugTrace.Preview(focusResult.Text, 500),
+                });
+
+            if (focusResult.IsError)
+            {
+                lines.Add($"Digit {index + 1} '{digit}' entered. Focus verification was unavailable.");
+                continue;
+            }
+
+            lines.Add(
+                string.IsNullOrWhiteSpace(focusSummary)
+                    ? $"Digit {index + 1} '{digit}' entered."
+                    : $"Digit {index + 1} '{digit}' entered. Focus now: {focusSummary}.");
+        }
+
+        return new ToolCallOutcome(string.Join(Environment.NewLine, lines), []);
     }
 
     internal static bool ShouldBlockUnnamedProfilePickerAction(
@@ -2982,6 +3109,60 @@ internal static class AgentRunner
         }
     }
 
+    private static bool SnapshotLooksLikeNetflixPinFocus(string? snapshotText)
+    {
+        if (string.IsNullOrWhiteSpace(snapshotText) ||
+            !TryGetWindowProperty(snapshotText, "window", out var window))
+        {
+            return false;
+        }
+
+        var title = TryGetJsonStringProperty(window, "title");
+        if (string.IsNullOrWhiteSpace(title) ||
+            !title.Contains("netflix", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(snapshotText);
+            return TryGetJsonProperty(document.RootElement, "focusedElement", out var focusedElement) &&
+                   ElementLooksLikeNetflixPinInput(focusedElement);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool SnapshotLooksLikeNetflixPinWindow(string? snapshotText)
+    {
+        if (string.IsNullOrWhiteSpace(snapshotText) ||
+            !TryGetWindowProperty(snapshotText, "window", out var window))
+        {
+            return false;
+        }
+
+        var title = TryGetJsonStringProperty(window, "title");
+        if (string.IsNullOrWhiteSpace(title) ||
+            !title.Contains("netflix", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(snapshotText);
+            return TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree) &&
+                   ContainsMatchingElement(elementTree, ElementLooksLikeNetflixPinInputOrPrompt);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static bool SnapshotContainsElementTree(string? snapshotText)
     {
         if (string.IsNullOrWhiteSpace(snapshotText))
@@ -3100,6 +3281,24 @@ internal static class AgentRunner
         }
 
         return false;
+    }
+
+    private static bool TryExtractMultiDigitPinText(string? text, out string digits)
+    {
+        digits = string.Empty;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        var trimmed = text.Trim();
+        if (trimmed.Any(char.IsLetter))
+        {
+            return false;
+        }
+
+        digits = new string(trimmed.Where(char.IsDigit).ToArray());
+        return digits.Length >= 2 && digits.Length <= 8;
     }
 
     private static bool TryFindElementByPath(
@@ -3323,6 +3522,37 @@ internal static class AgentRunner
                && !string.IsNullOrWhiteSpace(TryGetJsonStringProperty(element, "className"));
     }
 
+    private static bool ElementLooksLikeNetflixPinInput(JsonElement element)
+    {
+        var controlType = TryGetJsonStringProperty(element, "controlType");
+        var name = TryGetJsonStringProperty(element, "name");
+        var className = TryGetJsonStringProperty(element, "className");
+
+        return string.Equals(controlType, "Edit", StringComparison.OrdinalIgnoreCase)
+               && ((!string.IsNullOrWhiteSpace(name) &&
+                    name.Contains("PIN Entry Input", StringComparison.OrdinalIgnoreCase))
+                   || (!string.IsNullOrWhiteSpace(className) &&
+                       className.Contains("pin-number-input", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private static bool ElementLooksLikeNetflixPinInputOrPrompt(JsonElement element)
+    {
+        if (ElementLooksLikeNetflixPinInput(element))
+        {
+            return true;
+        }
+
+        var name = TryGetJsonStringProperty(element, "name");
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return false;
+        }
+
+        return name.Contains("Enter your PIN", StringComparison.OrdinalIgnoreCase)
+               || name.Contains("Forgot PIN", StringComparison.OrdinalIgnoreCase)
+               || name.Contains("Profile Lock", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static bool ElementLooksLikeGenericContainerTarget(JsonElement element)
     {
         var controlType = TryGetJsonStringProperty(element, "controlType");
@@ -3373,6 +3603,36 @@ internal static class AgentRunner
         return !string.IsNullOrWhiteSpace(className)
                && (className.Contains("profile-gate", StringComparison.OrdinalIgnoreCase)
                    || className.Contains("profile-button", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string? DescribeFocusedElementFromToolOutput(string toolOutputText)
+    {
+        if (string.IsNullOrWhiteSpace(toolOutputText))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(toolOutputText);
+            if (!TryGetJsonProperty(document.RootElement, "focusedElement", out var focusedElement))
+            {
+                return null;
+            }
+
+            var name = TryGetJsonStringProperty(focusedElement, "name");
+            var controlType = TryGetJsonStringProperty(focusedElement, "controlType");
+            if (!string.IsNullOrWhiteSpace(name) && !string.IsNullOrWhiteSpace(controlType))
+            {
+                return $"{name} ({controlType})";
+            }
+
+            return name ?? controlType;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static bool TryFindUniqueNamedActionTargetFromUserText(

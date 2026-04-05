@@ -713,6 +713,74 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void TryExtractStructuredNetflixPinDigits_ReturnsTrue_ForNetflixPinFocusAndMultiDigitText()
+    {
+        var focusSnapshot =
+            """
+            {
+              "Window": {
+                "Handle": "0x009C0680",
+                "Title": "Netflix",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "FocusedElement": {
+                "Path": "focused",
+                "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/4",
+                "Name": "PIN Entry Input 1.",
+                "ControlType": "Edit",
+                "ClassName": "pin-number-input focus-visible",
+                "IsEnabled": true,
+                "HasKeyboardFocus": true
+              }
+            }
+            """;
+
+        var actual = AgentRunner.TryExtractStructuredNetflixPinDigits(
+            "send_input_to_window",
+            new Dictionary<string, object?> { ["text"] = "3579" },
+            recentWindowContext: null,
+            recentFocusContext: focusSnapshot,
+            out var digits);
+
+        Assert.True(actual);
+        Assert.Equal("3579", digits);
+    }
+
+    [Fact]
+    public void TryExtractStructuredNetflixPinDigits_ReturnsFalse_ForSingleDigitOrNonPinFocus()
+    {
+        var focusSnapshot =
+            """
+            {
+              "Window": {
+                "Handle": "0x009C0680",
+                "Title": "Netflix",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "FocusedElement": {
+                "Path": "focused",
+                "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/4",
+                "Name": "Search",
+                "ControlType": "Edit",
+                "ClassName": "search-box",
+                "IsEnabled": true,
+                "HasKeyboardFocus": true
+              }
+            }
+            """;
+
+        var actual = AgentRunner.TryExtractStructuredNetflixPinDigits(
+            "send_input_to_window",
+            new Dictionary<string, object?> { ["text"] = "3" },
+            recentWindowContext: null,
+            recentFocusContext: focusSnapshot,
+            out var digits);
+
+        Assert.False(actual);
+        Assert.Equal(string.Empty, digits);
+    }
+
+    [Fact]
     public void TryBuildBrowserSelectionArguments_PrefersUsableEdgeWindow()
     {
         var recentListWindowsOutput =

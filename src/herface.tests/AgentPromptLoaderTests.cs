@@ -94,6 +94,7 @@ public sealed class AgentPromptLoaderTests
         var prompt = prompts.Single(prompt => prompt.Key == "netflix-profile-selection-and-playback");
         Assert.Contains("Profile Lock And PIN Rules", prompt.PromptText, StringComparison.Ordinal);
         Assert.Contains("one digit at a time", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("do not send `3579` as one", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("obvious ASR variants", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Shows`, `Movies`, `Games`", prompt.PromptText, StringComparison.Ordinal);
         Assert.Contains("Back to Browse", prompt.PromptText, StringComparison.Ordinal);
