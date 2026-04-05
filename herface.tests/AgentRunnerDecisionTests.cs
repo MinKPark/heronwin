@@ -131,6 +131,20 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void BuildRuntimeToolPolicy_IncludesNamedAppLaunchGuidance_WhenSelectionAndLaunchToolsExist()
+    {
+        var actual = AgentRunner.BuildRuntimeToolPolicy(
+            [
+                new ToolDefinition("select_window", "desc", default),
+                new ToolDefinition("launch_app_via_taskbar_search", "desc", default)
+            ]);
+
+        Assert.NotNull(actual);
+        Assert.Contains("named app such as `Netflix`", actual!, StringComparison.Ordinal);
+        Assert.Contains("unrelated already-open window", actual, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void BuildRuntimeToolPolicy_IncludesConditionalNoOpAndBrowserSearchGuidance_WhenRelevantToolsExist()
     {
         var actual = AgentRunner.BuildRuntimeToolPolicy(
@@ -217,6 +231,111 @@ public sealed class AgentRunnerDecisionTests
             """{"SelectedWindow":null}""");
 
         Assert.Null(actual);
+    }
+
+    [Fact]
+    public void TryRewriteSelectWindowForRequestedApp_RewritesUnrelatedWindowToLaunch()
+    {
+        var recentListWindowsOutput =
+            """
+            {
+              "SelectedWindowHandle": null,
+              "Windows": [
+                {
+                  "Handle": "0x00250450",
+                  "Title": "YouTube - Personal - Microsoft Edge",
+                  "ClassName": "Chrome_WidgetWin_1",
+                  "ProcessId": 43600,
+                  "Bounds": { "Left": -1928, "Top": -8, "Width": 1936, "Height": 1048 },
+                  "IsSelected": false
+                }
+              ]
+            }
+            """;
+
+        var rewritten = AgentRunner.TryRewriteSelectWindowForRequestedApp(
+            "Play Netflix.",
+            new Dictionary<string, object?> { ["windowHandle"] = "0x00250450" },
+            recentListWindowsOutput,
+            canLaunchRequestedApp: true,
+            out var rewrittenToolName,
+            out var rewrittenArgs);
+
+        Assert.True(rewritten);
+        Assert.Equal("launch_app_via_taskbar_search", rewrittenToolName);
+        Assert.Equal("Netflix", rewrittenArgs["appName"]);
+    }
+
+    [Fact]
+    public void TryRewriteSelectWindowForRequestedApp_RewritesToMatchingOpenAppWindow_WhenAvailable()
+    {
+        var recentListWindowsOutput =
+            """
+            {
+              "SelectedWindowHandle": null,
+              "Windows": [
+                {
+                  "Handle": "0x00250450",
+                  "Title": "YouTube - Personal - Microsoft Edge",
+                  "ClassName": "Chrome_WidgetWin_1",
+                  "ProcessId": 43600,
+                  "Bounds": { "Left": -1928, "Top": -8, "Width": 1936, "Height": 1048 },
+                  "IsSelected": false
+                },
+                {
+                  "Handle": "0x00060A88",
+                  "Title": "Netflix - Microsoft Edge",
+                  "ClassName": "Chrome_WidgetWin_1",
+                  "ProcessId": 43601,
+                  "Bounds": { "Left": 0, "Top": 0, "Width": 1936, "Height": 1048 },
+                  "IsSelected": false
+                }
+              ]
+            }
+            """;
+
+        var rewritten = AgentRunner.TryRewriteSelectWindowForRequestedApp(
+            "Play Netflix.",
+            new Dictionary<string, object?> { ["windowHandle"] = "0x00250450" },
+            recentListWindowsOutput,
+            canLaunchRequestedApp: true,
+            out var rewrittenToolName,
+            out var rewrittenArgs);
+
+        Assert.True(rewritten);
+        Assert.Equal("select_window", rewrittenToolName);
+        Assert.Equal("0x00060A88", rewrittenArgs["windowHandle"]);
+    }
+
+    [Fact]
+    public void TryRewriteSelectWindowForRequestedApp_DoesNotRewriteWhenTargetAlreadyMatchesRequestedApp()
+    {
+        var recentListWindowsOutput =
+            """
+            {
+              "SelectedWindowHandle": null,
+              "Windows": [
+                {
+                  "Handle": "0x00060A88",
+                  "Title": "Netflix - Microsoft Edge",
+                  "ClassName": "Chrome_WidgetWin_1",
+                  "ProcessId": 43601,
+                  "Bounds": { "Left": 0, "Top": 0, "Width": 1936, "Height": 1048 },
+                  "IsSelected": false
+                }
+              ]
+            }
+            """;
+
+        var rewritten = AgentRunner.TryRewriteSelectWindowForRequestedApp(
+            "Play Netflix.",
+            new Dictionary<string, object?> { ["windowHandle"] = "0x00060A88" },
+            recentListWindowsOutput,
+            canLaunchRequestedApp: true,
+            out _,
+            out _);
+
+        Assert.False(rewritten);
     }
 
     [Fact]
@@ -628,6 +747,140 @@ public sealed class AgentRunnerDecisionTests
         var actual = AgentRunner.GetCurrentUiTreeContext(recentWindowContext, recentUiTreeContext);
 
         Assert.Null(actual);
+    }
+
+    [Fact]
+    public void ResolveToolResultContextForModel_ReturnsStoredUiElementContext_ForActionTool()
+    {
+        var profile = LlmModelProfiles.Create(LlmProviderId.OpenAiApi, "gpt-5.4-mini");
+        const string keptUiElementContext = "UI snapshot compacted for gpt-5.4-mini. Window: Netflix.";
+        const string rawToolText = "{ \"SelectedWindow\": { \"Handle\": \"0x0033061A\", \"Title\": \"Netflix\" } }";
+
+        var actual = AgentRunner.ResolveToolResultContextForModel(
+            "launch_app_via_taskbar_search",
+            rawToolText,
+            toolIsError: false,
+            currentUiElementContext: keptUiElementContext,
+            currentFocusElementContext: null,
+            profile);
+
+        Assert.Equal(keptUiElementContext, actual);
+    }
+
+    [Fact]
+    public void ResolveToolResultContextForModel_ReturnsStoredUiElementContext_ForScreenshotTool()
+    {
+        var profile = LlmModelProfiles.Create(LlmProviderId.OpenAiApi, "gpt-5.4-mini");
+        const string keptUiElementContext = "UI snapshot compacted for gpt-5.4-mini. Window: Netflix.";
+        const string rawToolText = "{ \"SelectedWindow\": { \"Handle\": \"0x0033061A\", \"Title\": \"Netflix\" }, \"Screenshot\": { \"MimeType\": \"image/png\" } }";
+
+        var actual = AgentRunner.ResolveToolResultContextForModel(
+            "capture_selected_window_screenshot",
+            rawToolText,
+            toolIsError: false,
+            currentUiElementContext: keptUiElementContext,
+            currentFocusElementContext: null,
+            profile);
+
+        Assert.Equal(keptUiElementContext, actual);
+    }
+
+    [Fact]
+    public void ResolveToolResultContextForModel_ReturnsStoredFocusContext_ForFocusDescribeTool()
+    {
+        var profile = LlmModelProfiles.Create(LlmProviderId.OpenAiApi, "gpt-5.4-mini");
+        const string keptFocusContext = "UI snapshot compacted for gpt-5.4-mini. Focused element: Edit \"Search the web\".";
+        const string rawToolText = "{ \"FocusedElement\": { \"Name\": \"Search the web\", \"ControlType\": \"Edit\" } }";
+
+        var actual = AgentRunner.ResolveToolResultContextForModel(
+            "describe_selected_window_focus",
+            rawToolText,
+            toolIsError: false,
+            currentUiElementContext: null,
+            currentFocusElementContext: keptFocusContext,
+            profile);
+
+        Assert.Equal(keptFocusContext, actual);
+    }
+
+    [Fact]
+    public void ResolveToolResultContextForModel_FallsBackToCompactedSnapshot_WhenStoredContextUnavailable()
+    {
+        var profile = new LlmModelProfile(
+            LlmProviderId.OpenAiApi,
+            "gpt-5.4-mini",
+            ContextCompressionTriggerRatio: 0.55,
+            WindowSnapshotCharBudget: 320,
+            FocusSnapshotCharBudget: 200,
+            MaxThrottleRetries: 2);
+        var snapshot =
+            """
+            {
+              "Window": {
+                "Handle": "0x0033061A",
+                "Title": "Netflix",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "Name": "Netflix",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "1/0/0/1/1/0/0/0/0/0/0",
+                    "UiPath": "1/0/0/1/1/0/0/0/0/0/0",
+                    "Name": "Netflix",
+                    "ControlType": "Document",
+                    "AvailableActions": [ "focus", "scroll_into_view", "set_value" ],
+                    "Children": [
+                      {
+                        "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/1",
+                        "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/1",
+                        "Name": "Who's watching?",
+                        "ControlType": "Text"
+                      },
+                      {
+                        "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0",
+                        "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0",
+                        "Name": "Min",
+                        "ControlType": "ListItem"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+            """;
+
+        var actual = AgentRunner.ResolveToolResultContextForModel(
+            "describe_selected_window",
+            snapshot,
+            toolIsError: false,
+            currentUiElementContext: null,
+            currentFocusElementContext: null,
+            profile);
+
+        Assert.Contains("UI snapshot compacted", actual, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEqual(snapshot, actual);
+    }
+
+    [Fact]
+    public void ResolveToolResultContextForModel_UsesRawErrorText_WhenActionToolFails()
+    {
+        var profile = LlmModelProfiles.Create(LlmProviderId.OpenAiApi, "gpt-5.4-mini");
+        const string keptUiElementContext = "UI snapshot compacted for gpt-5.4-mini. Window: Netflix.";
+        const string rawToolText = "Error: timed out waiting for the selected window.";
+
+        var actual = AgentRunner.ResolveToolResultContextForModel(
+            "click_selected_window_element",
+            rawToolText,
+            toolIsError: true,
+            currentUiElementContext: keptUiElementContext,
+            currentFocusElementContext: null,
+            profile);
+
+        Assert.Equal(rawToolText, actual);
     }
 
     [Fact]

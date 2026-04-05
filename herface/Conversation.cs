@@ -108,8 +108,10 @@ internal static class AgentRunner
         string? recentWindowContext = null;
         string? recentUiTreeContext = null;
         string? recentFocusContext = null;
+        string? currentUiElementContext = null;
+        string? currentFocusElementContext = null;
 
-        void RememberRecentWindowSnapshot(string snapshotText)
+        void RememberRecentWindowSnapshot(string snapshotText, string? snapshotToolName = null)
         {
             if (DescribePrimaryWindowFromToolOutput(snapshotText) is not null)
             {
@@ -119,11 +121,58 @@ internal static class AgentRunner
             if (SnapshotContainsElementTree(snapshotText))
             {
                 recentUiTreeContext = snapshotText;
+
+                if (string.Equals(snapshotToolName, "describe_selected_window", StringComparison.Ordinal))
+                {
+                    currentUiElementContext = UiSnapshotCompactor.CompactToolTextForContext(
+                        "describe_selected_window",
+                        snapshotText,
+                        llmClient.ModelProfile);
+                }
             }
         }
 
         string? ResolveActionableUiTreeContext()
             => GetCurrentUiTreeContext(recentWindowContext, recentUiTreeContext);
+
+        string? ResolveCurrentUiElementContext()
+        {
+            var actionableUiTreeContext = ResolveActionableUiTreeContext();
+            if (actionableUiTreeContext is null)
+            {
+                return null;
+            }
+
+            if (!string.IsNullOrWhiteSpace(currentUiElementContext))
+            {
+                return currentUiElementContext;
+            }
+
+            currentUiElementContext = UiSnapshotCompactor.CompactToolTextForContext(
+                "describe_selected_window",
+                actionableUiTreeContext,
+                llmClient.ModelProfile);
+            return currentUiElementContext;
+        }
+
+        string? ResolveCurrentFocusElementContext()
+        {
+            if (!string.IsNullOrWhiteSpace(currentFocusElementContext))
+            {
+                return currentFocusElementContext;
+            }
+
+            if (string.IsNullOrWhiteSpace(recentFocusContext))
+            {
+                return null;
+            }
+
+            currentFocusElementContext = UiSnapshotCompactor.CompactToolTextForContext(
+                "describe_selected_window_focus",
+                recentFocusContext,
+                llmClient.ModelProfile);
+            return currentFocusElementContext;
+        }
 
         while (true)
         {
@@ -293,6 +342,8 @@ internal static class AgentRunner
                 var executableToolName = toolCall.Name;
                 string? toolRewriteNote = null;
                 string? browserSearchFieldReplacementPath = null;
+                string? freshToolUiElementContext = null;
+                string? freshToolFocusElementContext = null;
                 var rewroteBrowserSearchFieldValueEntry = false;
                 var attemptedBrowserFullscreenExit = false;
                 var attemptedBrowserWindowPreflight = false;
@@ -695,6 +746,34 @@ internal static class AgentRunner
                         });
                 }
 
+                if (toolCall.Name == "select_window" &&
+                    TryRewriteSelectWindowForRequestedApp(
+                        userText,
+                        executableArgs,
+                        recentListWindowsOutput,
+                        availableToolNames.Contains("launch_app_via_taskbar_search"),
+                        out var rewrittenSelectToolName,
+                        out var rewrittenRequestedAppArgs))
+                {
+                    executableToolName = rewrittenSelectToolName;
+                    executableArgs = rewrittenRequestedAppArgs;
+                    effectiveArgumentsText = JsonSerializer.Serialize(executableArgs, JsonSerializerOptionsCache.Default);
+                    DebugTrace.WriteStructuredEvent(
+                        "agent.tool_call_arguments_rewritten",
+                        new Dictionary<string, object?>
+                        {
+                            ["turn"] = turnId,
+                            ["toolCallId"] = toolCall.Id,
+                            ["tool"] = toolCall.Name,
+                            ["executedTool"] = executableToolName,
+                            ["reason"] = executableToolName == "launch_app_via_taskbar_search"
+                                ? "requested_app_launch_preferred_over_unrelated_window"
+                                : "requested_app_window_match_preferred",
+                            ["originalArgumentsPreview"] = DebugTrace.Preview(toolCall.Arguments, 600),
+                            ["rewrittenArgumentsPreview"] = DebugTrace.Preview(effectiveArgumentsText, 600),
+                        });
+                }
+
                 var actionableUiTreeContext = ResolveActionableUiTreeContext();
 
                 if (TryRewriteBrowserSearchControlAction(
@@ -971,11 +1050,6 @@ internal static class AgentRunner
                         ["images"] = toolOutput.Images.Count,
                         ["resultPreview"] = DebugTrace.Preview(toolOutput.Text, 900),
                     });
-                var toolResultContext = UiSnapshotCompactor.CompactToolTextForContext(
-                    toolCall.Name,
-                    toolOutput.Text,
-                    llmClient.ModelProfile);
-                messages.Add(new AgentMessage.ToolResult(toolCall.Id, toolCall.Name, toolResultContext, toolOutput.Images));
 
                 if (!toolOutput.IsError)
                 {
@@ -990,22 +1064,31 @@ internal static class AgentRunner
                         recentListWindowsOutput = toolOutput.Text;
                     }
 
-                    RememberRecentWindowSnapshot(toolOutput.Text);
+                    RememberRecentWindowSnapshot(toolOutput.Text, executableToolName);
+                    if (executableToolName == "describe_selected_window")
+                    {
+                        freshToolUiElementContext = currentUiElementContext;
+                    }
 
                     if (toolCall.Name is "focus_selected_window_element" or "describe_selected_window_focus")
                     {
                         recentFocusContext = toolOutput.Text;
+                        currentFocusElementContext = UiSnapshotCompactor.CompactToolTextForContext(
+                            "describe_selected_window_focus",
+                            toolOutput.Text,
+                            llmClient.ModelProfile);
+                        freshToolFocusElementContext = currentFocusElementContext;
                     }
                 }
 
                 if (toolOutput.Images.Count > 0)
                 {
                     followUpEvidence.Add(new AgentMessage.VisualContext(
-                        $"Supplemental screenshot output from tool \"{toolCall.Name}\". Treat these images as the source of truth for what is visibly on screen before answering.",
+                        $"Supplemental screenshot output from tool \"{executableToolName}\". Treat these images as the source of truth for what is visibly on screen before answering.",
                         toolOutput.Images));
                 }
 
-                if (IsDesktopActionTool(toolCall.Name))
+                if (IsDesktopActionTool(executableToolName))
                 {
                     performedDesktopAction = true;
                     DebugTrace.WriteStructuredEvent(
@@ -1013,15 +1096,15 @@ internal static class AgentRunner
                         new Dictionary<string, object?>
                         {
                             ["turn"] = turnId,
-                            ["tool"] = toolCall.Name,
+                            ["tool"] = executableToolName,
                             ["toolIsError"] = toolOutput.IsError,
                             ["reportedWindow"] = DescribePrimaryWindowFromToolOutput(toolOutput.Text),
                         });
                     try
                     {
-                        if (toolCall.Name == "launch_app_via_taskbar_search")
+                        if (executableToolName == "launch_app_via_taskbar_search")
                         {
-                            var appName = TryGetStringArgument(parsedArgsDictionary, "appName");
+                            var appName = TryGetStringArgument(executableArgs, "appName");
                             if (!string.IsNullOrWhiteSpace(appName))
                             {
                                 var followUpSelectionArgs = TryBuildLaunchFollowUpSelectionArguments(toolOutput.Text);
@@ -1040,8 +1123,6 @@ internal static class AgentRunner
                                             RememberRecentWindowSnapshot(selectResult.Text);
                                         }
 
-                                        followUpEvidence.Add(new AgentMessage.User(
-                                            $"Internal window re-selection after launching \"{appName}\":\n{selectResult.Text}"));
                                         if (selectResult.Images.Count > 0)
                                         {
                                             followUpEvidence.Add(new AgentMessage.VisualContext(
@@ -1098,13 +1179,8 @@ internal static class AgentRunner
                             new Dictionary<string, object?> { ["maxDepth"] = 4 },
                             cancellationToken);
                         Display.ToolResult("describe_selected_window", postActionSnapshot.Text, postActionSnapshot.Images.Count);
-                        RememberRecentWindowSnapshot(postActionSnapshot.Text);
-                        var compactPostActionSnapshot = UiSnapshotCompactor.CompactToolTextForContext(
-                            "describe_selected_window",
-                            postActionSnapshot.Text,
-                            llmClient.ModelProfile);
-                        followUpEvidence.Add(new AgentMessage.User(
-                            $"Post-action visible UI snapshot after tool \"{toolCall.Name}\":\n{compactPostActionSnapshot}\nUse this UI Automation tree first. If it is too sparse or ambiguous to describe the visible screen confidently, call capture_selected_window_screenshot before answering."));
+                        RememberRecentWindowSnapshot(postActionSnapshot.Text, "describe_selected_window");
+                        freshToolUiElementContext = currentUiElementContext;
                         if (postActionSnapshot.Images.Count > 0)
                         {
                             followUpEvidence.Add(new AgentMessage.VisualContext(
@@ -1116,7 +1192,7 @@ internal static class AgentRunner
                             new Dictionary<string, object?>
                             {
                                 ["turn"] = turnId,
-                                ["tool"] = toolCall.Name,
+                                ["tool"] = executableToolName,
                                 ["elapsedMs"] = (int)Math.Round(postActionSnapshotStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
                                 ["snapshotWindow"] = DescribePrimaryWindowFromToolOutput(postActionSnapshot.Text),
                                 ["images"] = postActionSnapshot.Images.Count,
@@ -1127,13 +1203,13 @@ internal static class AgentRunner
                             new Dictionary<string, object?>
                             {
                                 ["turn"] = turnId,
-                                ["tool"] = toolCall.Name,
+                                ["tool"] = executableToolName,
                                 ["actionReportedWindow"] = DescribePrimaryWindowFromToolOutput(toolOutput.Text),
                                 ["snapshotWindow"] = DescribePrimaryWindowFromToolOutput(postActionSnapshot.Text),
                                 ["sourceOfTruth"] = postActionSnapshot.Images.Count > 0 ? "uia_plus_screenshot" : "uia_tree",
                             });
 
-                        if (ShouldCollectFocusSnapshotAfterAction(toolCall.Name, parsedArgsDictionary))
+                        if (ShouldCollectFocusSnapshotAfterAction(executableToolName, executableArgs))
                         {
                             var focusSnapshotStopwatch = Stopwatch.StartNew();
                             var focusSnapshot = await mcpManager.CallToolAsync(
@@ -1142,18 +1218,23 @@ internal static class AgentRunner
                                 cancellationToken);
                             Display.ToolResult("describe_selected_window_focus", focusSnapshot.Text, focusSnapshot.Images.Count);
                             recentFocusContext = focusSnapshot.Text;
+                            currentFocusElementContext = UiSnapshotCompactor.CompactToolTextForContext(
+                                "describe_selected_window_focus",
+                                focusSnapshot.Text,
+                                llmClient.ModelProfile);
+                            freshToolFocusElementContext = currentFocusElementContext;
                             var compactFocusSnapshot = UiSnapshotCompactor.CompactToolTextForContext(
                                 "describe_selected_window_focus",
                                 focusSnapshot.Text,
                                 llmClient.ModelProfile);
                             followUpEvidence.Add(new AgentMessage.User(
-                                $"Post-action focused element snapshot after tool \"{toolCall.Name}\":\n{compactFocusSnapshot}\nTreat this focused subtree as fresher evidence than any older focus assumptions before sending more navigation keys."));
+                                $"Post-action focused element snapshot after tool \"{executableToolName}\":\n{compactFocusSnapshot}\nTreat this focused subtree as fresher evidence than any older focus assumptions before sending more navigation keys."));
                             DebugTrace.WriteStructuredEvent(
                                 "agent.desktop_followup_focus_snapshot",
                                 new Dictionary<string, object?>
                                 {
                                     ["turn"] = turnId,
-                                    ["tool"] = toolCall.Name,
+                                    ["tool"] = executableToolName,
                                     ["elapsedMs"] = (int)Math.Round(focusSnapshotStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
                                     ["images"] = focusSnapshot.Images.Count,
                                     ["resultPreview"] = DebugTrace.Preview(focusSnapshot.Text, 700),
@@ -1165,7 +1246,7 @@ internal static class AgentRunner
                             followUpEvidence.Add(new AgentMessage.User(toolRewriteNote));
                         }
 
-                        var toolSpecificGuidance = BuildToolSpecificGuidance(toolCall.Name, toolOutput.Text, parsedArgsDictionary);
+                        var toolSpecificGuidance = BuildToolSpecificGuidance(executableToolName, toolOutput.Text, executableArgs);
                         if (!string.IsNullOrWhiteSpace(toolSpecificGuidance))
                         {
                             followUpEvidence.Add(new AgentMessage.User(toolSpecificGuidance));
@@ -1185,6 +1266,18 @@ internal static class AgentRunner
                             });
                     }
                 }
+
+                var toolResultContext = ResolveToolResultContextForModel(
+                    executableToolName,
+                    toolOutput.Text,
+                    toolOutput.IsError,
+                    freshToolUiElementContext
+                        ?? (string.Equals(executableToolName, "capture_selected_window_screenshot", StringComparison.Ordinal)
+                            ? ResolveCurrentUiElementContext()
+                            : null),
+                    freshToolFocusElementContext ?? ResolveCurrentFocusElementContext(),
+                    llmClient.ModelProfile);
+                messages.Add(new AgentMessage.ToolResult(toolCall.Id, toolCall.Name, toolResultContext, toolOutput.Images));
             }
 
             messages.AddRange(followUpEvidence);
@@ -1212,6 +1305,12 @@ internal static class AgentRunner
         {
             parts.Add(
                 "When recent tool evidence already provides a stable target identifier such as `windowHandle`, prefer reusing that exact identifier over a broader text match.");
+        }
+
+        if (toolNames.Contains("select_window") && toolNames.Contains("launch_app_via_taskbar_search"))
+        {
+            parts.Add(
+                "For requests to open or play a named app such as `Netflix`, do not satisfy the request by selecting an unrelated already-open window just because it exists. Select a matching app window only when its title matches the requested app; otherwise launch the requested app.");
         }
 
         if (toolNames.Contains("send_input_to_window"))
@@ -1914,7 +2013,7 @@ internal static class AgentRunner
                 cancellationToken);
             Display.ToolResult("capture_selected_window_screenshot", screenshot.Text, screenshot.Images.Count);
             extraEvidence.Add(new AgentMessage.User(
-                $"Second-pass screenshot capture after waiting 1 more second:\n{screenshot.Text}"));
+                "Second-pass screenshot capture after waiting 1 more second completed for the current selected window. Keep using the newest compacted UIElement tree above unless the screenshot contradicts it."));
             if (screenshot.Images.Count > 0)
             {
                 extraEvidence.Add(new AgentMessage.VisualContext(
@@ -2061,6 +2160,37 @@ internal static class AgentRunner
             : null;
     }
 
+    internal static string ResolveToolResultContextForModel(
+        string toolName,
+        string toolText,
+        bool toolIsError,
+        string? currentUiElementContext,
+        string? currentFocusElementContext,
+        LlmModelProfile modelProfile)
+    {
+        if (!toolIsError)
+        {
+            if (string.Equals(toolName, "describe_selected_window_focus", StringComparison.Ordinal) &&
+                !string.IsNullOrWhiteSpace(currentFocusElementContext))
+            {
+                return currentFocusElementContext;
+            }
+
+            if (ShouldUseStoredUiElementContextForToolResult(toolName) &&
+                !string.IsNullOrWhiteSpace(currentUiElementContext))
+            {
+                return currentUiElementContext;
+            }
+        }
+
+        return UiSnapshotCompactor.CompactToolTextForContext(toolName, toolText, modelProfile);
+    }
+
+    internal static bool ShouldUseStoredUiElementContextForToolResult(string toolName)
+        => IsDesktopActionTool(toolName)
+            || toolName is "describe_selected_window"
+                or "capture_selected_window_screenshot";
+
     internal static bool TryRewriteSelectWindowArguments(
         IReadOnlyDictionary<string, object?> args,
         string? recentListWindowsOutput,
@@ -2082,6 +2212,39 @@ internal static class AgentRunner
 
         rewrittenArgs["windowHandle"] = handle;
         rewrittenArgs.Remove("titleContains");
+        return true;
+    }
+
+    internal static bool TryRewriteSelectWindowForRequestedApp(
+        string userText,
+        IReadOnlyDictionary<string, object?> args,
+        string? recentListWindowsOutput,
+        bool canLaunchRequestedApp,
+        out string rewrittenToolName,
+        out Dictionary<string, object?> rewrittenArgs)
+    {
+        rewrittenToolName = "select_window";
+        rewrittenArgs = new Dictionary<string, object?>(StringComparer.Ordinal);
+
+        if (!TryExtractRequestedAppLaunchName(userText, out var requestedAppName) ||
+            SelectWindowArgsAlreadyTargetRequestedApp(args, recentListWindowsOutput, requestedAppName))
+        {
+            return false;
+        }
+
+        if (TryResolveWindowHandleFromRecentWindowList(recentListWindowsOutput, requestedAppName, out var matchingHandle))
+        {
+            rewrittenArgs["windowHandle"] = matchingHandle;
+            return true;
+        }
+
+        if (!canLaunchRequestedApp)
+        {
+            return false;
+        }
+
+        rewrittenToolName = "launch_app_via_taskbar_search";
+        rewrittenArgs["appName"] = requestedAppName;
         return true;
     }
 
@@ -2397,6 +2560,65 @@ internal static class AgentRunner
     private static Dictionary<string, object?> CloneArguments(IReadOnlyDictionary<string, object?> args)
         => args.ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal);
 
+    private static bool TryExtractRequestedAppLaunchName(string userText, out string appName)
+    {
+        appName = string.Empty;
+        if (string.IsNullOrWhiteSpace(userText) ||
+            UserRequestLooksLikeWebsiteNavigation(userText) ||
+            UserRequestLooksLikeBrowserContentSearch(userText))
+        {
+            return false;
+        }
+
+        var match = Regex.Match(
+            userText,
+            @"\b(?:let(?:'|’)s\s+)?(?:open|launch|start|run|play|switch to|bring up)\s+(?<target>.+?)(?:\s+(?:app|application|program))?[.!?]*$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (!match.Success)
+        {
+            return false;
+        }
+
+        var requestedTarget = Regex.Replace(
+            match.Groups["target"].Value,
+            @"^(?:the|a|an)\s+",
+            string.Empty,
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        requestedTarget = requestedTarget.Trim().Trim('"', '\'').Trim();
+        if (string.IsNullOrWhiteSpace(requestedTarget) ||
+            requestedTarget.Length > 48)
+        {
+            return false;
+        }
+
+        var normalizedTarget = NormalizeForNameMatching(requestedTarget).Trim();
+        if (string.IsNullOrWhiteSpace(normalizedTarget) ||
+            normalizedTarget is "it" or "this" or "that" or "music" or "song" or "video" or "movie" or "show" or "episode" or "playlist" or "track")
+        {
+            return false;
+        }
+
+        appName = requestedTarget;
+        return true;
+    }
+
+    private static bool SelectWindowArgsAlreadyTargetRequestedApp(
+        IReadOnlyDictionary<string, object?> args,
+        string? recentListWindowsOutput,
+        string requestedAppName)
+    {
+        var titleContains = TryGetStringArgument(args, "titleContains");
+        if (!string.IsNullOrWhiteSpace(titleContains))
+        {
+            return TextContainsNormalizedName(titleContains, requestedAppName);
+        }
+
+        var windowHandle = TryGetStringArgument(args, "windowHandle");
+        return !string.IsNullOrWhiteSpace(windowHandle) &&
+               TryResolveWindowTitleFromRecentWindowList(recentListWindowsOutput, windowHandle, out var title) &&
+               TextContainsNormalizedName(title, requestedAppName);
+    }
+
     private static bool TryResolveWindowHandleFromRecentWindowList(
         string? recentListWindowsOutput,
         string titleContains,
@@ -2467,6 +2689,47 @@ internal static class AgentRunner
             {
                 handle = matches[0].Handle!;
                 return true;
+            }
+        }
+        catch
+        {
+            return false;
+        }
+
+        return false;
+    }
+
+    private static bool TryResolveWindowTitleFromRecentWindowList(
+        string? recentListWindowsOutput,
+        string windowHandle,
+        out string title)
+    {
+        title = string.Empty;
+        if (string.IsNullOrWhiteSpace(recentListWindowsOutput) ||
+            string.IsNullOrWhiteSpace(windowHandle))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(recentListWindowsOutput);
+            if (!TryGetJsonProperty(document.RootElement, "windows", out var windowsElement) ||
+                windowsElement.ValueKind != JsonValueKind.Array)
+            {
+                return false;
+            }
+
+            foreach (var window in windowsElement.EnumerateArray())
+            {
+                var handle = TryGetJsonStringProperty(window, "handle");
+                if (!string.Equals(handle, windowHandle, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                title = TryGetJsonStringProperty(window, "title") ?? string.Empty;
+                return !string.IsNullOrWhiteSpace(title);
             }
         }
         catch
@@ -2991,16 +3254,19 @@ internal static class AgentRunner
     }
 
     private static bool UserTextMentionsElementName(string userText, string elementName)
+        => TextContainsNormalizedName(userText, elementName);
+
+    private static bool TextContainsNormalizedName(string text, string name)
     {
-        var normalizedUserText = NormalizeForNameMatching(userText);
-        var normalizedElementName = NormalizeForNameMatching(elementName).Trim();
-        if (string.IsNullOrWhiteSpace(normalizedUserText) ||
-            string.IsNullOrWhiteSpace(normalizedElementName))
+        var normalizedText = NormalizeForNameMatching(text);
+        var normalizedName = NormalizeForNameMatching(name).Trim();
+        if (string.IsNullOrWhiteSpace(normalizedText) ||
+            string.IsNullOrWhiteSpace(normalizedName))
         {
             return false;
         }
 
-        return normalizedUserText.Contains($" {normalizedElementName} ", StringComparison.Ordinal);
+        return normalizedText.Contains($" {normalizedName} ", StringComparison.Ordinal);
     }
 
     private static string NormalizeForNameMatching(string text)
