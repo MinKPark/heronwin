@@ -1,5 +1,7 @@
 ---
 id: desktop-launch-and-first-look
+group: windows
+priority: 100
 summary: "Open or switch to an app, then verify the first visible state."
 preferred_tools:
   - eyesandhands/list_windows

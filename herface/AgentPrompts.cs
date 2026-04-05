@@ -8,14 +8,20 @@ internal sealed record AgentSkillActivation(
     IReadOnlyList<string> WhenAllIntents,
     IReadOnlyList<string> UnlessAnyIntents,
     IReadOnlyList<string> WhenAnyTools,
-    IReadOnlyList<string> WhenAllTools)
+    IReadOnlyList<string> WhenAllTools,
+    IReadOnlyList<string> WhenAnyKeywords,
+    IReadOnlyList<string> WhenAllKeywords,
+    IReadOnlyList<string> UnlessAnyKeywords)
 {
     public bool HasCriteria =>
         WhenAnyIntents.Count > 0 ||
         WhenAllIntents.Count > 0 ||
         UnlessAnyIntents.Count > 0 ||
         WhenAnyTools.Count > 0 ||
-        WhenAllTools.Count > 0;
+        WhenAllTools.Count > 0 ||
+        WhenAnyKeywords.Count > 0 ||
+        WhenAllKeywords.Count > 0 ||
+        UnlessAnyKeywords.Count > 0;
 }
 
 internal sealed record AgentSkillMetadata(
@@ -23,6 +29,8 @@ internal sealed record AgentSkillMetadata(
     string? Summary,
     IReadOnlyList<string> PreferredTools,
     IReadOnlyList<string> AppliesWhen,
+    string Group,
+    int Priority,
     AgentSkillActivation Activation)
 {
     public bool HasStructuredActivation => Activation.HasCriteria;
@@ -49,6 +57,11 @@ internal sealed record ComposedAgentPrompt(
     string SourceDescription,
     bool UsesFallbackDefinition,
     IReadOnlyList<AgentSkillPrompt> ActiveSkills);
+
+internal sealed record AgentSkillSelectionContext(
+    IReadOnlySet<string> RequestIntents,
+    IReadOnlySet<string> AvailableToolNames,
+    string NormalizedActivationText);
 
 internal static class AgentPromptLoader
 {
@@ -120,7 +133,7 @@ internal static class AgentPromptLoader
             .FirstOrDefault(File.Exists);
     }
 
-    private static IReadOnlyList<AgentSkillPrompt> LoadSkillPrompts(string skillsDirectory)
+    internal static IReadOnlyList<AgentSkillPrompt> LoadSkillPrompts(string skillsDirectory)
     {
         if (!Directory.Exists(skillsDirectory))
         {
@@ -128,9 +141,11 @@ internal static class AgentPromptLoader
         }
 
         var skills = new List<AgentSkillPrompt>();
-        foreach (var path in Directory.EnumerateFiles(skillsDirectory, "*.skill.md").OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase))
+        foreach (var path in Directory
+                     .EnumerateFiles(skillsDirectory, "*.skill.md", SearchOption.AllDirectories)
+                     .OrderBy(path => Path.GetRelativePath(skillsDirectory, path), StringComparer.OrdinalIgnoreCase))
         {
-            var prompt = LoadSkillPrompt(path);
+            var prompt = LoadSkillPrompt(path, skillsDirectory);
             if (prompt is not null)
             {
                 skills.Add(prompt);
@@ -140,7 +155,7 @@ internal static class AgentPromptLoader
         return skills;
     }
 
-    private static AgentSkillPrompt? LoadSkillPrompt(string path)
+    private static AgentSkillPrompt? LoadSkillPrompt(string path, string skillsDirectory)
     {
         var rawContent = LoadPromptFile(
             path,
@@ -157,7 +172,10 @@ internal static class AgentPromptLoader
             return null;
         }
 
-        var metadata = ParseSkillMetadata(path, splitContent.HasFrontMatter ? splitContent.FrontMatterText : null);
+        var metadata = ParseSkillMetadata(
+            path,
+            skillsDirectory,
+            splitContent.HasFrontMatter ? splitContent.FrontMatterText : null);
         return new AgentSkillPrompt(
             metadata.Id,
             path,
@@ -165,12 +183,16 @@ internal static class AgentPromptLoader
             metadata);
     }
 
-    private static AgentSkillMetadata ParseSkillMetadata(string path, string? frontMatterText)
+    private static AgentSkillMetadata ParseSkillMetadata(
+        string path,
+        string skillsDirectory,
+        string? frontMatterText)
     {
         var fallbackId = GetSkillKey(path);
+        var fallbackGroup = GetFallbackSkillGroup(skillsDirectory, path);
         if (string.IsNullOrWhiteSpace(frontMatterText))
         {
-            return BuildDefaultSkillMetadata(fallbackId);
+            return BuildDefaultSkillMetadata(fallbackId, fallbackGroup);
         }
 
         try
@@ -182,35 +204,41 @@ internal static class AgentPromptLoader
 
             var id = ReadOptionalScalar(mapping, "id");
             var summary = ReadOptionalScalar(mapping, "summary");
+            var group = ReadOptionalScalar(mapping, "group");
+            var priority = ReadOptionalInt(mapping, "priority");
 
             return new AgentSkillMetadata(
                 string.IsNullOrWhiteSpace(id) ? fallbackId : id.Trim(),
                 string.IsNullOrWhiteSpace(summary) ? null : summary.Trim(),
                 ReadStringValues(mapping, "preferred_tools"),
                 ReadStringValues(mapping, "applies_when"),
+                NormalizeSkillGroup(string.IsNullOrWhiteSpace(group) ? fallbackGroup : group.Trim()),
+                priority ?? 1000,
                 ParseSkillActivation(mapping));
         }
         catch (Exception ex)
         {
             Console.WriteLine(
                 $"Warning: failed to parse agent skill metadata at \"{path}\"; continuing with filename-based compatibility. {ex.Message}");
-            return BuildDefaultSkillMetadata(fallbackId);
+            return BuildDefaultSkillMetadata(fallbackId, fallbackGroup);
         }
     }
 
-    private static AgentSkillMetadata BuildDefaultSkillMetadata(string fallbackId)
+    private static AgentSkillMetadata BuildDefaultSkillMetadata(string fallbackId, string fallbackGroup)
         => new(
             fallbackId,
             Summary: null,
             PreferredTools: [],
             AppliesWhen: [],
-            Activation: new AgentSkillActivation([], [], [], [], []));
+            Group: NormalizeSkillGroup(fallbackGroup),
+            Priority: 1000,
+            Activation: new AgentSkillActivation([], [], [], [], [], [], [], []));
 
     private static AgentSkillActivation ParseSkillActivation(HerfaceYamlMapping mapping)
     {
         if (!mapping.TryGetValue("activation", out var activationNode))
         {
-            return new AgentSkillActivation([], [], [], [], []);
+            return new AgentSkillActivation([], [], [], [], [], [], [], []);
         }
 
         if (activationNode is not HerfaceYamlMapping activationMapping)
@@ -223,7 +251,10 @@ internal static class AgentPromptLoader
             ReadStringValues(activationMapping, "when_all_intents"),
             ReadStringValues(activationMapping, "unless_any_intents"),
             ReadStringValues(activationMapping, "when_any_tools"),
-            ReadStringValues(activationMapping, "when_all_tools"));
+            ReadStringValues(activationMapping, "when_all_tools"),
+            ReadStringValues(activationMapping, "when_any_keywords"),
+            ReadStringValues(activationMapping, "when_all_keywords"),
+            ReadStringValues(activationMapping, "unless_any_keywords"));
     }
 
     private static IReadOnlyList<string> ReadStringValues(HerfaceYamlMapping mapping, string key)
@@ -249,6 +280,13 @@ internal static class AgentPromptLoader
     private static string? ReadOptionalScalar(HerfaceYamlMapping mapping, string key)
         => mapping.TryGetValue(key, out var node) && node is HerfaceYamlScalar scalar
             ? scalar.Value
+            : null;
+
+    private static int? ReadOptionalInt(HerfaceYamlMapping mapping, string key)
+        => mapping.TryGetValue(key, out var node) &&
+           node is HerfaceYamlScalar scalar &&
+           int.TryParse(scalar.Value, out var parsed)
+            ? parsed
             : null;
 
     private static string LoadPromptText(
@@ -357,6 +395,20 @@ internal static class AgentPromptLoader
             : Path.GetFileNameWithoutExtension(fileName);
     }
 
+    private static string GetFallbackSkillGroup(string skillsDirectory, string path)
+    {
+        var relativePath = Path.GetRelativePath(skillsDirectory, path);
+        var relativeDirectory = Path.GetDirectoryName(relativePath);
+        return string.IsNullOrWhiteSpace(relativeDirectory)
+            ? "general"
+            : relativeDirectory.Replace('\\', '/').Trim('/');
+    }
+
+    private static string NormalizeSkillGroup(string group)
+        => string.IsNullOrWhiteSpace(group)
+            ? "general"
+            : group.Trim().Replace('\\', '/').Trim('/').ToLowerInvariant();
+
     private sealed record FrontMatterSplitResult(
         bool HasFrontMatter,
         string FrontMatterText,
@@ -369,18 +421,29 @@ internal static class AgentPromptComposer
         AgentPromptCatalog catalog,
         string userText,
         IReadOnlyList<ToolDefinition> tools)
+        => Compose(catalog, userText, [], tools);
+
+    public static ComposedAgentPrompt Compose(
+        AgentPromptCatalog catalog,
+        string userText,
+        IReadOnlyList<AgentMessage> history,
+        IReadOnlyList<ToolDefinition> tools)
     {
         if (!catalog.HasSplitPrompts)
         {
             return BuildFallbackPrompt(catalog);
         }
 
-        var activeSkills = SelectActiveSkills(catalog, userText, tools);
+        var activeSkills = SelectActiveSkills(catalog, userText, history, tools);
         var sections = new List<string> { catalog.CoreDefinition.Trim() };
         if (activeSkills.Count > 0)
         {
-            sections.Add("## Active Skills\nUse the following additional skill guidance for this turn.");
-            sections.AddRange(activeSkills.Select(skill => skill.PromptText));
+            sections.Add("## Active Skill Groups\nUse the following additional grouped skill guidance for this turn. Layer shared groups before host-app and target-app groups.");
+            foreach (var skillGroup in activeSkills.GroupBy(skill => skill.Metadata.Group, StringComparer.OrdinalIgnoreCase))
+            {
+                sections.Add($"### {FormatSkillGroupLabel(skillGroup.Key)}");
+                sections.AddRange(skillGroup.Select(skill => skill.PromptText));
+            }
         }
 
         var systemPrompt = string.Join(
@@ -405,6 +468,7 @@ internal static class AgentPromptComposer
     internal static IReadOnlyList<AgentSkillPrompt> SelectActiveSkills(
         AgentPromptCatalog catalog,
         string userText,
+        IReadOnlyList<AgentMessage> history,
         IReadOnlyList<ToolDefinition> tools)
     {
         if (!catalog.HasSplitPrompts || catalog.Skills.Count == 0)
@@ -412,34 +476,35 @@ internal static class AgentPromptComposer
             return [];
         }
 
-        var requestIntents = BuildRequestIntentSet(userText);
-        var availableToolNames = tools
-            .Select(tool => NormalizeToolIdentifier(tool.Name))
-            .Where(toolName => !string.IsNullOrWhiteSpace(toolName))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var selectionContext = BuildSelectionContext(userText, history, tools);
 
         return catalog.Skills
-            .Where(skill => ShouldActivateSkill(skill, requestIntents, availableToolNames))
+            .Select((skill, index) => new { Skill = skill, Index = index })
+            .Where(candidate => ShouldActivateSkill(candidate.Skill, selectionContext))
+            .OrderBy(candidate => candidate.Skill.Metadata.Priority)
+            .ThenBy(candidate => candidate.Index)
+            .Select(candidate => candidate.Skill)
             .ToList();
     }
 
     private static bool ShouldActivateSkill(
         AgentSkillPrompt skill,
-        IReadOnlySet<string> requestIntents,
-        IReadOnlySet<string> availableToolNames)
+        AgentSkillSelectionContext selectionContext)
     {
         if (skill.Metadata.HasStructuredActivation)
         {
-            return EvaluateStructuredSkillActivation(skill.Metadata.Activation, requestIntents, availableToolNames);
+            return EvaluateStructuredSkillActivation(skill.Metadata.Activation, selectionContext);
         }
 
-        return EvaluateLegacySkillActivation(skill.Key, requestIntents, availableToolNames);
+        return EvaluateLegacySkillActivation(
+            skill.Key,
+            selectionContext.RequestIntents,
+            selectionContext.AvailableToolNames);
     }
 
     private static bool EvaluateStructuredSkillActivation(
         AgentSkillActivation activation,
-        IReadOnlySet<string> requestIntents,
-        IReadOnlySet<string> availableToolNames)
+        AgentSkillSelectionContext selectionContext)
     {
         if (!activation.HasCriteria)
         {
@@ -447,31 +512,49 @@ internal static class AgentPromptComposer
         }
 
         if (activation.WhenAnyIntents.Count > 0 &&
-            !MatchesAny(requestIntents, activation.WhenAnyIntents, NormalizeIntentIdentifier))
+            !MatchesAny(selectionContext.RequestIntents, activation.WhenAnyIntents, NormalizeIntentIdentifier))
         {
             return false;
         }
 
         if (activation.WhenAllIntents.Count > 0 &&
-            !MatchesAll(requestIntents, activation.WhenAllIntents, NormalizeIntentIdentifier))
+            !MatchesAll(selectionContext.RequestIntents, activation.WhenAllIntents, NormalizeIntentIdentifier))
         {
             return false;
         }
 
         if (activation.UnlessAnyIntents.Count > 0 &&
-            MatchesAny(requestIntents, activation.UnlessAnyIntents, NormalizeIntentIdentifier))
+            MatchesAny(selectionContext.RequestIntents, activation.UnlessAnyIntents, NormalizeIntentIdentifier))
         {
             return false;
         }
 
         if (activation.WhenAnyTools.Count > 0 &&
-            !MatchesAny(availableToolNames, activation.WhenAnyTools, NormalizeToolIdentifier))
+            !MatchesAny(selectionContext.AvailableToolNames, activation.WhenAnyTools, NormalizeToolIdentifier))
         {
             return false;
         }
 
         if (activation.WhenAllTools.Count > 0 &&
-            !MatchesAll(availableToolNames, activation.WhenAllTools, NormalizeToolIdentifier))
+            !MatchesAll(selectionContext.AvailableToolNames, activation.WhenAllTools, NormalizeToolIdentifier))
+        {
+            return false;
+        }
+
+        if (activation.WhenAnyKeywords.Count > 0 &&
+            !MatchesAnyNormalizedPhrase(selectionContext.NormalizedActivationText, activation.WhenAnyKeywords))
+        {
+            return false;
+        }
+
+        if (activation.WhenAllKeywords.Count > 0 &&
+            !MatchesAllNormalizedPhrases(selectionContext.NormalizedActivationText, activation.WhenAllKeywords))
+        {
+            return false;
+        }
+
+        if (activation.UnlessAnyKeywords.Count > 0 &&
+            MatchesAnyNormalizedPhrase(selectionContext.NormalizedActivationText, activation.UnlessAnyKeywords))
         {
             return false;
         }
@@ -543,6 +626,66 @@ internal static class AgentPromptComposer
             $"fallback:{Path.GetFileName(catalog.FallbackDefinitionPath)}",
             UsesFallbackDefinition: true,
             []);
+
+    private static AgentSkillSelectionContext BuildSelectionContext(
+        string userText,
+        IReadOnlyList<AgentMessage> history,
+        IReadOnlyList<ToolDefinition> tools)
+    {
+        var requestIntents = BuildRequestIntentSet(userText);
+        var availableToolNames = tools
+            .Select(tool => NormalizeToolIdentifier(tool.Name))
+            .Where(toolName => !string.IsNullOrWhiteSpace(toolName))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var activationText = BuildActivationText(userText, history);
+
+        return new AgentSkillSelectionContext(
+            requestIntents,
+            availableToolNames,
+            NormalizeText(activationText));
+    }
+
+    private static string BuildActivationText(string userText, IReadOnlyList<AgentMessage> history)
+    {
+        var contextLines = new List<string>();
+        foreach (var message in history.TakeLast(6))
+        {
+            switch (message)
+            {
+                case AgentMessage.User user when !string.IsNullOrWhiteSpace(user.Content):
+                    contextLines.Add(user.Content);
+                    break;
+                case AgentMessage.Summary summary when !string.IsNullOrWhiteSpace(summary.Content):
+                    contextLines.Add(summary.Content);
+                    break;
+                case AgentMessage.Assistant assistant when TryGetAssistantActivationText(assistant.Content) is { Length: > 0 } assistantText:
+                    contextLines.Add(assistantText);
+                    break;
+            }
+        }
+
+        contextLines.Add(userText);
+        return string.Join('\n', contextLines.Where(static line => !string.IsNullOrWhiteSpace(line)));
+    }
+
+    private static string? TryGetAssistantActivationText(string? assistantContent)
+    {
+        if (string.IsNullOrWhiteSpace(assistantContent))
+        {
+            return null;
+        }
+
+        if (AssistantResponseParser.IsStructuredJson(assistantContent))
+        {
+            var parsed = AssistantResponseParser.Parse(assistantContent);
+            return string.Join(
+                '\n',
+                new[] { parsed.LogText, parsed.SpokenText }
+                    .Where(static text => !string.IsNullOrWhiteSpace(text)));
+        }
+
+        return assistantContent;
+    }
 
     private static IReadOnlySet<string> BuildRequestIntentSet(string userText)
     {
@@ -759,6 +902,24 @@ internal static class AgentPromptComposer
             ? string.Empty
             : intent.Trim().ToLowerInvariant();
 
+    private static string FormatSkillGroupLabel(string group)
+    {
+        var normalizedGroup = string.IsNullOrWhiteSpace(group) ? "general" : group;
+        var segments = normalizedGroup
+            .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(segment => string.Join(
+                ' ',
+                segment
+                    .Split(['-', '_', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Select(word => char.ToUpperInvariant(word[0]) + word[1..].ToLowerInvariant())))
+            .Where(segment => !string.IsNullOrWhiteSpace(segment))
+            .ToArray();
+
+        return segments.Length == 0
+            ? "General Skill Group"
+            : $"{string.Join(" / ", segments)} Skill Group";
+    }
+
     private static string NormalizeToolIdentifier(string toolName)
     {
         if (string.IsNullOrWhiteSpace(toolName))
@@ -793,6 +954,29 @@ internal static class AgentPromptComposer
             .Select(normalize)
             .Where(candidate => !string.IsNullOrWhiteSpace(candidate))
             .All(availableValues.Contains);
+
+    private static bool MatchesAnyNormalizedPhrase(string normalizedText, IEnumerable<string> candidates)
+        => candidates
+            .Select(NormalizeText)
+            .Where(candidate => !string.IsNullOrWhiteSpace(candidate))
+            .Any(candidate => ContainsNormalizedPhrase(normalizedText, candidate));
+
+    private static bool MatchesAllNormalizedPhrases(string normalizedText, IEnumerable<string> candidates)
+        => candidates
+            .Select(NormalizeText)
+            .Where(candidate => !string.IsNullOrWhiteSpace(candidate))
+            .All(candidate => ContainsNormalizedPhrase(normalizedText, candidate));
+
+    private static bool ContainsNormalizedPhrase(string normalizedText, string normalizedPhrase)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedText) ||
+            string.IsNullOrWhiteSpace(normalizedPhrase))
+        {
+            return false;
+        }
+
+        return $" {normalizedText} ".Contains($" {normalizedPhrase} ", StringComparison.Ordinal);
+    }
 
     private static bool ContainsAny(string text, params string[] candidates)
         => candidates.Any(candidate => text.Contains(candidate, StringComparison.Ordinal));

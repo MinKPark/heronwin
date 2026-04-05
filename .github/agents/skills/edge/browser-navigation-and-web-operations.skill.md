@@ -1,5 +1,7 @@
 ---
 id: browser-navigation-and-web-operations
+group: edge
+priority: 300
 summary: "Operate browser chrome and navigate directly to websites without turning URLs into search queries."
 preferred_tools:
   - eyesandhands/describe_selected_window

@@ -209,6 +209,89 @@ public sealed class AgentPromptComposerTests
         Assert.Contains(actual.ActiveSkills, skill => skill.Key == "ui-refresh-and-evidence");
     }
 
+    [Fact]
+    public void Compose_GroupsActiveSkillsByGroupAndPriority()
+    {
+        var catalog = new AgentPromptCatalog(
+            FallbackDefinitionPath: "fallback/her.agent.md",
+            FallbackDefinition: "fallback prompt",
+            CoreDefinitionPath: "core/her.agent.core.md",
+            CoreDefinition: "core prompt",
+            Skills:
+            [
+                CreateSkill(
+                    "desktop-launch-and-first-look",
+                    "launch skill",
+                    Activation(whenAnyIntents: ["launch_request"], whenAnyTools: ["list_windows"]),
+                    group: "windows",
+                    priority: 100),
+                CreateSkill(
+                    "ui-refresh-and-evidence",
+                    "refresh skill",
+                    Activation(whenAnyTools: ["describe_selected_window"]),
+                    group: "any-app",
+                    priority: 150),
+                CreateSkill(
+                    "netflix-profile-selection-and-playback",
+                    "netflix skill",
+                    Activation(whenAnyKeywords: ["netflix"], whenAnyTools: ["describe_selected_window"]),
+                    group: "netflix",
+                    priority: 400)
+            ]);
+
+        var actual = AgentPromptComposer.Compose(
+            catalog,
+            "Open Netflix.",
+            [],
+            [
+                new ToolDefinition("list_windows", "desc", default),
+                new ToolDefinition("describe_selected_window", "desc", default)
+            ]);
+
+        Assert.Contains("### Windows Skill Group", actual.SystemPrompt, StringComparison.Ordinal);
+        Assert.Contains("### Any App Skill Group", actual.SystemPrompt, StringComparison.Ordinal);
+        Assert.Contains("### Netflix Skill Group", actual.SystemPrompt, StringComparison.Ordinal);
+        Assert.True(
+            actual.SystemPrompt.IndexOf("### Windows Skill Group", StringComparison.Ordinal)
+            < actual.SystemPrompt.IndexOf("### Any App Skill Group", StringComparison.Ordinal));
+        Assert.True(
+            actual.SystemPrompt.IndexOf("### Any App Skill Group", StringComparison.Ordinal)
+            < actual.SystemPrompt.IndexOf("### Netflix Skill Group", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compose_ActivatesKeywordSkill_FromRecentHistoryContext()
+    {
+        var catalog = new AgentPromptCatalog(
+            FallbackDefinitionPath: "fallback/her.agent.md",
+            FallbackDefinition: "fallback prompt",
+            CoreDefinitionPath: "core/her.agent.core.md",
+            CoreDefinition: "core prompt",
+            Skills:
+            [
+                CreateSkill(
+                    "netflix-profile-selection-and-playback",
+                    "netflix skill",
+                    Activation(
+                        whenAnyKeywords: ["netflix", "profile"],
+                        whenAnyTools: ["describe_selected_window"]),
+                    group: "netflix",
+                    priority: 400)
+            ]);
+
+        var actual = AgentPromptComposer.Compose(
+            catalog,
+            "Which profiles are available?",
+            [
+                new AgentMessage.Summary("Environment context: selected window is Netflix - Microsoft Edge. Visible cue: profile picker.")
+            ],
+            [
+                new ToolDefinition("describe_selected_window", "desc", default)
+            ]);
+
+        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "netflix-profile-selection-and-playback");
+    }
+
     private static AgentPromptCatalog CreateCatalog()
         => new(
             FallbackDefinitionPath: "fallback/her.agent.md",
@@ -233,7 +316,9 @@ public sealed class AgentPromptComposerTests
                             "click_selected_window_element",
                             "focus_selected_window_element",
                             "send_input_to_window"
-                        ])),
+                        ]),
+                    group: "any-app",
+                    priority: 200),
                 CreateSkill(
                     "browser-navigation-and-web-operations",
                     "browser skill",
@@ -249,7 +334,9 @@ public sealed class AgentPromptComposerTests
                             "set_selected_window_element_value",
                             "send_input_to_window",
                             "capture_selected_window_screenshot"
-                        ])),
+                        ]),
+                    group: "edge",
+                    priority: 300),
                 CreateSkill(
                     "desktop-launch-and-first-look",
                     "launch skill",
@@ -262,7 +349,9 @@ public sealed class AgentPromptComposerTests
                             "list_taskbar_elements",
                             "select_taskbar_app",
                             "launch_app_via_taskbar_search"
-                        ])),
+                        ]),
+                    group: "windows",
+                    priority: 100),
                 CreateSkill(
                     "search-and-enumeration",
                     "search skill",
@@ -273,7 +362,9 @@ public sealed class AgentPromptComposerTests
                             "describe_selected_window",
                             "describe_selected_window_focus",
                             "capture_selected_window_screenshot"
-                        ])),
+                        ]),
+                    group: "any-app",
+                    priority: 210),
                 CreateSkill(
                     "ui-refresh-and-evidence",
                     "refresh skill",
@@ -283,13 +374,17 @@ public sealed class AgentPromptComposerTests
                             "describe_selected_window",
                             "describe_selected_window_focus",
                             "capture_selected_window_screenshot"
-                        ]))
+                        ]),
+                    group: "any-app",
+                    priority: 150)
             ]);
 
     private static AgentSkillPrompt CreateSkill(
         string key,
         string promptText,
-        AgentSkillActivation activation)
+        AgentSkillActivation activation,
+        string group = "general",
+        int priority = 1000)
         => new(
             key,
             $"skills/{key}.skill.md",
@@ -299,6 +394,8 @@ public sealed class AgentPromptComposerTests
                 Summary: null,
                 PreferredTools: [],
                 AppliesWhen: [],
+                Group: group,
+                Priority: priority,
                 Activation: activation));
 
     private static AgentSkillActivation Activation(
@@ -306,13 +403,19 @@ public sealed class AgentPromptComposerTests
         string[]? whenAllIntents = null,
         string[]? unlessAnyIntents = null,
         string[]? whenAnyTools = null,
-        string[]? whenAllTools = null)
+        string[]? whenAllTools = null,
+        string[]? whenAnyKeywords = null,
+        string[]? whenAllKeywords = null,
+        string[]? unlessAnyKeywords = null)
         => new(
             whenAnyIntents ?? Array.Empty<string>(),
             whenAllIntents ?? Array.Empty<string>(),
             unlessAnyIntents ?? Array.Empty<string>(),
             whenAnyTools ?? Array.Empty<string>(),
-            whenAllTools ?? Array.Empty<string>());
+            whenAllTools ?? Array.Empty<string>(),
+            whenAnyKeywords ?? Array.Empty<string>(),
+            whenAllKeywords ?? Array.Empty<string>(),
+            unlessAnyKeywords ?? Array.Empty<string>());
 
     private static AgentSkillActivation EmptyActivation
         => Activation();

@@ -1,5 +1,7 @@
 ---
 id: ui-refresh-and-evidence
+group: any-app
+priority: 150
 summary: "Refresh the UI state after actions and gather stronger evidence when confidence is low."
 preferred_tools:
   - eyesandhands/describe_selected_window

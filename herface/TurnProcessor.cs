@@ -31,7 +31,7 @@ internal static class HerfaceTurnProcessor
             });
 
         var tools = await mcpManager.ListAllToolsAsync(cancellationToken);
-        var composedPrompt = AgentPromptComposer.Compose(config.AgentPrompts, userText, tools);
+        var composedPrompt = AgentPromptComposer.Compose(config.AgentPrompts, userText, history, tools);
         DebugTrace.WriteEvent(
             "agent.prompt.composed",
             $"turn={turnId}, source={composedPrompt.SourceDescription}, fallback={composedPrompt.UsesFallbackDefinition}, skills={string.Join(", ", composedPrompt.ActiveSkills.Select(skill => skill.Key).DefaultIfEmpty("(none)"))}");

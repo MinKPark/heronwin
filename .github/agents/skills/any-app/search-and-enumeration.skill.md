@@ -1,5 +1,7 @@
 ---
 id: search-and-enumeration
+group: any-app
+priority: 210
 summary: "Search within an app or enumerate visible UI state without over-claiming."
 preferred_tools:
   - eyesandhands/describe_selected_window

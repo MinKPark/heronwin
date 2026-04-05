@@ -1,5 +1,7 @@
 ---
 id: action-discovery-and-invocation
+group: any-app
+priority: 200
 summary: "Find and perform a requested action in the current app."
 preferred_tools:
   - eyesandhands/list_main_menu_items
