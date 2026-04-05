@@ -48,14 +48,18 @@ internal static class AudioRecorder
     private const int ConsecutiveSpeechBuffers = 2;
     private const double SpeechPeakThreshold = 0.03;
     private const double SpeechRmsThreshold = 0.009;
-    private const int SpeakerReferenceHistoryMs = 2_000;
-    private const int SpeakerLagSearchMs = 250;
-    private const int SpeakerLagSearchStepMs = 10;
+    private const int SpeakerReferenceHistoryMs = 3_000;
+    private const int SpeakerLagSearchMs = 750;
+    private const int SpeakerLagSearchStepMs = 5;
     private const int SpeakerReferenceHistorySamples = SampleRate * SpeakerReferenceHistoryMs / 1000;
     private const int SpeakerLagSearchSamples = SampleRate * SpeakerLagSearchMs / 1000;
     private const int SpeakerLagSearchStepSamples = SampleRate * SpeakerLagSearchStepMs / 1000;
     private const double SpeakerReferenceRmsThreshold = 0.0035;
-    private const double SpeakerLeakExplainedRatioThreshold = 0.35;
+    private const double SpeakerLeakCandidateExplainedRatioThreshold = 0.12;
+    private const double SpeakerLeakDominantExplainedRatioThreshold = 0.24;
+    private const double SpeakerLeakResidualEnergyRatioThreshold = 0.97;
+    private const double SpeakerLeakDominantResidualEnergyRatioThreshold = 0.65;
+    private const double SpeakerLeakDominantResidualRmsThreshold = 0.02;
     private const double SpeakerLeakScaleLimit = 4.0;
 
     public static string DescribeRecordingFormat()
@@ -89,6 +93,8 @@ internal static class AudioRecorder
         var preRollBytes = 0;
         var preRollBuffers = new Queue<BufferedAudioChunk>();
         var speakerFilteredBufferCount = 0;
+        var speakerDominantBufferCount = 0;
+        var maxSpeakerExplainedRatio = 0d;
 
         using var cancellationRegistration = cancellationToken.Register(() => RequestStop());
         using var waitForSpeechTimer = maxWaitForSpeechMs is int waitMs
@@ -110,7 +116,12 @@ internal static class AudioRecorder
             var levels = AnalyzeAudioLevels(eventArgs.Buffer, eventArgs.BytesRecorded);
             var chunk = BufferedAudioChunk.Create(eventArgs.Buffer, eventArgs.BytesRecorded, chunkStartedAt, chunkEndedAt);
             var speakerLeakAnalysis = FilterSpeakerLeak(eventArgs.Buffer, eventArgs.BytesRecorded, speakerReference);
-            if (speakerLeakAnalysis.Applied && speakerLeakAnalysis.FilteredSamples is not null)
+            if (speakerLeakAnalysis.ExplainedRatio > maxSpeakerExplainedRatio)
+            {
+                maxSpeakerExplainedRatio = speakerLeakAnalysis.ExplainedRatio;
+            }
+
+            if (speakerLeakAnalysis.CanUseFilteredAudio && speakerLeakAnalysis.FilteredSamples is not null)
             {
                 var filteredBytes = EncodePcm16Samples(speakerLeakAnalysis.FilteredSamples);
                 chunk = new BufferedAudioChunk(filteredBytes, filteredBytes.Length, chunkStartedAt, chunkEndedAt);
@@ -119,6 +130,11 @@ internal static class AudioRecorder
             }
 
             var looksLikeSpeech = levels.Peak >= SpeechPeakThreshold || levels.Rms >= SpeechRmsThreshold;
+            if (speakerLeakAnalysis.IsLikelySpeakerOnly)
+            {
+                looksLikeSpeech = false;
+                speakerDominantBufferCount += 1;
+            }
 
             if (!speechStarted)
             {
@@ -219,7 +235,7 @@ internal static class AudioRecorder
                 {
                     DebugTrace.WriteEvent(
                         "audio.speaker_filter",
-                        $"filteredBuffers={speakerFilteredBufferCount}, speechStarted={speechStarted}");
+                        $"filteredBuffers={speakerFilteredBufferCount}, speakerOnlyBuffers={speakerDominantBufferCount}, maxExplainedRatio={maxSpeakerExplainedRatio:F2}, speechStarted={speechStarted}");
                 }
 
                 var finalEndedAt = endedAt ?? DateTimeOffset.UtcNow;
@@ -338,7 +354,7 @@ internal static class AudioRecorder
             EvaluateLag(maxLagSamples);
         }
 
-        if (bestStart < 0 || bestReferenceEnergy <= minimumReferenceEnergy || bestExplainedRatio < SpeakerLeakExplainedRatioThreshold)
+        if (bestStart < 0 || bestReferenceEnergy <= minimumReferenceEnergy)
         {
             return SpeakerLeakAnalysis.None(Math.Sqrt(micEnergy / microphoneSamples.Length));
         }
@@ -353,21 +369,32 @@ internal static class AudioRecorder
             filteredSamples[i] = ConvertToPcm16(residual);
         }
 
-        if (filteredEnergy >= micEnergy * 0.95)
-        {
-            return SpeakerLeakAnalysis.None(Math.Sqrt(micEnergy / microphoneSamples.Length));
-        }
+        var originalRms = Math.Sqrt(micEnergy / microphoneSamples.Length);
+        var filteredRms = Math.Sqrt(filteredEnergy / microphoneSamples.Length);
+        var referenceRms = Math.Sqrt(bestReferenceEnergy / microphoneSamples.Length);
+        var residualEnergyRatio = micEnergy <= 0 ? 1d : filteredEnergy / micEnergy;
+        var correlation = bestDot / Math.Sqrt(micEnergy * bestReferenceEnergy);
+        var canUseFilteredAudio =
+            bestExplainedRatio >= SpeakerLeakCandidateExplainedRatioThreshold
+            && residualEnergyRatio <= SpeakerLeakResidualEnergyRatioThreshold;
+        var isLikelySpeakerOnly =
+            canUseFilteredAudio
+            && bestExplainedRatio >= SpeakerLeakDominantExplainedRatioThreshold
+            && residualEnergyRatio <= SpeakerLeakDominantResidualEnergyRatioThreshold
+            && filteredRms <= SpeakerLeakDominantResidualRmsThreshold;
 
         return new SpeakerLeakAnalysis(
-            true,
-            filteredSamples,
-            Math.Sqrt(micEnergy / microphoneSamples.Length),
-            Math.Sqrt(filteredEnergy / microphoneSamples.Length),
-            Math.Sqrt(bestReferenceEnergy / microphoneSamples.Length),
-            bestDot / Math.Sqrt(micEnergy * bestReferenceEnergy),
+            canUseFilteredAudio,
+            isLikelySpeakerOnly,
+            canUseFilteredAudio ? filteredSamples : null,
+            originalRms,
+            filteredRms,
+            referenceRms,
+            correlation,
             bestExplainedRatio,
             bestLagSamples,
-            scale);
+            scale,
+            residualEnergyRatio);
 
         void EvaluateLag(int lagSamples)
         {
@@ -597,7 +624,8 @@ internal static class AudioRecorder
 
     private readonly record struct AudioLevels(double Peak, double Rms);
     internal readonly record struct SpeakerLeakAnalysis(
-        bool Applied,
+        bool CanUseFilteredAudio,
+        bool IsLikelySpeakerOnly,
         short[]? FilteredSamples,
         double OriginalRms,
         double FilteredRms,
@@ -605,10 +633,11 @@ internal static class AudioRecorder
         double Correlation,
         double ExplainedRatio,
         int BestLagSamples,
-        double Scale)
+        double Scale,
+        double ResidualEnergyRatio)
     {
         public static SpeakerLeakAnalysis None(double originalRms = 0)
-            => new(false, null, originalRms, originalRms, 0, 0, 0, -1, 0);
+            => new(false, false, null, originalRms, originalRms, 0, 0, 0, -1, 0, 1);
     }
 
     private readonly record struct BufferedAudioChunk(byte[] Bytes, int BytesRecorded, DateTimeOffset StartedAt, DateTimeOffset EndedAt)

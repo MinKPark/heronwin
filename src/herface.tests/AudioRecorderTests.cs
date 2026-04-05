@@ -14,7 +14,8 @@ public sealed class AudioRecorderTests
 
         var analysis = AudioRecorder.FilterSpeakerLeak(microphoneChunk, renderHistory);
 
-        Assert.True(analysis.Applied);
+        Assert.True(analysis.CanUseFilteredAudio);
+        Assert.True(analysis.IsLikelySpeakerOnly);
         Assert.NotNull(analysis.FilteredSamples);
         Assert.Equal(lagSamples, analysis.BestLagSamples);
         Assert.InRange(analysis.ExplainedRatio, 0.98, 1.001);
@@ -30,7 +31,8 @@ public sealed class AudioRecorderTests
 
         var analysis = AudioRecorder.FilterSpeakerLeak(microphoneChunk, renderHistory);
 
-        Assert.False(analysis.Applied);
+        Assert.False(analysis.CanUseFilteredAudio);
+        Assert.False(analysis.IsLikelySpeakerOnly);
         Assert.Null(analysis.FilteredSamples);
         Assert.InRange(analysis.OriginalRms, 0.08, 0.5);
         Assert.True(analysis.ExplainedRatio < 0.35);
@@ -47,7 +49,8 @@ public sealed class AudioRecorderTests
 
         var analysis = AudioRecorder.FilterSpeakerLeak(microphoneChunk, renderHistory);
 
-        Assert.True(analysis.Applied);
+        Assert.True(analysis.CanUseFilteredAudio);
+        Assert.False(analysis.IsLikelySpeakerOnly);
         Assert.NotNull(analysis.FilteredSamples);
         Assert.Equal(lagSamples, analysis.BestLagSamples);
         Assert.True(analysis.FilteredRms < analysis.OriginalRms);
@@ -55,6 +58,24 @@ public sealed class AudioRecorderTests
         var originalDistance = ComputeDifferenceRms(microphoneChunk, userChunk);
         var filteredDistance = ComputeDifferenceRms(analysis.FilteredSamples!, userChunk);
         Assert.True(filteredDistance < originalDistance * 0.55);
+    }
+
+    [Fact]
+    public void FilterSpeakerLeak_MarksSpeakerOnlyAudio_EvenWithSimpleRoomEcho()
+    {
+        var renderChunk = BuildPseudoSpeech(sampleCount: 1600, seed: 83, amplitude: 0.65);
+        var primaryPath = Scale(renderChunk, 0.22);
+        var echoPath = DelayAndScale(renderChunk, delaySamples: 80, factor: 0.10);
+        var microphoneChunk = Mix(primaryPath, echoPath);
+        var lagSamples = AudioRecorder.SampleRate * 90 / 1000;
+        var renderHistory = BuildRenderHistory(renderChunk, lagSamples, leadInSeed: 97);
+
+        var analysis = AudioRecorder.FilterSpeakerLeak(microphoneChunk, renderHistory);
+
+        Assert.True(analysis.CanUseFilteredAudio);
+        Assert.True(analysis.IsLikelySpeakerOnly);
+        Assert.NotNull(analysis.FilteredSamples);
+        Assert.InRange(analysis.ResidualEnergyRatio, 0.01, 0.45);
     }
 
     private static short[] BuildPseudoSpeech(int sampleCount, int seed, double amplitude)
@@ -104,6 +125,17 @@ public sealed class AudioRecorderTests
         }
 
         return mixed;
+    }
+
+    private static short[] DelayAndScale(short[] samples, int delaySamples, double factor)
+    {
+        var delayed = new short[samples.Length];
+        for (var index = delaySamples; index < samples.Length; index += 1)
+        {
+            delayed[index] = ToPcm16(samples[index - delaySamples] / 32768d * factor);
+        }
+
+        return delayed;
     }
 
     private static double ComputeDifferenceRms(short[] left, short[] right)
