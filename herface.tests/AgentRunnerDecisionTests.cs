@@ -698,6 +698,74 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void TryRewriteGenericContainerActionToNamedTarget_RewritesWrongHeadingTextToExactNamedListItem()
+    {
+        var snapshot =
+            """
+            {
+              "Window": {
+                "Handle": "0x00250450",
+                "Title": "Netflix - Microsoft Edge",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "1/0/0/1/1/0/0/0/0/0/0",
+                    "UiPath": "1/0/0/1/1/0/0/0/0/0/0",
+                    "Name": "Netflix",
+                    "ControlType": "Document",
+                    "Children": [
+                      {
+                        "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/1",
+                        "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/1",
+                        "Name": "Who's watching?",
+                        "ControlType": "Text",
+                        "ClassName": "profile-gate-label"
+                      },
+                      {
+                        "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2",
+                        "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2",
+                        "ControlType": "List",
+                        "Children": [
+                          {
+                            "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0",
+                            "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0",
+                            "Name": "Min",
+                            "ControlType": "ListItem",
+                            "ClassName": "profile"
+                          },
+                          {
+                            "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/1",
+                            "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/1",
+                            "Name": "Esther",
+                            "ControlType": "ListItem",
+                            "ClassName": "profile"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+            """;
+
+        var rewritten = AgentRunner.TryRewriteGenericContainerActionToNamedTarget(
+            "Select Min.",
+            "click_selected_window_element",
+            new Dictionary<string, object?> { ["elementPath"] = "1/0/0/1/1/0/0/0/0/0/0/0/0/1" },
+            snapshot,
+            out var rewrittenArgs);
+
+        Assert.True(rewritten);
+        Assert.Equal("1/0/0/1/1/0/0/0/0/0/0/0/0/2/0", rewrittenArgs["elementPath"]);
+    }
+
+    [Fact]
     public void TryRewriteGenericContainerActionToNamedTarget_DoesNotRewriteSpecificTarget()
     {
         var snapshot =

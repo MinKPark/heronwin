@@ -2336,8 +2336,7 @@ internal static class AgentRunner
 
         var elementPath = TryGetStringArgument(args, "elementPath") ?? TryGetStringArgument(args, "uiPath");
         if (string.IsNullOrWhiteSpace(elementPath) ||
-            !TryFindElementByPath(recentWindowContext, elementPath, out var requestedElement) ||
-            !ElementLooksLikeGenericContainerTarget(requestedElement))
+            !TryFindElementByPath(recentWindowContext, elementPath, out var requestedElement))
         {
             return false;
         }
@@ -2349,12 +2348,22 @@ internal static class AgentRunner
             _ => null
         };
 
+        if (ElementAlreadyLooksLikeRequestedNamedTarget(requestedElement, userText, requiredAction))
+        {
+            return false;
+        }
+
         if (!TryFindUniqueNamedActionTargetFromUserText(
                 recentWindowContext,
                 userText,
                 requiredAction,
                 out var matchedPath,
                 preferredAncestorPath: elementPath))
+        {
+            return false;
+        }
+
+        if (string.Equals(matchedPath, elementPath, StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
@@ -2963,6 +2972,22 @@ internal static class AgentRunner
                 || controlType.Equals("MenuItem", StringComparison.OrdinalIgnoreCase)
                 || controlType.Equals("TreeItem", StringComparison.OrdinalIgnoreCase)
                 || controlType.Equals("TabItem", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool ElementAlreadyLooksLikeRequestedNamedTarget(
+        JsonElement element,
+        string userText,
+        string? requiredAction)
+    {
+        var elementName = TryGetJsonStringProperty(element, "name");
+        if (string.IsNullOrWhiteSpace(elementName) ||
+            !UserTextMentionsElementName(userText, elementName) ||
+            !ElementLooksLikePreciseActionTarget(element))
+        {
+            return false;
+        }
+
+        return requiredAction is null || ElementHasAction(element, requiredAction);
     }
 
     private static bool UserTextMentionsElementName(string userText, string elementName)
