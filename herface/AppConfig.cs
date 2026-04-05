@@ -64,7 +64,7 @@ internal sealed record AppConfig(
             Environment.GetEnvironmentVariable("TTS_MODEL") ?? "gpt-4o-mini-tts",
             Environment.GetEnvironmentVariable("TTS_VOICE") ?? "marin",
             Environment.GetEnvironmentVariable("TTS_INSTRUCTIONS")
-                ?? "Speak warmly, softly, and naturally. Keep a calm, intimate, supportive tone with gentle pacing.",
+                ?? "Speak like a mature, casual woman with a warm, grounded presence. Keep the tone natural, relaxed, and supportive, with soft confidence and gentle pacing. Avoid sounding bubbly, theatrical, or overly formal.",
             Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY") ?? string.Empty,
             Environment.GetEnvironmentVariable("ANTHROPIC_MODEL") ?? "claude-3-5-sonnet-20241022",
             Environment.GetEnvironmentVariable("WHISPER_MODEL") ?? "whisper-1",

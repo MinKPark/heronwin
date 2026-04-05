@@ -644,6 +644,43 @@ public sealed class AgentRunnerDecisionTests
         Assert.Equal("I'm typing the URL.", actual);
     }
 
+    [Fact]
+    public void TryExtractToolStepNarrationFromAssistantContent_UsesStructuredSayText()
+    {
+        var actual = AgentRunner.TryExtractToolStepNarrationFromAssistantContent(
+            """{"say":"I'm opening Netflix now.","log":"Launching Netflix from the taskbar."}""");
+
+        Assert.Equal("I'm opening Netflix now.", actual);
+    }
+
+    [Fact]
+    public void ResolveToolStepNarration_PrefersAssistantContent_ForSingleToolCall()
+    {
+        var actual = AgentRunner.ResolveToolStepNarration(
+            """{"say":"I'm clicking Play now.","log":"Trying the visible Play control."}""",
+            1,
+            "click_selected_window_element",
+            new Dictionary<string, object?>());
+
+        Assert.NotNull(actual);
+        Assert.Equal("I'm clicking Play now.", actual!.Text);
+        Assert.Equal("assistant_content", actual.Source);
+    }
+
+    [Fact]
+    public void ResolveToolStepNarration_FallsBackToToolNarration_ForMultipleToolCalls()
+    {
+        var actual = AgentRunner.ResolveToolStepNarration(
+            """{"say":"I'm checking what is open.","log":"Batching a couple of setup steps."}""",
+            2,
+            "list_windows",
+            new Dictionary<string, object?>());
+
+        Assert.NotNull(actual);
+        Assert.Equal("I'm checking what's already open.", actual!.Text);
+        Assert.Equal("tool_fallback", actual.Source);
+    }
+
     [Theory]
     [InlineData("click_selected_window_element")]
     [InlineData("set_selected_window_element_value")]

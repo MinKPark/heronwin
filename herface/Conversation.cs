@@ -15,6 +15,8 @@ internal sealed record ToolCallOutcome(string Text, IReadOnlyList<ToolImage> Ima
 
 internal sealed record AgentReply(string LogText, string SpokenText, string RawText);
 
+internal sealed record ToolStepNarrationPlan(string Text, string Source);
+
 internal abstract record AgentMessage(string Role)
 {
     public sealed record User(string Content) : AgentMessage("user");
@@ -268,33 +270,6 @@ internal static class AgentRunner
                 }
 
                 var parsedArgsDictionary = parsedArgs as IReadOnlyDictionary<string, object?> ?? new Dictionary<string, object?>();
-                var intermediateStep = BuildToolStepNarration(toolCall.Name, parsedArgsDictionary);
-                if (!string.IsNullOrWhiteSpace(intermediateStep))
-                {
-                    Display.IntermediateStep(intermediateStep);
-                    DebugTrace.WriteEvent(
-                        "agent.tool_step_narration",
-                        $"turn={turnId}, toolCallId={toolCall.Id}, tool={toolCall.Name}, step={DebugTrace.Preview(intermediateStep, 240)}");
-
-                    if (intermediateStepNarrator is not null)
-                    {
-                        try
-                        {
-                            await intermediateStepNarrator(intermediateStep, cancellationToken);
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            throw;
-                        }
-                        catch (Exception ex)
-                        {
-                            Display.Warn($"Step speech failed: {ex.Message}");
-                            DebugTrace.WriteEvent(
-                                "agent.tool_step_narration_failed",
-                                $"turn={turnId}, toolCallId={toolCall.Id}, tool={toolCall.Name}, error={DebugTrace.Preview(ex.ToString(), 700)}");
-                        }
-                    }
-                }
 
                 var executableArgs = CloneArguments(parsedArgsDictionary);
                 var effectiveArgumentsText = toolCall.Arguments;
@@ -920,6 +895,17 @@ internal static class AgentRunner
                     await MaybePrimeBrowserSearchFieldForReplacementTypingAsync("browser_site_search_field_typing");
                 }
 
+                var intermediateStep = ResolveToolStepNarration(
+                    result.Text,
+                    result.ToolCalls.Count,
+                    executableToolName,
+                    executableArgs);
+                var intermediateStepNarrationTask = StartToolStepNarrationAsync(
+                    turnId,
+                    toolCall,
+                    intermediateStep,
+                    intermediateStepNarrator,
+                    cancellationToken);
                 Display.ToolCall(executableToolName, effectiveArgumentsText);
 
                 var toolCallStopwatch = Stopwatch.StartNew();
@@ -932,6 +918,7 @@ internal static class AgentRunner
                 {
                     toolOutput = new ToolCallOutcome($"Error: {ex.Message}", [], true);
                 }
+                await intermediateStepNarrationTask;
 
                 Display.ToolResult(executableToolName, toolOutput.Text, toolOutput.Images.Count);
                 DebugTrace.WriteStructuredEvent(
@@ -1244,6 +1231,87 @@ internal static class AgentRunner
 
         var key = TryGetStringArgument(args, "key");
         return key is not null && key.Trim() is "Tab" or "Left" or "Right" or "Up" or "Down";
+    }
+
+    internal static ToolStepNarrationPlan? ResolveToolStepNarration(
+        string? assistantContent,
+        int toolCallCount,
+        string toolName,
+        IReadOnlyDictionary<string, object?> args)
+    {
+        if (toolCallCount == 1 &&
+            TryExtractToolStepNarrationFromAssistantContent(assistantContent) is { } assistantNarration)
+        {
+            return new ToolStepNarrationPlan(assistantNarration, "assistant_content");
+        }
+
+        return BuildToolStepNarration(toolName, args) is { } fallbackNarration
+            ? new ToolStepNarrationPlan(fallbackNarration, "tool_fallback")
+            : null;
+    }
+
+    internal static string? TryExtractToolStepNarrationFromAssistantContent(string? assistantContent)
+    {
+        if (string.IsNullOrWhiteSpace(assistantContent))
+        {
+            return null;
+        }
+
+        var parsedReply = AssistantResponseParser.Parse(assistantContent);
+        return string.IsNullOrWhiteSpace(parsedReply.SpokenText)
+            ? null
+            : parsedReply.SpokenText.Trim();
+    }
+
+    private static Task StartToolStepNarrationAsync(
+        long turnId,
+        ToolCallRequest toolCall,
+        ToolStepNarrationPlan? narrationPlan,
+        Func<string, CancellationToken, Task>? intermediateStepNarrator,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(narrationPlan?.Text))
+        {
+            return Task.CompletedTask;
+        }
+
+        Display.IntermediateStep(narrationPlan.Text);
+        DebugTrace.WriteStructuredEvent(
+            "agent.tool_step_narration",
+            new Dictionary<string, object?>
+            {
+                ["turn"] = turnId,
+                ["toolCallId"] = toolCall.Id,
+                ["tool"] = toolCall.Name,
+                ["source"] = narrationPlan.Source,
+                ["stepPreview"] = DebugTrace.Preview(narrationPlan.Text, 240),
+            });
+
+        if (intermediateStepNarrator is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return NarrateAsync();
+
+        async Task NarrateAsync()
+        {
+            try
+            {
+                await intermediateStepNarrator(narrationPlan.Text, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Display.Warn($"Step speech failed: {ex.Message}");
+                DebugTrace.WriteEvent(
+                    "agent.tool_step_narration_failed",
+                    $"turn={turnId}, toolCallId={toolCall.Id}, tool={toolCall.Name}, error={DebugTrace.Preview(ex.ToString(), 700)}");
+            }
+        }
     }
 
     internal static string? BuildToolStepNarration(

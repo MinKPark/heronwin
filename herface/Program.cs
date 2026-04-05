@@ -126,6 +126,7 @@ if (speechSynthesizer is not null)
 {
     Display.Info($"Voice output: {speechSynthesizer.DisplayName}");
 }
+Display.Info($"Voice input: {audioTranscriber?.DisplayName ?? "(unavailable)"}");
 if (config.DebugAudioPlayback)
 {
     Display.Info("Debug audio playback is enabled; each captured recording will replay during transcription.");
@@ -274,18 +275,11 @@ while (!cancellationSource.IsCancellationRequested)
                 $"Debug WAV span: {recording.WaveDurationMs:F0} ms from {recording.PcmDataBytes} PCM bytes; delta vs wall-clock: {deltaLabel} ({comparison})");
         }
 
-        Display.Transcribing();
-        if (config.DebugAudioPlayback)
-        {
-            Display.Info("Debug: replaying the captured WAV while it is being sent for transcription.");
-        }
-
-        var transcriptionTask = audioTranscriber.TranscribeAudioAsync(recording.FilePath, cancellationSource.Token);
-        Task playbackTask = config.DebugAudioPlayback
-            ? AudioPlayback.PlayWavFileAsync(recording.FilePath)
-            : Task.CompletedTask;
-        await Task.WhenAll(transcriptionTask, playbackTask.ContinueWith(_ => { }, TaskScheduler.Default));
-        userText = await transcriptionTask;
+        userText = await TranscribeRecordingAsync(
+            audioTranscriber,
+            recording,
+            config,
+            cancellationSource.Token);
     }
     catch (OperationCanceledException)
     {
@@ -475,6 +469,26 @@ static async Task SpeakAsync(ISpeechSynthesizer? speechSynthesizer, string text,
             }
         }
     }
+}
+
+static async Task<string> TranscribeRecordingAsync(
+    IAudioTranscriber audioTranscriber,
+    RecordingResult recording,
+    AppConfig config,
+    CancellationToken cancellationToken)
+{
+    Display.Transcribing();
+    if (config.DebugAudioPlayback)
+    {
+        Display.Info("Debug: replaying the captured WAV while it is being sent for transcription.");
+    }
+
+    var transcriptionTask = audioTranscriber.TranscribeAudioAsync(recording.FilePath, cancellationToken);
+    Task playbackTask = config.DebugAudioPlayback
+        ? AudioPlayback.PlayWavFileAsync(recording.FilePath)
+        : Task.CompletedTask;
+    await Task.WhenAll(transcriptionTask, playbackTask.ContinueWith(_ => { }, TaskScheduler.Default));
+    return await transcriptionTask;
 }
 
 async Task PlayAudioOutputAsync(Func<Task> playback)
