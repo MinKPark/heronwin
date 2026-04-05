@@ -157,6 +157,7 @@ public sealed class AgentRunnerDecisionTests
         Assert.Contains("conditional step as a successful no-op", actual!, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("perform that action instead of stopping just because the target is visible", actual, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("do not guess between profile tiles", actual, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("already active from the previous turn", actual, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("keep the interaction inside the browser", actual, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -1222,6 +1223,96 @@ public sealed class AgentRunnerDecisionTests
             out _);
 
         Assert.False(rewritten);
+    }
+
+    [Fact]
+    public void TryRewriteGenericContainerActionToNamedTarget_RewritesInvalidInvokePathToExactNamedHyperlink()
+    {
+        var snapshot =
+            """
+            {
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0",
+                    "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0",
+                    "Name": "Min",
+                    "ControlType": "ListItem",
+                    "ClassName": "profile",
+                    "AvailableActions": [ "scroll_into_view" ],
+                    "Children": [
+                      {
+                        "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0/0",
+                        "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0/0",
+                        "Name": "Min",
+                        "ControlType": "Hyperlink",
+                        "ClassName": "profile-link",
+                        "AvailableActions": [ "focus", "invoke", "scroll_into_view" ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+            """;
+
+        var rewritten = AgentRunner.TryRewriteGenericContainerActionToNamedTarget(
+            "Select Min.",
+            "invoke_selected_window_element",
+            new Dictionary<string, object?> { ["elementPath"] = "1/0/0/1/1/0/0/0/0/0/0/2/0/0" },
+            snapshot,
+            out var rewrittenArgs);
+
+        Assert.True(rewritten);
+        Assert.Equal("1/0/0/1/1/0/0/0/0/0/0/0/0/2/0/0", rewrittenArgs["elementPath"]);
+    }
+
+    [Fact]
+    public void TryRewriteGenericContainerActionToNamedTarget_PrefersInteractiveChildForClickWhenNamesDuplicate()
+    {
+        var snapshot =
+            """
+            {
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0",
+                    "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0",
+                    "Name": "Min",
+                    "ControlType": "ListItem",
+                    "ClassName": "profile",
+                    "AvailableActions": [ "scroll_into_view" ],
+                    "Children": [
+                      {
+                        "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0/0",
+                        "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0/0",
+                        "Name": "Min",
+                        "ControlType": "Hyperlink",
+                        "ClassName": "profile-link",
+                        "AvailableActions": [ "focus", "invoke", "scroll_into_view" ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+            """;
+
+        var rewritten = AgentRunner.TryRewriteGenericContainerActionToNamedTarget(
+            "Select Min.",
+            "click_selected_window_element",
+            new Dictionary<string, object?> { ["elementPath"] = "1/0/0/1/1/0/0/0/0/0/0/2/0/0" },
+            snapshot,
+            out var rewrittenArgs);
+
+        Assert.True(rewritten);
+        Assert.Equal("1/0/0/1/1/0/0/0/0/0/0/0/0/2/0/0", rewrittenArgs["elementPath"]);
     }
 
     [Fact]

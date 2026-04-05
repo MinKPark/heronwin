@@ -1433,6 +1433,12 @@ internal static class AgentRunner
                 "For requests to open or play a named app such as `Netflix`, do not satisfy the request by selecting an unrelated already-open window just because it exists. Select a matching app window only when its title matches the requested app; otherwise launch the requested app.");
         }
 
+        if (toolNames.Contains("describe_selected_window") && toolNames.Contains("launch_app_via_taskbar_search"))
+        {
+            parts.Add(
+                "If an app or site is already active from the previous turn, first decide whether the new request should be handled inside that current app or by Windows itself. Prefer staying in the current app for follow-up content, navigation, and selection requests; use Windows or taskbar app actions only when the user explicitly asks to open, launch, switch, or manage apps/windows, or when the current app clearly cannot satisfy the request.");
+        }
+
         if (toolNames.Contains("send_input_to_window"))
         {
             parts.Add(
@@ -2639,8 +2645,11 @@ internal static class AgentRunner
         }
 
         var elementPath = TryGetStringArgument(args, "elementPath") ?? TryGetStringArgument(args, "uiPath");
-        if (string.IsNullOrWhiteSpace(elementPath) ||
-            !TryFindElementByPath(recentWindowContext, elementPath, out var requestedElement))
+        JsonElement requestedElement = default;
+        var hasRequestedElement =
+            !string.IsNullOrWhiteSpace(elementPath) &&
+            TryFindElementByPath(recentWindowContext, elementPath, out requestedElement);
+        if (string.IsNullOrWhiteSpace(elementPath) && string.IsNullOrWhiteSpace(recentWindowContext))
         {
             return false;
         }
@@ -2652,7 +2661,8 @@ internal static class AgentRunner
             _ => null
         };
 
-        if (ElementAlreadyLooksLikeRequestedNamedTarget(requestedElement, userText, requiredAction))
+        if (hasRequestedElement &&
+            ElementAlreadyLooksLikeRequestedNamedTarget(requestedElement, userText, requiredAction))
         {
             return false;
         }
@@ -2662,12 +2672,13 @@ internal static class AgentRunner
                 userText,
                 requiredAction,
                 out var matchedPath,
-                preferredAncestorPath: elementPath))
+                preferredAncestorPath: hasRequestedElement ? elementPath : null))
         {
             return false;
         }
 
-        if (string.Equals(matchedPath, elementPath, StringComparison.OrdinalIgnoreCase))
+        if (hasRequestedElement &&
+            string.Equals(matchedPath, elementPath, StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
@@ -3387,36 +3398,34 @@ internal static class AgentRunner
                 return false;
             }
 
-            var candidateMatches = new List<string>();
+            var candidateMatches = new List<NamedActionTargetCandidate>();
             if (!string.IsNullOrWhiteSpace(preferredAncestorPath) &&
                 TryFindElementByPath(elementTree, preferredAncestorPath, out var preferredAncestor))
             {
-                CollectNamedActionTargetPathsFromUserText(
+                CollectNamedActionTargetCandidatesFromUserText(
                     preferredAncestor,
                     userText,
                     requiredAction,
                     candidateMatches);
 
-                if (candidateMatches.Count == 1)
+                if (TryChooseBestNamedActionTargetCandidate(candidateMatches, out matchedPath))
                 {
-                    matchedPath = candidateMatches[0];
                     return true;
                 }
 
                 candidateMatches.Clear();
             }
 
-            CollectNamedActionTargetPathsFromUserText(
+            CollectNamedActionTargetCandidatesFromUserText(
                 elementTree,
                 userText,
                 requiredAction,
                 candidateMatches);
-            if (candidateMatches.Count != 1)
+            if (!TryChooseBestNamedActionTargetCandidate(candidateMatches, out matchedPath))
             {
                 return false;
             }
 
-            matchedPath = candidateMatches[0];
             return true;
         }
         catch
@@ -3425,11 +3434,11 @@ internal static class AgentRunner
         }
     }
 
-    private static void CollectNamedActionTargetPathsFromUserText(
+    private static void CollectNamedActionTargetCandidatesFromUserText(
         JsonElement element,
         string userText,
         string? requiredAction,
-        List<string> matches)
+        List<NamedActionTargetCandidate> matches)
     {
         if (element.ValueKind != JsonValueKind.Object)
         {
@@ -3444,7 +3453,12 @@ internal static class AgentRunner
             UserTextMentionsElementName(userText, name) &&
             (requiredAction is null || ElementHasAction(element, requiredAction)))
         {
-            matches.Add(path);
+            matches.Add(
+                new NamedActionTargetCandidate(
+                    path,
+                    ElementHasInterestingAction(element),
+                    GetNamedActionTargetSpecificity(element),
+                    GetPathDepth(path)));
         }
 
         if (!TryGetJsonProperty(element, "children", out var children) ||
@@ -3455,8 +3469,75 @@ internal static class AgentRunner
 
         foreach (var child in children.EnumerateArray())
         {
-            CollectNamedActionTargetPathsFromUserText(child, userText, requiredAction, matches);
+            CollectNamedActionTargetCandidatesFromUserText(child, userText, requiredAction, matches);
         }
+    }
+
+    private static bool TryChooseBestNamedActionTargetCandidate(
+        IReadOnlyList<NamedActionTargetCandidate> candidates,
+        out string matchedPath)
+    {
+        matchedPath = string.Empty;
+        if (candidates.Count == 0)
+        {
+            return false;
+        }
+
+        if (candidates.Count == 1)
+        {
+            matchedPath = candidates[0].Path;
+            return true;
+        }
+
+        var remaining = candidates.ToArray();
+        if (TryFilterNamedActionTargetCandidates(
+                remaining,
+                candidate => candidate.HasInterestingAction,
+                out remaining,
+                out matchedPath))
+        {
+            return true;
+        }
+
+        var highestSpecificity = remaining.Max(candidate => candidate.Specificity);
+        if (TryFilterNamedActionTargetCandidates(
+                remaining,
+                candidate => candidate.Specificity == highestSpecificity,
+                out remaining,
+                out matchedPath))
+        {
+            return true;
+        }
+
+        var deepestPath = remaining.Max(candidate => candidate.PathDepth);
+        return TryFilterNamedActionTargetCandidates(
+            remaining,
+            candidate => candidate.PathDepth == deepestPath,
+            out _,
+            out matchedPath);
+    }
+
+    private static bool TryFilterNamedActionTargetCandidates(
+        IReadOnlyList<NamedActionTargetCandidate> candidates,
+        Func<NamedActionTargetCandidate, bool> predicate,
+        out NamedActionTargetCandidate[] remaining,
+        out string matchedPath)
+    {
+        matchedPath = string.Empty;
+        remaining = candidates.Where(predicate).ToArray();
+        if (remaining.Length == 0)
+        {
+            remaining = candidates.ToArray();
+            return false;
+        }
+
+        if (remaining.Length == 1)
+        {
+            matchedPath = remaining[0].Path;
+            return true;
+        }
+
+        return false;
     }
 
     private static bool ElementLooksLikePreciseActionTarget(JsonElement element)
@@ -3471,6 +3552,45 @@ internal static class AgentRunner
                 || controlType.Equals("TreeItem", StringComparison.OrdinalIgnoreCase)
                 || controlType.Equals("TabItem", StringComparison.OrdinalIgnoreCase));
     }
+
+    private static bool ElementHasInterestingAction(JsonElement element)
+    {
+        if (!TryGetJsonProperty(element, "availableActions", out var actionsElement) ||
+            actionsElement.ValueKind != JsonValueKind.Array)
+        {
+            return false;
+        }
+
+        foreach (var actionElement in actionsElement.EnumerateArray())
+        {
+            if (actionElement.ValueKind == JsonValueKind.String &&
+                !string.Equals(actionElement.GetString(), "scroll_into_view", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static int GetNamedActionTargetSpecificity(JsonElement element)
+    {
+        var controlType = TryGetJsonStringProperty(element, "controlType");
+        return controlType switch
+        {
+            "Button" => 5,
+            "Hyperlink" => 5,
+            "Link" => 5,
+            "MenuItem" => 4,
+            "TreeItem" => 4,
+            "TabItem" => 4,
+            "ListItem" => 3,
+            _ => 1
+        };
+    }
+
+    private static int GetPathDepth(string path)
+        => path.Count(character => character == '/');
 
     private static bool ElementAlreadyLooksLikeRequestedNamedTarget(
         JsonElement element,
@@ -3823,6 +3943,12 @@ internal static class AgentRunner
                || userText.Contains("reuse current tab", StringComparison.OrdinalIgnoreCase)
                || userText.Contains("replace this tab", StringComparison.OrdinalIgnoreCase);
     }
+
+    private sealed record NamedActionTargetCandidate(
+        string Path,
+        bool HasInterestingAction,
+        int Specificity,
+        int PathDepth);
 
 }
 
