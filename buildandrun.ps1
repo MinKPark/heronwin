@@ -24,6 +24,7 @@ $resolvedFaceProjectPath = [System.IO.Path]::GetFullPath($faceProjectPath)
 $resolvedBrainProjectPath = [System.IO.Path]::GetFullPath($brainProjectPath)
 $resolvedEyesAndHandsProjectPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "src\herbody\eyesandhands\eyesandhands.csproj"))
 $resolvedScenarioPath = $null
+$faceProcess = $null
 
 $runFace = -not $BrainOnly
 $runBrain = -not $FaceOnly
@@ -189,9 +190,10 @@ if ($runFace) {
     }
 
     Write-Host "Starting face in a separate process without a console window..." -ForegroundColor Cyan
-    Start-Process `
+    $faceProcess = Start-Process `
         -FilePath $faceExecutablePath `
-        -WorkingDirectory $PSScriptRoot | Out-Null
+        -WorkingDirectory $PSScriptRoot `
+        -PassThru
 }
 
 if ($runBrain) {
@@ -220,9 +222,17 @@ if ($runBrain) {
     }
 
     Write-Host "Running brain..." -ForegroundColor Cyan
-    & dotnet @brainArgsList
-    if ($LASTEXITCODE -ne 0) {
-        throw "brain exited with code $LASTEXITCODE"
+    try {
+        & dotnet @brainArgsList
+        if ($LASTEXITCODE -ne 0) {
+            throw "brain exited with code $LASTEXITCODE"
+        }
+    }
+    finally {
+        if ($faceProcess -and -not $faceProcess.HasExited) {
+            Write-Host "Stopping face because brain exited..." -ForegroundColor DarkCyan
+            Stop-Process -Id $faceProcess.Id -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 else {

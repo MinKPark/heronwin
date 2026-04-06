@@ -10,18 +10,27 @@ public sealed class FaceSettingsService
 
     public async Task<FaceAppSettings> LoadAsync()
     {
+        var defaultSettings = new FaceAppSettings
+        {
+            EnvFilePath = GuessBrainEnvPath()
+        };
         var path = GetSettingsFilePath();
         if (!File.Exists(path))
         {
-            return new FaceAppSettings
-            {
-                EnvFilePath = GuessBrainEnvPath()
-            };
+            ApplyEnvOverrides(defaultSettings);
+            return defaultSettings;
         }
 
         await using var stream = File.OpenRead(path);
         var settings = await JsonSerializer.DeserializeAsync<FaceAppSettings>(stream);
-        return settings ?? new FaceAppSettings { EnvFilePath = GuessBrainEnvPath() };
+        var mergedSettings = settings ?? defaultSettings;
+        if (string.IsNullOrWhiteSpace(mergedSettings.EnvFilePath))
+        {
+            mergedSettings.EnvFilePath = defaultSettings.EnvFilePath;
+        }
+
+        ApplyEnvOverrides(mergedSettings);
+        return mergedSettings;
     }
 
     public async Task SaveAsync(FaceAppSettings settings)
@@ -59,5 +68,41 @@ public sealed class FaceSettingsService
         }
 
         return Path.Combine(Environment.CurrentDirectory, ".env");
+    }
+
+    private static void ApplyEnvOverrides(FaceAppSettings settings)
+    {
+        if (string.IsNullOrWhiteSpace(settings.EnvFilePath) || !File.Exists(settings.EnvFilePath))
+        {
+            return;
+        }
+
+        foreach (var rawLine in File.ReadAllLines(settings.EnvFilePath))
+        {
+            var trimmed = rawLine.Trim();
+            if (trimmed.Length == 0 || trimmed.StartsWith('#'))
+            {
+                continue;
+            }
+
+            var separatorIndex = trimmed.IndexOf('=');
+            if (separatorIndex <= 0)
+            {
+                continue;
+            }
+
+            var key = trimmed[..separatorIndex].Trim();
+            var value = trimmed[(separatorIndex + 1)..].Trim();
+            if (value.Length >= 2 && value.StartsWith('"') && value.EndsWith('"'))
+            {
+                value = value[1..^1];
+            }
+
+            if (key.Equals("FACE_PIPE_NAME", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(value))
+            {
+                settings.PipeName = value;
+            }
+        }
     }
 }

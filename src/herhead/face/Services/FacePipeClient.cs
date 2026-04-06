@@ -3,6 +3,7 @@ using HeronWin.Face.ViewModels;
 using System.IO;
 using System.IO.Pipes;
 using System.Text.Json;
+using System.Windows;
 
 namespace HeronWin.Face.Services;
 
@@ -11,6 +12,7 @@ public sealed class FacePipeClient : IAsyncDisposable
     private readonly MainViewModel _viewModel;
     private readonly CancellationTokenSource _cancellationSource = new();
     private Task? _backgroundTask;
+    private bool _hasEverConnected;
 
     public FacePipeClient(MainViewModel viewModel)
     {
@@ -45,6 +47,7 @@ public sealed class FacePipeClient : IAsyncDisposable
                     PipeDirection.In,
                     PipeOptions.Asynchronous);
                 await pipe.ConnectAsync(1500, cancellationToken);
+                _hasEverConnected = true;
                 _viewModel.SetConnected(true);
                 using var reader = new StreamReader(pipe);
 
@@ -67,6 +70,13 @@ public sealed class FacePipeClient : IAsyncDisposable
                         _viewModel.ApplyMessage(payload);
                     }
                 }
+
+                _viewModel.SetConnected(false);
+                if (_hasEverConnected && !cancellationToken.IsCancellationRequested)
+                {
+                    System.Windows.Application.Current.Dispatcher.Invoke(() => System.Windows.Application.Current.Shutdown());
+                    break;
+                }
             }
             catch (OperationCanceledException)
             {
@@ -75,6 +85,11 @@ public sealed class FacePipeClient : IAsyncDisposable
             catch
             {
                 _viewModel.SetConnected(false);
+                if (_hasEverConnected && !cancellationToken.IsCancellationRequested)
+                {
+                    System.Windows.Application.Current.Dispatcher.Invoke(() => System.Windows.Application.Current.Shutdown());
+                    break;
+                }
             }
 
             try
