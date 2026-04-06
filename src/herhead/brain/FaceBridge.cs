@@ -30,6 +30,10 @@ internal static class FaceBridge
     {
         if (_isEnabled || !config.FacePipeEnabled)
         {
+            DebugTrace.WriteEvent("face_bridge.init.skip",
+                _isEnabled
+                    ? "already initialized"
+                    : "FACE_PIPE_ENABLED is false");
             return;
         }
 
@@ -40,6 +44,7 @@ internal static class FaceBridge
         _acceptLoopTask = Task.Run(() => AcceptLoopAsync(_cancellationSource.Token));
         _dispatchLoopTask = Task.Run(() => DispatchLoopAsync(_cancellationSource.Token));
         _isEnabled = true;
+        DebugTrace.WriteEvent("face_bridge.init", $"pipe=\\\\.\\pipe\\{_pipeName}");
     }
 
     public static async Task ShutdownAsync()
@@ -49,6 +54,7 @@ internal static class FaceBridge
             return;
         }
 
+        DebugTrace.WriteEvent("face_bridge.shutdown", "stopping pipe server");
         _cancellationSource.Cancel();
         Outbound.Writer.TryComplete();
 
@@ -120,10 +126,14 @@ internal static class FaceBridge
                 await pipe.WaitForConnectionAsync(cancellationToken);
 
                 var client = new FaceClientConnection(pipe, new StreamWriter(pipe) { AutoFlush = true });
+                int clientCount;
                 lock (Sync)
                 {
                     Clients.Add(client);
+                    clientCount = Clients.Count;
                 }
+
+                DebugTrace.WriteEvent("face_bridge.client_connected", $"clients={clientCount}");
 
                 if (_lastMessage is not null)
                 {
@@ -138,8 +148,9 @@ internal static class FaceBridge
                 pipe?.Dispose();
                 break;
             }
-            catch
+            catch (Exception ex)
             {
+                DebugTrace.WriteEvent("face_bridge.accept_error", ex.Message);
                 pipe?.Dispose();
             }
         }
@@ -162,14 +173,16 @@ internal static class FaceBridge
                 {
                     if (!client.Pipe.IsConnected)
                     {
+                        DebugTrace.WriteEvent("face_bridge.client_disconnected", "pipe no longer connected");
                         RemoveClient(client);
                         continue;
                     }
 
                     await client.Writer.WriteLineAsync(payload);
                 }
-                catch
+                catch (Exception ex)
                 {
+                    DebugTrace.WriteEvent("face_bridge.client_disconnected", ex.Message);
                     RemoveClient(client);
                 }
             }
