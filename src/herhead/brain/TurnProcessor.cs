@@ -34,6 +34,7 @@ internal static class BrainTurnProcessor
                 ["historyMessages"] = history.Count,
                 ["queuedText"] = DebugTrace.Preview(userText, 500),
             });
+        FaceBridge.PublishStatus("thinking", "Thinking", "Planning the next move.", transcript: userText);
 
         var tools = await mcpManager.ListAllToolsAsync(cancellationToken);
         var originalUserText = userText;

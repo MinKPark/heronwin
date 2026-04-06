@@ -254,6 +254,8 @@ public sealed class TurnProcessorSkillGenerationTests
             AgentDefinitionPath: catalog.FallbackDefinitionPath,
             AgentDefinition: catalog.FallbackDefinition,
             AgentPrompts: catalog,
+            FacePipeEnabled: false,
+            FacePipeName: "heronwin.face.tests",
             DebugAudioPlayback: false,
             EnableDebugTrace: false,
             OpenAiApiKey: string.Empty,

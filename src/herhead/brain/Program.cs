@@ -29,6 +29,7 @@ Console.CancelKeyPress += (_, eventArgs) =>
 };
 
 var config = AppConfig.Load();
+FaceBridge.Initialize(config);
 ArtifactCleanup.CleanupPreviousRunArtifacts(AppContext.BaseDirectory, Environment.ProcessPath);
 DebugTrace.Configure(config.EnableDebugTrace || config.DebugAudioPlayback || consoleOptions.RequiresDebugTrace);
 Display.Banner();
@@ -84,6 +85,7 @@ if (consoleOptions.IsScripted)
 {
     var scriptedExitCode = await RunScriptedModeAsync(cancellationSource.Token);
     Display.Info("Shutting down...");
+    await FaceBridge.ShutdownAsync();
     DebugTrace.WriteEvent("session.shutdown", "Application shutdown completed.");
     if (!DebugTrace.IsEnabled)
     {
@@ -171,6 +173,7 @@ Display.Info($"Standby mode is listening for \"{config.WakeWord}\".");
 Display.Info("After the wake phrase is heard, just speak naturally. Say \"bye\" or \"bye-bye\" to exit.");
 Display.Info("If you go quiet for a minute, I will drift back to standby.");
 Display.Separator();
+FaceBridge.PublishStatus("standby", "Standby", $"Listening for \"{config.WakeWord}\".");
 
 var history = new List<AgentMessage>();
 var isActive = false;
@@ -376,6 +379,7 @@ catch (OperationCanceledException)
 }
 
 Display.Info("Shutting down...");
+await FaceBridge.ShutdownAsync();
 DebugTrace.WriteEvent("session.shutdown", "Application shutdown completed.");
 if (!DebugTrace.IsEnabled)
 {

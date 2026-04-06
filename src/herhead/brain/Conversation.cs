@@ -4429,18 +4429,37 @@ internal static class Display
     {
         Console.WriteLine($"i  {text}");
         DebugTrace.WriteEvent("display.info", text);
+
+        if (text.Equals("Listening...", StringComparison.OrdinalIgnoreCase))
+        {
+            FaceBridge.PublishStatus("listening", "Listening", "Capturing the user request now.");
+        }
+        else if (text.StartsWith("Waiting for ", StringComparison.OrdinalIgnoreCase))
+        {
+            FaceBridge.PublishStatus("standby", "Standby", text);
+        }
+        else if (text.StartsWith("Back to standby", StringComparison.OrdinalIgnoreCase))
+        {
+            FaceBridge.PublishStatus("standby", "Standby", text);
+        }
+        else if (text.StartsWith("Shutting down", StringComparison.OrdinalIgnoreCase))
+        {
+            FaceBridge.PublishStatus("offline", "Shutting down", text);
+        }
     }
 
     public static void Warn(string text)
     {
         Console.WriteLine($"!  {text}");
         DebugTrace.WriteEvent("display.warn", text);
+        FaceBridge.PublishStatus("acting", "Warning", text);
     }
 
     public static void Error(string text)
     {
         Console.Error.WriteLine($"x  {text}");
         DebugTrace.WriteEvent("display.error", text);
+        FaceBridge.PublishStatus("error", "Something went wrong", text);
     }
 
     public static void Separator()
@@ -4459,18 +4478,21 @@ internal static class Display
     {
         Console.WriteLine("o  Recording... (stop on silence or timeout)");
         DebugTrace.WriteEvent("display.recording", "Recording... (stop on silence or timeout)");
+        FaceBridge.PublishStatus("listening", "Listening", "Recording until silence or timeout.");
     }
 
     public static void Transcribing()
     {
         Console.WriteLine(".. Transcribing speech...");
         DebugTrace.WriteEvent("display.transcribing", "Transcribing speech...");
+        FaceBridge.PublishStatus("transcribing", "Transcribing", "Turning speech into text.");
     }
 
     public static void Transcript(string text)
     {
         Console.WriteLine($"\n{Label("Heard")} {text}");
         DebugTrace.WriteEvent("display.transcript", DebugTrace.Preview(text, 500));
+        FaceBridge.PublishStatus("thinking", "Heard you", text, transcript: text);
     }
 
     public static void UserMessage(string text)
@@ -4506,6 +4528,13 @@ internal static class Display
                 $"say={DebugTrace.Preview(normalizedSay, 400)}",
                 $"log={DebugTrace.Preview(normalizedLog, 900)}"
             ]);
+
+        var detail = !string.IsNullOrWhiteSpace(normalizedSay)
+            ? normalizedSay
+            : string.IsNullOrWhiteSpace(normalizedLog)
+                ? "Reply ready."
+                : normalizedLog;
+        FaceBridge.PublishStatus("speaking", "Speaking", detail, transcript: normalizedSay);
     }
 
     public static void IntermediateStep(string text)
@@ -4517,6 +4546,7 @@ internal static class Display
 
         Console.WriteLine($"\n{Label("Step")} {text.Trim()}");
         DebugTrace.WriteEvent("display.intermediate_step", DebugTrace.Preview(text, 500));
+        FaceBridge.PublishStatus("acting", "Acting", text.Trim());
     }
 
     public static void ContextUsage(int currentTokens, int maxTokens)
@@ -4551,6 +4581,7 @@ internal static class Display
                 $"tool={toolName}",
                 $"arguments={DebugTrace.Preview(args, 600)}"
             ]);
+        FaceBridge.PublishStatus("acting", "Acting", $"Calling {toolName}.", toolName: toolName);
     }
 
     public static void ToolResult(string toolName, string result, int imageCount = 0)
@@ -4570,6 +4601,7 @@ internal static class Display
                 $"images={imageCount}",
                 $"result={DebugTrace.Preview(result, 900)}"
             ]);
+        FaceBridge.PublishStatus("acting", "Acting", $"{toolName} finished.", toolName: toolName);
     }
 
     private static string Label(string text) => $"[{text.PadRight(LabelWidth)}]";
