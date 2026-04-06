@@ -2962,7 +2962,7 @@ internal static class AgentRunner
     private static Dictionary<string, object?> CloneArguments(IReadOnlyDictionary<string, object?> args)
         => args.ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal);
 
-    private static bool TryExtractRequestedAppLaunchName(string userText, out string appName)
+    internal static bool TryExtractRequestedAppLaunchName(string userText, out string appName)
     {
         appName = string.Empty;
         if (string.IsNullOrWhiteSpace(userText) ||

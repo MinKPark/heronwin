@@ -211,6 +211,10 @@ var agentTask = Task.Run(async () =>
                     {
                         await PlayAudioOutputAsync(() => SpeakAsync(speechSynthesizer, stepText, innerCancellationToken));
                     });
+            if (processedTurn.UpdatedConfig is not null)
+            {
+                config = processedTurn.UpdatedConfig;
+            }
 
             if (!string.IsNullOrWhiteSpace(processedTurn.Reply.SpokenText))
             {

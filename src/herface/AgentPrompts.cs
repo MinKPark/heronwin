@@ -70,13 +70,18 @@ internal static class AgentPromptLoader
         var currentDirectory = Directory.GetCurrentDirectory();
         var configuredPath = Environment.GetEnvironmentVariable("AGENT_DEFINITION_PATH")?.Trim();
         var fallbackDefinitionPath = ResolveFallbackDefinitionPath(currentDirectory, configuredPath);
+        var coreDefinitionPath = ResolveCoreDefinitionPath(currentDirectory, fallbackDefinitionPath);
+
+        return LoadFromResolvedPaths(fallbackDefinitionPath, coreDefinitionPath);
+    }
+
+    internal static AgentPromptCatalog LoadFromResolvedPaths(string fallbackDefinitionPath, string? coreDefinitionPath)
+    {
         var fallbackDefinition = LoadPromptText(
             fallbackDefinitionPath,
             "agent definition",
             warnIfMissing: true,
             stripFrontMatter: false);
-
-        var coreDefinitionPath = ResolveCoreDefinitionPath(currentDirectory, fallbackDefinitionPath);
         var coreDefinition = string.IsNullOrWhiteSpace(coreDefinitionPath)
             ? string.Empty
             : LoadPromptText(

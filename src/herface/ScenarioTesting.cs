@@ -535,6 +535,10 @@ internal static class ScriptedConversationRunner
                         mcpManager,
                         cancellationToken,
                         turnSource: "scripted");
+                    if (processedTurn.UpdatedConfig is not null)
+                    {
+                        config = processedTurn.UpdatedConfig;
+                    }
                     var logRecords = HerfaceTraceLogReader.ReadAll(jsonLogPath);
                     var assessment = HerfaceScenarioEvaluator.AssessTurn(logRecords, turnId, scenario.Assertions);
                     var turnResult = new HerfaceScriptedTurnResult(turnId, command, processedTurn.Reply, assessment);
