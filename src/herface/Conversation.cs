@@ -2749,6 +2749,12 @@ internal static class AgentRunner
             return false;
         }
 
+        if (hasRequestedElement &&
+            ShouldPreserveExplicitRootInvocation(toolName, elementPath, requestedElement))
+        {
+            return false;
+        }
+
         if (!TryFindUniqueNamedActionTargetFromUserText(
                 recentWindowContext,
                 userText,
@@ -2769,6 +2775,16 @@ internal static class AgentRunner
         rewrittenArgs["elementPath"] = matchedPath;
         rewrittenArgs.Remove("uiPath");
         return true;
+    }
+
+    private static bool ShouldPreserveExplicitRootInvocation(
+        string toolName,
+        string? elementPath,
+        JsonElement requestedElement)
+    {
+        return string.Equals(toolName, "invoke_selected_window_element", StringComparison.Ordinal) &&
+               string.Equals(elementPath, "root", StringComparison.OrdinalIgnoreCase) &&
+               ElementHasAction(requestedElement, "close");
     }
 
     private static async Task<ToolCallOutcome> ExecuteStructuredNetflixPinEntryAsync(

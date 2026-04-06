@@ -1437,6 +1437,42 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void TryRewriteGenericContainerActionToNamedTarget_DoesNotRewriteExplicitRootCloseInvocation()
+    {
+        var snapshot =
+            """
+            {
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "Name": "*6346219690640510 - 메모장",
+                "ControlType": "Window",
+                "AvailableActions": [ "close", "focus", "maximize", "minimize" ],
+                "Children": [
+                  {
+                    "Path": "4/3",
+                    "UiPath": "4/3",
+                    "Name": "Close",
+                    "ControlType": "Button",
+                    "AutomationId": "Close",
+                    "AvailableActions": [ "invoke" ]
+                  }
+                ]
+              }
+            }
+            """;
+
+        var rewritten = AgentRunner.TryRewriteGenericContainerActionToNamedTarget(
+            "Close it.",
+            "invoke_selected_window_element",
+            new Dictionary<string, object?> { ["elementPath"] = "root" },
+            snapshot,
+            out _);
+
+        Assert.False(rewritten);
+    }
+
+    [Fact]
     public void ShouldExitBrowserFullscreenBeforeBrowserShortcut_ReturnsTrue_ForFullscreenBrowserSnapshot()
     {
         var actual = AgentRunner.ShouldExitBrowserFullscreenBeforeBrowserShortcut(

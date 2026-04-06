@@ -448,6 +448,20 @@ internal static class WindowAutomation
         var normalizedPath = NormalizeElementPath(elementPath);
         var windowElement = AutomationElement.FromHandle(handle);
         var targetElement = ResolveElementPath(windowElement, normalizedPath);
+        var directWindowClose = TryCloseAutomationWindowDirectly(targetElement, normalizedPath);
+        if (directWindowClose is not null)
+        {
+            var directWindowCloseUiSettle = WaitForUiToSettle(handle, settleObserver);
+            return new ElementInvocationResult(
+                BuildWindowDescriptor(handle),
+                BuildElementSnapshot(directWindowClose.Value.Element, directWindowClose.Value.Path, [], includeChildren: false),
+                "window_close",
+                [],
+                0,
+                directWindowClose.Value.ActionTaken,
+                directWindowCloseUiSettle);
+        }
+
         var directInvocation = TryInvokeAutomationElementOrDescendant(targetElement, normalizedPath);
         if (directInvocation is not null)
         {
@@ -462,6 +476,31 @@ internal static class WindowAutomation
                     0,
                     directInvocation.Value.ActionTaken,
                     directUiSettle);
+            }
+        }
+
+        if (NativeMethods.GetWindowRect(handle, out var rect))
+        {
+            var windowBounds = new WindowBounds(
+                rect.Left,
+                rect.Top,
+                rect.Right - rect.Left,
+                rect.Bottom - rect.Top);
+            var mouseClickInvocation = TryInvokeAutomationElementByMouseClick(targetElement, normalizedPath, windowBounds);
+            if (mouseClickInvocation is not null)
+            {
+                var mouseClickUiSettle = WaitForUiToSettle(handle, settleObserver);
+                if (!ShouldRetryInvocationWithKeyboard(windowElement, targetElement, mouseClickUiSettle))
+                {
+                    return new ElementInvocationResult(
+                        BuildWindowDescriptor(handle),
+                        BuildElementSnapshot(mouseClickInvocation.Value.Element, mouseClickInvocation.Value.Path, [], includeChildren: false),
+                        "mouse_click",
+                        [],
+                        0,
+                        mouseClickInvocation.Value.ActionTaken,
+                        mouseClickUiSettle);
+                }
             }
         }
 
@@ -2722,6 +2761,54 @@ internal static class WindowAutomation
         return null;
     }
 
+    private static (AutomationElement Element, string Path, string ActionTaken)? TryCloseAutomationWindowDirectly(
+        AutomationElement element,
+        string path)
+    {
+        var focusAction = TryFocusElement(element);
+
+        try
+        {
+            if (TryGetPattern<WindowPattern>(element, WindowPattern.Pattern, out var windowPattern))
+            {
+                windowPattern.Close();
+                Thread.Sleep(150);
+                return (AutomationElement.FocusedElement ?? element, path, focusAction is null ? "closed_window" : $"{focusAction}_then_closed_window");
+            }
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        catch (ElementNotAvailableException)
+        {
+        }
+        catch (COMException)
+        {
+        }
+
+        return null;
+    }
+
+    private static (AutomationElement Element, string Path, string ActionTaken)? TryInvokeAutomationElementByMouseClick(
+        AutomationElement element,
+        string path,
+        WindowBounds windowBounds)
+    {
+        try
+        {
+            var clickableTarget = ResolveClickableElementOrDescendant(element, path, windowBounds);
+            ClickAtScreenPoint(clickableTarget.ClickPoint, "left");
+            var actionTaken = clickableTarget.PreparationActionTaken is null
+                ? "left_clicked"
+                : $"{clickableTarget.PreparationActionTaken}_then_left_clicked";
+            return (clickableTarget.Element, clickableTarget.Path, actionTaken);
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
     private static (AutomationElement Element, string Path) ResolveTextEntryElementOrDescendant(
         AutomationElement element,
         string path)
@@ -2796,11 +2883,23 @@ internal static class WindowAutomation
     {
         var focusAction = TryFocusElement(element);
 
-        if (TryGetPattern<InvokePattern>(element, InvokePattern.Pattern, out var invokePattern))
+        try
         {
-            invokePattern.Invoke();
-            Thread.Sleep(150);
-            return focusAction is null ? "invoked" : $"{focusAction}_then_invoked";
+            if (TryGetPattern<InvokePattern>(element, InvokePattern.Pattern, out var invokePattern))
+            {
+                invokePattern.Invoke();
+                Thread.Sleep(150);
+                return focusAction is null ? "invoked" : $"{focusAction}_then_invoked";
+            }
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        catch (ElementNotAvailableException)
+        {
+        }
+        catch (COMException)
+        {
         }
 
         return null;
