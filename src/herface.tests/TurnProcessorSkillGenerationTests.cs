@@ -212,7 +212,7 @@ public sealed class TurnProcessorSkillGenerationTests
 
             var secondTurn = await HerfaceTurnProcessor.ProcessAsync(
                 turnId: 2,
-                userText: "no, just open it",
+                userText: "Just open it.",
                 history,
                 config,
                 llmClient,
@@ -223,6 +223,7 @@ public sealed class TurnProcessorSkillGenerationTests
             Assert.Equal(1, llmClient.CallCount);
             Assert.Null(secondTurn.UpdatedConfig);
             Assert.Contains("open Spotify now", secondTurn.Reply.SpokenText, StringComparison.Ordinal);
+            Assert.Equal("Open Spotify.", llmClient.UserMessages.Single());
             Assert.DoesNotContain("Special task: the user approved generating a new app skill group for Spotify", llmClient.SystemPrompts.SingleOrDefault() ?? string.Empty, StringComparison.Ordinal);
             Assert.False(Directory.Exists(Path.Combine(skillsDirectory, "spotify")));
         }
@@ -279,6 +280,8 @@ public sealed class TurnProcessorSkillGenerationTests
 
         public List<string?> SystemPrompts { get; } = [];
 
+        public List<string> UserMessages { get; } = [];
+
         public LlmProviderId ProviderId => LlmProviderId.OpenAiApi;
 
         public string DisplayName => "Queued Test LLM";
@@ -299,6 +302,12 @@ public sealed class TurnProcessorSkillGenerationTests
         {
             CallCount += 1;
             SystemPrompts.Add(systemPrompt);
+            var lastUserMessage = messages.OfType<AgentMessage.User>().LastOrDefault()?.Content;
+            if (!string.IsNullOrWhiteSpace(lastUserMessage))
+            {
+                UserMessages.Add(lastUserMessage);
+            }
+
             if (_responses.Count == 0)
             {
                 throw new InvalidOperationException("No queued LLM responses remain.");

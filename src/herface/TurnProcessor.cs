@@ -38,6 +38,7 @@ internal static class HerfaceTurnProcessor
         var tools = await mcpManager.ListAllToolsAsync(cancellationToken);
         var originalUserText = userText;
         PendingAppSkillOffer approvedOffer;
+        PendingAppSkillOffer declinedOffer;
         var generationMode = AppSkillGenerationCoordinator.TryBuildApprovedGenerationRequest(
             history,
             userText,
@@ -46,6 +47,14 @@ internal static class HerfaceTurnProcessor
         if (generationMode)
         {
             userText = generationUserText;
+        }
+        else if (AppSkillGenerationCoordinator.TryBuildDeclinedLaunchRequest(
+                     history,
+                     userText,
+                     out declinedOffer,
+                     out var launchUserText))
+        {
+            userText = launchUserText;
         }
 
         var composedPrompt = AgentPromptComposer.Compose(config.AgentPrompts, userText, history, tools);

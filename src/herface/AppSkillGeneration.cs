@@ -74,6 +74,23 @@ internal static class AppSkillGenerationCoordinator
         return true;
     }
 
+    public static bool TryBuildDeclinedLaunchRequest(
+        IReadOnlyList<AgentMessage> history,
+        string userText,
+        out PendingAppSkillOffer offer,
+        out string launchUserText)
+    {
+        launchUserText = string.Empty;
+        if (!TryGetPendingOffer(history, out offer) || !LooksNegative(userText))
+        {
+            offer = new PendingAppSkillOffer(string.Empty, string.Empty);
+            return false;
+        }
+
+        launchUserText = $"Open {offer.AppName}.";
+        return true;
+    }
+
     public static bool TryGetPendingOffer(
         IReadOnlyList<AgentMessage> history,
         out PendingAppSkillOffer offer)
@@ -342,6 +359,21 @@ File rules:
                || normalized.Contains("create the skill", StringComparison.Ordinal)
                || normalized.Contains("skill group first", StringComparison.Ordinal)
                || normalized.Contains("do that", StringComparison.Ordinal);
+    }
+
+    private static bool LooksNegative(string userText)
+    {
+        var normalized = NormalizePlainText(userText);
+        return normalized is "no" or "n" or "nope" or "nah"
+               || normalized.Contains("just open it", StringComparison.Ordinal)
+               || normalized.Contains("open it now", StringComparison.Ordinal)
+               || normalized.Contains("just open the app", StringComparison.Ordinal)
+               || normalized.Contains("skip generation", StringComparison.Ordinal)
+               || normalized.Contains("skip the skill", StringComparison.Ordinal)
+               || normalized.Contains("without one", StringComparison.Ordinal)
+               || normalized.Contains("do not generate", StringComparison.Ordinal)
+               || normalized.Contains("don't generate", StringComparison.Ordinal)
+               || normalized.Contains("dont generate", StringComparison.Ordinal);
     }
 
     private static string NormalizeIdentifier(string text)
