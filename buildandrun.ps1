@@ -17,11 +17,15 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$solutionPath = Join-Path $PSScriptRoot "src\heronwin.sln"
 $brainProjectPath = Join-Path $PSScriptRoot "src\herhead\brain\Brain.csproj"
 $faceProjectPath = Join-Path $PSScriptRoot "src\herhead\face\Face.csproj"
 $resolvedFaceProjectPath = [System.IO.Path]::GetFullPath($faceProjectPath)
+$resolvedBrainProjectPath = [System.IO.Path]::GetFullPath($brainProjectPath)
+$resolvedEyesAndHandsProjectPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "src\herbody\eyesandhands\eyesandhands.csproj"))
 $resolvedScenarioPath = $null
+
+$runFace = -not $BrainOnly
+$runBrain = -not $FaceOnly
 
 if ($BrainOnly -and $FaceOnly) {
     throw "Use either -BrainOnly or -FaceOnly, not both."
@@ -31,7 +35,7 @@ if (-not [string]::IsNullOrWhiteSpace($Scenario) -and $BrainArgs -contains "--sc
     throw "Use either -Scenario or pass --scenario through -BrainArgs, not both."
 }
 
-foreach ($path in @($solutionPath, $brainProjectPath, $faceProjectPath)) {
+foreach ($path in @($brainProjectPath, $faceProjectPath, $resolvedEyesAndHandsProjectPath)) {
     if (-not (Test-Path $path)) {
         throw "Required path not found: $path"
     }
@@ -89,19 +93,92 @@ function Stop-RunningFaceProcesses {
     }
 }
 
-if (-not $NoBuild) {
-    Invoke-DotNetStep `
-        -Description "Building heronwin solution ($Configuration | $TargetFramework)..." `
-        -Arguments @(
-            "build",
-            $solutionPath,
-            "-c", $Configuration,
-            "-f", $TargetFramework
-        )
+function Stop-RunningRepoRuntimeProcesses {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$CommandLineNeedles,
+
+        [string[]]$ProcessNames = @()
+    )
+
+    $matchingProcesses = @(
+        Get-CimInstance Win32_Process |
+            Where-Object {
+                $process = $_
+                $commandLineMatches = $false
+                if ($process.CommandLine) {
+                    foreach ($needle in $CommandLineNeedles) {
+                        if ($needle.Length -gt 0 -and $process.CommandLine.IndexOf($needle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                            $commandLineMatches = $true
+                            break
+                        }
+                    }
+                }
+
+                $nameMatches = $ProcessNames -contains $process.Name
+                return $commandLineMatches -or $nameMatches
+            }
+    )
+
+    if (-not $matchingProcesses) {
+        return
+    }
+
+    Write-Host "Stopping running repo process(es) that would lock build outputs..." -ForegroundColor DarkCyan
+    foreach ($process in $matchingProcesses) {
+        Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+    }
 }
 
-$runFace = -not $BrainOnly
-$runBrain = -not $FaceOnly
+function Build-LaunchProjects {
+    param(
+        [Parameter(Mandatory = $true)]
+        [bool]$ShouldBuildFace,
+
+        [Parameter(Mandatory = $true)]
+        [bool]$ShouldBuildBrain
+    )
+
+    if ($ShouldBuildFace) {
+        Invoke-DotNetStep `
+            -Description "Building face ($Configuration | $TargetFramework)..." `
+            -Arguments @(
+                "build",
+                $faceProjectPath,
+                "-c", $Configuration,
+                "-f", $TargetFramework,
+                "--no-restore",
+                "-maxcpucount:1"
+            )
+    }
+
+    if ($ShouldBuildBrain) {
+        Invoke-DotNetStep `
+            -Description "Building brain ($Configuration | $TargetFramework)..." `
+            -Arguments @(
+                "build",
+                $brainProjectPath,
+                "-c", $Configuration,
+                "-f", $TargetFramework,
+                "--no-restore",
+                "-maxcpucount:1"
+            )
+    }
+}
+
+if (-not $NoBuild) {
+    if ($runFace) {
+        Stop-RunningFaceProcesses -FaceProjectPath $resolvedFaceProjectPath
+    }
+
+    if ($runBrain) {
+        Stop-RunningRepoRuntimeProcesses `
+            -CommandLineNeedles @($resolvedBrainProjectPath, $resolvedEyesAndHandsProjectPath, "src\\herhead\\brain", "src\\herbody\\eyesandhands") `
+            -ProcessNames @("eyesandhands.exe")
+    }
+
+    Build-LaunchProjects -ShouldBuildFace:$runFace -ShouldBuildBrain:$runBrain
+}
 
 if ($runFace) {
     Stop-RunningFaceProcesses -FaceProjectPath $resolvedFaceProjectPath
