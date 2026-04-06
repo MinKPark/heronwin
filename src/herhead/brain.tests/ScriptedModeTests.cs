@@ -150,6 +150,28 @@ public sealed class ScriptedModeTests
     }
 
     [Fact]
+    public void ScenarioLoader_ExpandsEnvironmentPlaceholders_InCommands()
+    {
+        const string yaml = """
+        name: Open Netflix
+        commands:
+          - "enter ${NETFLIX_PROFILE_PIN}"
+        """;
+
+        Environment.SetEnvironmentVariable("NETFLIX_PROFILE_PIN", "2468");
+        try
+        {
+            var actual = BrainScenarioLoader.Parse(yaml, "scenario.yml");
+
+            Assert.Equal(["enter 2468"], actual.Scenarios[0].Commands);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("NETFLIX_PROFILE_PIN", null);
+        }
+    }
+
+    [Fact]
     public void AssessTurn_Fails_WhenReplyIsContradictoryAndUnresolved()
     {
         var records = new[]

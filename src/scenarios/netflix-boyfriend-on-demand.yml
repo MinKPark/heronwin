@@ -2,7 +2,7 @@ name: Netflix Boyfriend On Demand Smoke
 commands:
   - "Go to the Netflix website."
   - "If Netflix is showing the profile selection screen, select the profile named Min."
-  - "If Netflix asks for a profile passcode, type 3, then 5, then 7, then 9 one digit at a time."
+  - "If Netflix asks for a profile passcode, type ${NETFLIX_PROFILE_PIN} one digit at a time."
   - "Search for Boyfriend on Demand within Netflix using the visible Search control, and wait until visible search results for that title are on screen."
   - "Open Boyfriend on Demand from the visible Netflix search results, then play the first episode."
 assertions:

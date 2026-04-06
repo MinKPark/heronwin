@@ -10,6 +10,7 @@ public sealed class AgentRunnerDecisionTests
     [InlineData("I cannot confirm the current visible screen state from the UI Automation tree.")]
     [InlineData("The current in-app screen is uncertain and I am not inferring it.")]
     [InlineData("The result is ambiguous from the currently exposed controls.")]
+    [InlineData("Understood - I'll treat UI actions as unconfirmed until I verify the new screen.")]
     public void NeedsAdditionalDesktopEvidence_ReturnsTrue_ForUncertainLanguage(string text)
     {
         var reply = new AgentReply(LogText: text, SpokenText: text, RawText: text);
@@ -1616,7 +1617,7 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
-    public void ResolveToolStepNarration_FallsBackToToolNarration_ForMultipleToolCalls()
+    public void ResolveToolStepNarration_SuppressesSilentInspectionTools()
     {
         var actual = AgentRunner.ResolveToolStepNarration(
             """{"say":"I'm checking what is open.","log":"Batching a couple of setup steps."}""",
@@ -1624,9 +1625,7 @@ public sealed class AgentRunnerDecisionTests
             "list_windows",
             new Dictionary<string, object?>());
 
-        Assert.NotNull(actual);
-        Assert.Equal("Let me see what's already open.", actual!.Text);
-        Assert.Equal("tool_fallback", actual.Source);
+      Assert.Null(actual);
     }
 
     [Fact]
@@ -1643,7 +1642,7 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
-    public void ResolveToolStepNarration_DoesNotSuppressAssistantContent_ForSequentialWindowEvidenceTools()
+    public void ResolveToolStepNarration_SuppressesAssistantContent_ForSilentInspectionTools()
     {
         var actual = AgentRunner.ResolveToolStepNarration(
             """{"say":"Let me zoom in on that for a sec.","log":"Capturing a screenshot after the UI tree."}""",
@@ -1652,9 +1651,7 @@ public sealed class AgentRunnerDecisionTests
             new Dictionary<string, object?>(),
             previousToolName: "describe_selected_window");
 
-        Assert.NotNull(actual);
-        Assert.Equal("Let me zoom in on that for a sec.", actual!.Text);
-        Assert.Equal("assistant_content", actual.Source);
+      Assert.Null(actual);
     }
 
     [Fact]

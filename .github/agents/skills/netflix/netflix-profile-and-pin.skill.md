@@ -48,7 +48,7 @@ applies_when:
 
 - When Netflix shows a profile lock or PIN screen with separate digit boxes, treat that as a structured PIN-entry flow rather than a freeform text field.
 - Prefer per-digit entry over bulk text when focus advances box by box; one digit at a time is more reliable than sending the whole PIN as one text string.
-- If the code is `3579`, enter it as four separate single-character actions such as `3`, then `5`, then `7`, then `9`; do not send `3579` as one `send_input_to_window` text value or one bulk value-set call on a four-box PIN screen.
+- If the code is a four-digit PIN, enter it as four separate single-character actions; do not send the full PIN as one `send_input_to_window` text value or one bulk value-set call on a four-box PIN screen.
 - After each digit or delete action, verify which PIN box is focused or filled before entering the next digit.
 - While the PIN screen is still active, treat bare spoken digits and obvious ASR variants as the next PIN digit when they fit the current sequence. Examples include `five`, `seven`, and a transcription like `nein` when the flow clearly indicates the user likely meant `nine`.
 - Do not switch languages or treat a likely spoken digit as casual conversation while Netflix is still waiting on the remaining PIN digit.

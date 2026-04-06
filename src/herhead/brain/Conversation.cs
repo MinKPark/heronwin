@@ -100,7 +100,8 @@ internal static class AgentRunner
         }
         var usedAnyTools = false;
         var performedDesktopAction = false;
-        var performedConfidenceEvidenceRetry = false;
+        var additionalDesktopEvidenceAttempts = 0;
+        const int maxAdditionalDesktopEvidenceAttempts = 2;
         var llmAttempt = 0;
         string? recentListWindowsOutput = null;
         string? recentWindowContext = null;
@@ -259,16 +260,17 @@ internal static class AgentRunner
                 parsedReply = AlignReplyOutcomeConsistency(parsedReply);
 
                 if (performedDesktopAction
-                    && !performedConfidenceEvidenceRetry
+                    && additionalDesktopEvidenceAttempts < maxAdditionalDesktopEvidenceAttempts
                     && NeedsAdditionalDesktopEvidence(parsedReply))
                 {
-                    performedConfidenceEvidenceRetry = true;
+                    additionalDesktopEvidenceAttempts++;
                     DebugTrace.WriteStructuredEvent(
                         "agent.additional_desktop_evidence_requested",
                         new Dictionary<string, object?>
                         {
                             ["turn"] = turnId,
                             ["reason"] = "assistant_uncertain",
+                            ["attempt"] = additionalDesktopEvidenceAttempts,
                             ["sayPreview"] = DebugTrace.Preview(parsedReply.SpokenText, 300),
                             ["logPreview"] = DebugTrace.Preview(parsedReply.LogText, 500),
                         });
@@ -291,7 +293,8 @@ internal static class AgentRunner
                         ["attempts"] = llmAttempt,
                         ["usedAnyTools"] = usedAnyTools,
                         ["performedDesktopAction"] = performedDesktopAction,
-                        ["performedConfidenceEvidenceRetry"] = performedConfidenceEvidenceRetry,
+                        ["performedConfidenceEvidenceRetry"] = additionalDesktopEvidenceAttempts > 0,
+                        ["additionalDesktopEvidenceAttempts"] = additionalDesktopEvidenceAttempts,
                         ["sayText"] = parsedReply.SpokenText,
                         ["logText"] = parsedReply.LogText,
                         ["sayPreview"] = DebugTrace.Preview(parsedReply.SpokenText, 400),
@@ -1515,6 +1518,11 @@ internal static class AgentRunner
         IReadOnlyDictionary<string, object?> args,
         string? previousToolName = null)
     {
+        if (IsSilentInspectionTool(toolName))
+        {
+            return null;
+        }
+
         if (toolCallCount == 1 &&
             TryExtractToolStepNarrationFromAssistantContent(assistantContent) is { } assistantNarration)
         {
@@ -1611,17 +1619,10 @@ internal static class AgentRunner
     {
         return toolName switch
         {
-            "list_windows" => "Let me see what's already open.",
             "select_window" => BuildSelectWindowNarration(args),
-            "describe_selected_window" => "Hang on, I'm taking a look.",
-            "describe_selected_window_focus" => "Let me see where focus landed.",
-            "capture_selected_window_screenshot" => "Hang on, I'm taking a quick look.",
-            "list_taskbar_elements" => "Let me check the taskbar.",
             "select_taskbar_app" => BuildTaskbarSelectionNarration(args),
             "launch_app_via_taskbar_search" => BuildTaskbarSearchLaunchNarration(args),
-            "list_main_menu_items" => "Let me check the menu.",
             "invoke_main_menu_item" => "Okay, I'm trying that menu option.",
-            "list_context_menu_items" => "Let me check that menu.",
             "invoke_context_menu_item" => "Okay, I'm trying that option.",
             "click_selected_window_element" => "Okay, I'm clicking that.",
             "focus_selected_window_element" => BuildElementFocusNarration(args),
@@ -1631,6 +1632,15 @@ internal static class AgentRunner
             _ => null
         };
     }
+
+    private static bool IsSilentInspectionTool(string toolName)
+        => toolName is "list_windows"
+            or "describe_selected_window"
+            or "describe_selected_window_focus"
+            or "capture_selected_window_screenshot"
+            or "list_taskbar_elements"
+            or "list_main_menu_items"
+            or "list_context_menu_items";
 
     private static bool IsWindowEvidenceTool(string? toolName)
         => toolName is "describe_selected_window" or "capture_selected_window_screenshot";
@@ -2040,6 +2050,10 @@ internal static class AgentRunner
             || combined.Contains("ambigu", StringComparison.Ordinal)
             || combined.Contains("too sparse", StringComparison.Ordinal)
             || combined.Contains("not exposed", StringComparison.Ordinal)
+            || combined.Contains("unconfirmed", StringComparison.Ordinal)
+            || combined.Contains("until i verify", StringComparison.Ordinal)
+            || combined.Contains("verify the new screen", StringComparison.Ordinal)
+            || combined.Contains("verify the resulting screen", StringComparison.Ordinal)
             || combined.Contains("i am not inferring", StringComparison.Ordinal)
             || combined.Contains("do not infer", StringComparison.Ordinal)
             || combined.Contains("cannot be inferred", StringComparison.Ordinal);
@@ -2140,7 +2154,6 @@ internal static class AgentRunner
         CancellationToken cancellationToken)
     {
         var evidenceStopwatch = Stopwatch.StartNew();
-        Display.Info("The first pass was uncertain; waiting 1 second and collecting another UI snapshot plus screenshot.");
         DebugTrace.WriteStructuredEvent(
             "agent.additional_desktop_evidence",
             new Dictionary<string, object?>

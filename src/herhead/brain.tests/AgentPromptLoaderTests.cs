@@ -101,7 +101,7 @@ public sealed class AgentPromptLoaderTests
 
         Assert.Contains("Profile Lock And PIN Rules", profilePrompt.PromptText, StringComparison.Ordinal);
         Assert.Contains("one digit at a time", profilePrompt.PromptText, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("do not send `3579` as one", profilePrompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("do not send the full PIN as one", profilePrompt.PromptText, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("obvious ASR variants", profilePrompt.PromptText, StringComparison.OrdinalIgnoreCase);
 
         Assert.Contains("Shows`, `Movies`, `Games`", browsePrompt.PromptText, StringComparison.Ordinal);

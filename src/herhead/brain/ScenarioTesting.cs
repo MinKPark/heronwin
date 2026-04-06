@@ -250,9 +250,29 @@ internal static class BrainScenarioLoader
 
         return sequence.Items
             .OfType<BrainYamlScalar>()
-            .Select(static item => item.Value.Trim())
+            .Select(static item => ExpandEnvironmentPlaceholders(item.Value.Trim()))
             .Where(static item => item.Length > 0)
             .ToArray();
+    }
+
+    private static string ExpandEnvironmentPlaceholders(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+
+        return System.Text.RegularExpressions.Regex.Replace(
+            value,
+            @"\$\{(?<name>[A-Za-z_][A-Za-z0-9_]*)\}",
+            static match =>
+            {
+                var variableName = match.Groups["name"].Value;
+                var replacement = Environment.GetEnvironmentVariable(variableName);
+                return string.IsNullOrWhiteSpace(replacement)
+                    ? match.Value
+                    : replacement;
+            });
     }
 
     private static bool GetBoolean(BrainYamlMapping mapping, string propertyName)
