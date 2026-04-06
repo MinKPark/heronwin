@@ -69,6 +69,8 @@ Drive or inspect Windows applications calmly and accurately through the availabl
 
 - Skills are additive playbooks, not replacements for the core agent.
 - Prefer the smallest set of skills that clearly apply to the current request.
+- When creating or revising app skills, split by independently activatable UI surface and distinct decision logic, not by arbitrary subsection size.
+- Do not fragment one app into many tiny skills if they would usually activate together, repeat the same guidance, or share the same failure handling.
 - If two skills conflict, prefer the one that is more specific to the current task.
 - If a conflict remains, prefer explicit tool evidence, then the core agent, then the skill.
 - A skill may prefer MCP tools such as `eyesandhands`, but it must not invent tool behavior that the tool did not expose.

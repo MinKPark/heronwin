@@ -85,22 +85,46 @@ public sealed class AgentPromptLoaderTests
     }
 
     [Fact]
-    public void RepositoryNetflixSkill_IncludesPinHomeNavigationAndSubtitleGuidance()
+    public void RepositoryNetflixSkills_AreSplitBySurfaceAndRetainKeyGuidance()
     {
         var skillsDirectory = Path.Combine(FindRepoRoot(), ".github", "agents", "skills");
 
         var prompts = AgentPromptLoader.LoadSkillPrompts(skillsDirectory);
 
-        var prompt = prompts.Single(prompt => prompt.Key == "netflix-profile-selection-and-playback");
-        Assert.Contains("Profile Lock And PIN Rules", prompt.PromptText, StringComparison.Ordinal);
-        Assert.Contains("one digit at a time", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("do not send `3579` as one", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("obvious ASR variants", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Shows`, `Movies`, `Games`", prompt.PromptText, StringComparison.Ordinal);
-        Assert.Contains("Back to Browse", prompt.PromptText, StringComparison.Ordinal);
-        Assert.Contains("turn off subtitles", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("reveal the playback controls", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Do not say `I'm turning them off`", prompt.PromptText, StringComparison.Ordinal);
+        var surfacePrompt = prompts.Single(prompt => prompt.Key == "netflix-surface-and-state");
+        var profilePrompt = prompts.Single(prompt => prompt.Key == "netflix-profile-and-pin");
+        var browsePrompt = prompts.Single(prompt => prompt.Key == "netflix-browse-and-play");
+        var playbackPrompt = prompts.Single(prompt => prompt.Key == "netflix-playback-controls");
+
+        Assert.Contains("layered surface", surfacePrompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("title-detail state", surfacePrompt.PromptText, StringComparison.OrdinalIgnoreCase);
+
+        Assert.Contains("Profile Lock And PIN Rules", profilePrompt.PromptText, StringComparison.Ordinal);
+        Assert.Contains("one digit at a time", profilePrompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("do not send `3579` as one", profilePrompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("obvious ASR variants", profilePrompt.PromptText, StringComparison.OrdinalIgnoreCase);
+
+        Assert.Contains("Shows`, `Movies`, `Games`", browsePrompt.PromptText, StringComparison.Ordinal);
+        Assert.Contains("Back to Browse", browsePrompt.PromptText, StringComparison.Ordinal);
+        Assert.Contains("Do not claim that Netflix started playback", browsePrompt.PromptText, StringComparison.OrdinalIgnoreCase);
+
+        Assert.Contains("turn off subtitles", playbackPrompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("reveal the playback controls", playbackPrompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Minimize`, `Restore`, and `Close`", playbackPrompt.PromptText, StringComparison.Ordinal);
+        Assert.Contains("do not click `Audio & Subtitles` again", playbackPrompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("target the exact visible `Off` option", playbackPrompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("English (CC)", playbackPrompt.PromptText, StringComparison.Ordinal);
+        Assert.Contains("Do not say `I'm turning them off`", playbackPrompt.PromptText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RepositoryCoreAgent_IncludesSkillSplitGuardrail()
+    {
+        var corePromptPath = Path.Combine(FindRepoRoot(), ".github", "agents", "her.agent.core.md");
+        var corePrompt = File.ReadAllText(corePromptPath);
+
+        Assert.Contains("split by independently activatable UI surface and distinct decision logic", corePrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Do not fragment one app into many tiny skills", corePrompt, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -128,7 +152,7 @@ public sealed class AgentPromptLoaderTests
                 "agents",
                 "skills",
                 "netflix",
-                "netflix-profile-selection-and-playback.skill.md");
+                "netflix-surface-and-state.skill.md");
             if (File.Exists(candidate))
             {
                 return current.FullName;

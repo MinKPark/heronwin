@@ -268,16 +268,25 @@ public sealed class AgentPromptComposerTests
                     group: "any-app",
                     priority: 150),
                 CreateSkill(
-                    "netflix-profile-selection-and-playback",
-                    "netflix skill",
+                    "netflix-surface-and-state",
+                    "netflix core skill",
                     Activation(whenAnyKeywords: ["netflix"], whenAnyTools: ["describe_selected_window"]),
+                    group: "netflix",
+                    priority: 350),
+                CreateSkill(
+                    "netflix-profile-and-pin",
+                    "netflix profile skill",
+                    Activation(
+                        whenAllKeywords: ["netflix"],
+                        whenAnyKeywords: ["profile", "profiles"],
+                        whenAnyTools: ["describe_selected_window"]),
                     group: "netflix",
                     priority: 400)
             ]);
 
         var actual = AgentPromptComposer.Compose(
             catalog,
-            "Open Netflix.",
+            "Open Netflix profiles.",
             [],
             [
                 new ToolDefinition("list_windows", "desc", default),
@@ -293,6 +302,14 @@ public sealed class AgentPromptComposerTests
         Assert.True(
             actual.SystemPrompt.IndexOf("### Any App Skill Group", StringComparison.Ordinal)
             < actual.SystemPrompt.IndexOf("### Netflix Skill Group", StringComparison.Ordinal));
+        Assert.Equal(
+            [
+                "desktop-launch-and-first-look",
+                "ui-refresh-and-evidence",
+                "netflix-surface-and-state",
+                "netflix-profile-and-pin"
+            ],
+            actual.ActiveSkills.Select(skill => skill.Key));
     }
 
     [Fact]
@@ -306,10 +323,19 @@ public sealed class AgentPromptComposerTests
             Skills:
             [
                 CreateSkill(
-                    "netflix-profile-selection-and-playback",
-                    "netflix skill",
+                    "netflix-surface-and-state",
+                    "netflix core skill",
                     Activation(
-                        whenAnyKeywords: ["netflix", "profile"],
+                        whenAnyKeywords: ["netflix"],
+                        whenAnyTools: ["describe_selected_window"]),
+                    group: "netflix",
+                    priority: 350),
+                CreateSkill(
+                    "netflix-profile-and-pin",
+                    "netflix profile skill",
+                    Activation(
+                        whenAllKeywords: ["netflix"],
+                        whenAnyKeywords: ["profile", "profiles"],
                         whenAnyTools: ["describe_selected_window"]),
                     group: "netflix",
                     priority: 400)
@@ -325,7 +351,61 @@ public sealed class AgentPromptComposerTests
                 new ToolDefinition("describe_selected_window", "desc", default)
             ]);
 
-        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "netflix-profile-selection-and-playback");
+        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "netflix-surface-and-state");
+        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "netflix-profile-and-pin");
+    }
+
+    [Fact]
+    public void Compose_ActivatesPlaybackControlsSkill_ForNetflixSubtitleRequests()
+    {
+        var catalog = new AgentPromptCatalog(
+            FallbackDefinitionPath: "fallback/her.agent.md",
+            FallbackDefinition: "fallback prompt",
+            CoreDefinitionPath: "core/her.agent.core.md",
+            CoreDefinition: "core prompt",
+            Skills:
+            [
+                CreateSkill(
+                    "netflix-surface-and-state",
+                    "netflix core skill",
+                    Activation(
+                        whenAnyKeywords: ["netflix"],
+                        whenAnyTools: ["describe_selected_window"]),
+                    group: "netflix",
+                    priority: 350),
+                CreateSkill(
+                    "netflix-playback-controls",
+                    "netflix playback controls skill",
+                    Activation(
+                        whenAllKeywords: ["netflix"],
+                        whenAnyKeywords: ["subtitle", "subtitles", "audio"],
+                        whenAnyTools: ["describe_selected_window"]),
+                    group: "netflix",
+                    priority: 500),
+                CreateSkill(
+                    "netflix-profile-and-pin",
+                    "netflix profile skill",
+                    Activation(
+                        whenAllKeywords: ["netflix"],
+                        whenAnyKeywords: ["profile", "profiles", "pin"],
+                        whenAnyTools: ["describe_selected_window"]),
+                    group: "netflix",
+                    priority: 400)
+            ]);
+
+        var actual = AgentPromptComposer.Compose(
+            catalog,
+            "Turn off subtitles.",
+            [
+                new AgentMessage.Summary("Environment context: selected window is Netflix. Visible cue: Back to Browse and Audio & Subtitles.")
+            ],
+            [
+                new ToolDefinition("describe_selected_window", "desc", default)
+            ]);
+
+        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "netflix-surface-and-state");
+        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "netflix-playback-controls");
+        Assert.DoesNotContain(actual.ActiveSkills, skill => skill.Key == "netflix-profile-and-pin");
     }
 
     private static AgentPromptCatalog CreateCatalog()
