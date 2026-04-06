@@ -1,4 +1,4 @@
-# process-manager
+﻿# process-manager
 
 An MCP (Model Context Protocol) server that exposes tools for starting and stopping processes on the local machine.
 
@@ -26,7 +26,7 @@ Or run in development mode with hot reload:
 npm run dev
 ```
 
-The server communicates via **stdio** using the MCP protocol. It is intended to be launched as a subprocess by an MCP client (e.g. `herface`).
+The server communicates via **stdio** using the MCP protocol. It is intended to be launched as a subprocess by an MCP client (e.g. `brain`).
 
 ## MCP Client Configuration
 

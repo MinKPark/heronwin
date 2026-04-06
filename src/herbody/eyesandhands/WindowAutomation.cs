@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -82,7 +82,7 @@ internal static class WindowAutomation
     private static readonly TimeSpan UiSettleTimeout = TimeSpan.FromMinutes(3);
     private static readonly TimeSpan UiSettleWaitSlice = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan KeyboardNavigationStepDelay = TimeSpan.FromMilliseconds(120);
-    private const string DebugArtifactDirectoryEnvironmentVariable = "HERFACE_DEBUG_ARTIFACT_DIR";
+    private const string DebugArtifactDirectoryEnvironmentVariable = "BRAIN_DEBUG_ARTIFACT_DIR";
     private static readonly string DefaultScreenshotDirectory = Path.Combine(
         Path.GetTempPath(),
         "heronwin",

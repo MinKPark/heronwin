@@ -1,4 +1,4 @@
-using Xunit;
+﻿using Xunit;
 
 namespace HeronWin.HerBody.EyesAndHands.Tests;
 
@@ -18,8 +18,8 @@ public sealed class WindowScreenshotNamingTests
     [Fact]
     public void GetScreenshotDirectory_UsesConfiguredArtifactDirectory()
     {
-        var actual = WindowAutomation.GetScreenshotDirectory(@"C:\apps\herface\bin\Debug\net10.0-windows\logs");
+        var actual = WindowAutomation.GetScreenshotDirectory(@"C:\apps\brain\bin\Debug\net10.0-windows\logs");
 
-        Assert.Equal(@"C:\apps\herface\bin\Debug\net10.0-windows\logs", actual);
+        Assert.Equal(@"C:\apps\brain\bin\Debug\net10.0-windows\logs", actual);
     }
 }

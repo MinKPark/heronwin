@@ -1,8 +1,8 @@
-# herbody
+﻿# herbody
 
 MCP (Model Context Protocol) servers for **heronwin**.
 
-Each subdirectory is a standalone MCP server that can be consumed by the `herface` AI agent or any other MCP-compatible client.
+Each subdirectory is a standalone MCP server that can be consumed by the `brain` AI agent or any other MCP-compatible client.
 
 ## Servers
 
@@ -15,7 +15,7 @@ Each subdirectory is a standalone MCP server that can be consumed by the `herfac
 
 1. Create a new subdirectory (e.g. `src/herbody/my-server/`).
 2. Implement a stdio-based MCP server using the [`@modelcontextprotocol/sdk`](https://github.com/modelcontextprotocol/typescript-sdk) (TypeScript) or the [C# SDK](https://github.com/modelcontextprotocol/csharp-sdk).
-3. Register the server in `src/herface/.env` by adding an entry to `MCP_SERVERS`.
+3. Register the server in `src/brain/.env` by adding an entry to `MCP_SERVERS`.
 
 ## Prerequisites
 
