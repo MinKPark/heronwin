@@ -121,6 +121,8 @@ internal static class AgentRunner
             if (SnapshotContainsElementTree(snapshotText))
             {
                 recentUiTreeContext = snapshotText;
+                currentUiElementContext = null;
+                currentFocusElementContext = null;
 
                 if (string.Equals(snapshotToolName, "describe_selected_window", StringComparison.Ordinal))
                 {
@@ -1298,6 +1300,11 @@ internal static class AgentRunner
                         Display.ToolResult("describe_selected_window", postActionSnapshot.Text, postActionSnapshot.Images.Count);
                         RememberRecentWindowSnapshot(postActionSnapshot.Text, "describe_selected_window");
                         freshToolUiElementContext = currentUiElementContext;
+                        if (!string.IsNullOrWhiteSpace(currentUiElementContext))
+                        {
+                            followUpEvidence.Add(new AgentMessage.User(
+                                $"Fresh post-action UI snapshot after tool \"{executableToolName}\" supersedes any older pre-action UI tree for the current screen. Use this newest snapshot as the source of truth before deciding what happened next:\n{currentUiElementContext}"));
+                        }
                         if (postActionSnapshot.Images.Count > 0)
                         {
                             followUpEvidence.Add(new AgentMessage.VisualContext(
