@@ -14,7 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\herbody\eyesandhands\eyesandhands.csproj"
+    <ProjectReference Include="..\..\herbody\eyesandhands\eyesandhands.csproj"
                       ReferenceOutputAssembly="false"
                       PrivateAssets="all" />
   </ItemGroup>

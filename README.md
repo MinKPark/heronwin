@@ -7,8 +7,9 @@
 ```
 heronwin/
 └── src/
-    ├── brain/          # .NET 10 AI agent UI (voice input, scripted runs, MCP client)
-    ├── brain.tests/    # xUnit tests for brain
+    ├── herhead/
+    │   ├── brain/          # .NET 10 AI agent UI (voice input, scripted runs, MCP client)
+    │   └── brain.tests/    # xUnit tests for brain
     ├── herbody/          # MCP servers (TypeScript / C#)
     │   ├── process-manager/   # Start, stop, and list processes on the local machine
     │   └── eyesandhands/      # Inspect Windows UI and interact with windows via UI Automation
@@ -28,8 +29,8 @@ npm run build
 ### 2. Configure and start the brain agent
 
 ```powershell
-# Edit src/brain/.env as needed, then run:
-dotnet run --project src/brain
+# Edit src/herhead/brain/.env as needed, then run:
+dotnet run --project src/herhead/brain
 ```
 
 ### Running without a build step
@@ -38,7 +39,7 @@ The TypeScript MCP server supports `npm run dev` (via [tsx](https://tsx.is)) for
 
 ## Documentation
 
-- [brain README](./src/brain/README.md)
+- [brain README](./src/herhead/brain/README.md)
 - [herbody README](./src/herbody/README.md)
 - [process-manager README](./src/herbody/process-manager/README.md)
 - [eyesandhands README](./src/herbody/eyesandhands/README.md)

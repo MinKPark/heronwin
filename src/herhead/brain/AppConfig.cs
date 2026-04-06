@@ -209,7 +209,9 @@ internal static class DotEnvLoader
         while (current is not null)
         {
             yield return Path.Combine(current.FullName, ".env");
+            yield return Path.Combine(current.FullName, "herhead", "brain", ".env");
             yield return Path.Combine(current.FullName, "brain", ".env");
+            yield return Path.Combine(current.FullName, "src", "herhead", "brain", ".env");
             yield return Path.Combine(current.FullName, "src", "brain", ".env");
             current = current.Parent;
         }
