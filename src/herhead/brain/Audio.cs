@@ -56,6 +56,9 @@ internal static class AudioRecorder
     private const int StandbyMinimumConsecutiveSpeechBuffers = 4;
     private const double StandbyMinimumAverageSpeechRms = 0.016;
     private const double StandbyMinimumMaxSpeechRms = 0.022;
+    private const double StandbyMaximumSpeakerDominantRatio = 0.5;
+    private const int StandbyMaximumSpeakerOnlyBuffers = 1;
+    private const double StandbyMaximumSpeakerExplainedRatio = 0.7;
     private const int SpeakerReferenceHistoryMs = 3_000;
     private const int SpeakerLagSearchMs = 750;
     private const int SpeakerLagSearchStepMs = 5;
@@ -276,7 +279,10 @@ internal static class AudioRecorder
                         maxConsecutiveSpeechBuffers,
                         maxSpeechPeak,
                         maxSpeechRms,
-                        averageSpeechRms))
+                        averageSpeechRms,
+                        speakerDominantBufferCount,
+                        speakerOnlyBufferCount,
+                        maxSpeakerExplainedRatio))
                 {
                     DebugTrace.WriteEvent(
                         "audio.recording_discarded",
@@ -400,12 +406,19 @@ internal static class AudioRecorder
         int maxConsecutiveSpeechBuffers,
         double maxSpeechPeak,
         double maxSpeechRms,
-        double averageSpeechRms)
+        double averageSpeechRms,
+        int speakerDominantBufferCount = 0,
+        int speakerOnlyBufferCount = 0,
+        double maxSpeakerExplainedRatio = 0)
         => speechBufferCount >= StandbyMinimumSpeechBuffers
            && maxConsecutiveSpeechBuffers >= StandbyMinimumConsecutiveSpeechBuffers
            && maxSpeechPeak >= StandbySpeechPeakThreshold
            && maxSpeechRms >= StandbyMinimumMaxSpeechRms
-           && averageSpeechRms >= StandbyMinimumAverageSpeechRms;
+           && averageSpeechRms >= StandbyMinimumAverageSpeechRms
+           && speakerOnlyBufferCount <= StandbyMaximumSpeakerOnlyBuffers
+           && (speechBufferCount <= 0
+               || speakerDominantBufferCount / (double)speechBufferCount <= StandbyMaximumSpeakerDominantRatio)
+           && maxSpeakerExplainedRatio < StandbyMaximumSpeakerExplainedRatio;
 
     internal static SpeakerLeakAnalysis FilterSpeakerLeak(short[] microphoneSamples, float[] renderReferenceHistory)
     {

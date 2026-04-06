@@ -168,6 +168,34 @@ public sealed class AudioRecorderTests
             averageSpeechRms: 0.028));
     }
 
+    [Fact]
+    public void ShouldKeepStandbyRecording_ReturnsFalse_ForSpeakerDominantWakeLikeAudio()
+    {
+        Assert.False(AudioRecorder.ShouldKeepStandbyRecording(
+            speechBufferCount: 8,
+            maxConsecutiveSpeechBuffers: 6,
+            maxSpeechPeak: 0.20,
+            maxSpeechRms: 0.033,
+            averageSpeechRms: 0.024,
+            speakerDominantBufferCount: 5,
+            speakerOnlyBufferCount: 5,
+            maxSpeakerExplainedRatio: 0.77));
+    }
+
+    [Fact]
+    public void ShouldKeepStandbyRecording_ReturnsTrue_ForClearWakePhraseWithMinorSpeakerLeak()
+    {
+        Assert.True(AudioRecorder.ShouldKeepStandbyRecording(
+            speechBufferCount: 10,
+            maxConsecutiveSpeechBuffers: 8,
+            maxSpeechPeak: 0.24,
+            maxSpeechRms: 0.044,
+            averageSpeechRms: 0.030,
+            speakerDominantBufferCount: 2,
+            speakerOnlyBufferCount: 0,
+            maxSpeakerExplainedRatio: 0.26));
+    }
+
     private static short[] BuildPseudoSpeech(int sampleCount, int seed, double amplitude)
     {
         var random = new Random(seed);

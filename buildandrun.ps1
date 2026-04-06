@@ -19,6 +19,7 @@ $ErrorActionPreference = "Stop"
 
 $brainProjectPath = Join-Path $PSScriptRoot "src\herhead\brain\Brain.csproj"
 $faceProjectPath = Join-Path $PSScriptRoot "src\herhead\face\Face.csproj"
+$faceExecutablePath = Join-Path $PSScriptRoot "src\herhead\face\bin\$Configuration\$TargetFramework\Face.exe"
 $resolvedFaceProjectPath = [System.IO.Path]::GetFullPath($faceProjectPath)
 $resolvedBrainProjectPath = [System.IO.Path]::GetFullPath($brainProjectPath)
 $resolvedEyesAndHandsProjectPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "src\herbody\eyesandhands\eyesandhands.csproj"))
@@ -183,21 +184,13 @@ if (-not $NoBuild) {
 if ($runFace) {
     Stop-RunningFaceProcesses -FaceProjectPath $resolvedFaceProjectPath
 
-    $faceArgs = @(
-        "run",
-        "--project", $faceProjectPath,
-        "-c", $Configuration,
-        "-f", $TargetFramework
-    )
-
-    if ($NoBuild) {
-        $faceArgs += "--no-build"
+    if (-not (Test-Path $faceExecutablePath)) {
+        throw "Built face executable not found: $faceExecutablePath"
     }
 
-    Write-Host "Starting face in a separate process..." -ForegroundColor Cyan
+    Write-Host "Starting face in a separate process without a console window..." -ForegroundColor Cyan
     Start-Process `
-        -FilePath "dotnet" `
-        -ArgumentList $faceArgs `
+        -FilePath $faceExecutablePath `
         -WorkingDirectory $PSScriptRoot | Out-Null
 }
 
