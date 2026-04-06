@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace HeronWin.HerFace;
 
 internal sealed record ProcessedTurn(
@@ -10,6 +12,8 @@ internal sealed record ProcessedTurn(
 
 internal static class HerfaceTurnProcessor
 {
+    private const int GenerationContinuationTokenReserve = 4096;
+
     public static async Task<ProcessedTurn> ProcessAsync(
         long turnId,
         string userText,
@@ -119,6 +123,7 @@ internal static class HerfaceTurnProcessor
             intermediateStepNarrator);
 
         AppConfig? updatedConfig = null;
+        var deferredGenerationSummary = string.Empty;
         if (generationMode &&
             AppSkillGenerationCoordinator.TryPersistGeneratedSkillGroup(
                 reply.RawText,
@@ -127,17 +132,7 @@ internal static class HerfaceTurnProcessor
                 out var refreshedCatalog,
                 out var persistenceSummary))
         {
-            var augmentedLog = string.IsNullOrWhiteSpace(reply.LogText)
-                ? persistenceSummary
-                : $"{reply.LogText} {persistenceSummary}";
-            var augmentedSay = string.IsNullOrWhiteSpace(reply.SpokenText)
-                ? $"I saved the new {approvedOffer.AppName} skill group draft."
-                : $"{reply.SpokenText} I saved the new {approvedOffer.AppName} skill group draft.";
-            reply = reply with
-            {
-                LogText = augmentedLog,
-                SpokenText = augmentedSay,
-            };
+            deferredGenerationSummary = persistenceSummary;
             updatedConfig = config with
             {
                 AgentDefinitionPath = refreshedCatalog.FallbackDefinitionPath,
@@ -155,6 +150,63 @@ internal static class HerfaceTurnProcessor
                 });
         }
 
+        if (generationMode && updatedConfig is not null)
+        {
+            var continuationRequest = $"Open {approvedOffer.AppName}.";
+            var continuationHistory = new List<AgentMessage>(history)
+            {
+                new AgentMessage.User(originalUserText),
+                new AgentMessage.Summary(
+                    $"Internal continuation: saved and reloaded the `{approvedOffer.Group}` skill group for {approvedOffer.AppName}. Resume the pending app launch now using the new skills."),
+                new AgentMessage.Assistant(reply.RawText)
+            };
+            var continuationPrompt = AgentPromptComposer.Compose(updatedConfig.AgentPrompts, continuationRequest, continuationHistory, tools);
+            DebugTrace.WriteEvent(
+                "agent.prompt.composed",
+                $"turn={turnId}, source={continuationPrompt.SourceDescription}, fallback={continuationPrompt.UsesFallbackDefinition}, skills={string.Join(", ", continuationPrompt.ActiveSkills.Select(skill => skill.Key).DefaultIfEmpty("(none)"))}, continuation=post_skill_generation");
+
+            var continuationContextBudget = Math.Max(0, updatedConfig.MaxContextTokens - GenerationContinuationTokenReserve);
+            await ContextManager.EnsureCapacityAsync(
+                continuationHistory,
+                continuationRequest,
+                continuationPrompt.SystemPrompt,
+                continuationContextBudget > 0 ? continuationContextBudget : updatedConfig.MaxContextTokens,
+                llmClient.ModelProfile,
+                llmClient,
+                cancellationToken);
+
+            var continuationReply = await AgentRunner.RunTurnAsync(
+                turnId,
+                continuationRequest,
+                continuationHistory,
+                tools,
+                continuationPrompt,
+                llmClient,
+                mcpManager,
+                cancellationToken,
+                intermediateStepNarrator,
+                displayUserMessage: false);
+
+            var combinedLog = string.IsNullOrWhiteSpace(deferredGenerationSummary)
+                ? continuationReply.LogText
+                : string.IsNullOrWhiteSpace(continuationReply.LogText)
+                    ? deferredGenerationSummary
+                    : $"{deferredGenerationSummary} {continuationReply.LogText}";
+            var combinedSay = BuildCombinedContinuationSpeech(
+                approvedOffer.AppName,
+                continuationReply.SpokenText,
+                deferredGenerationSummary);
+            reply = new AgentReply(
+                combinedLog,
+                combinedSay,
+                JsonSerializer.Serialize(new
+                {
+                    say = combinedSay,
+                    log = combinedLog
+                }));
+            composedPrompt = continuationPrompt;
+        }
+
         history.Add(new AgentMessage.User(originalUserText));
         history.Add(new AgentMessage.Assistant(reply.RawText));
 
@@ -165,5 +217,22 @@ internal static class HerfaceTurnProcessor
             $"turn={turnId}, source={turnSource}, spoken={DebugTrace.Preview(reply.SpokenText, 300)}, log={DebugTrace.Preview(reply.LogText, 600)}");
 
         return new ProcessedTurn(turnId, originalUserText, reply, composedPrompt, tokenEstimate, updatedConfig);
+    }
+
+    private static string BuildCombinedContinuationSpeech(
+        string appName,
+        string continuationSpeech,
+        string generationSummary)
+    {
+        var generationSpeech = string.IsNullOrWhiteSpace(generationSummary)
+            ? $"I saved the new {appName} skill group draft."
+            : $"I saved the new {appName} skill group draft.";
+
+        if (string.IsNullOrWhiteSpace(continuationSpeech))
+        {
+            return generationSpeech;
+        }
+
+        return $"{generationSpeech} {continuationSpeech}";
     }
 }

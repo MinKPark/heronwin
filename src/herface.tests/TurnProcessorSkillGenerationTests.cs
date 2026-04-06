@@ -67,6 +67,14 @@ public sealed class TurnProcessorSkillGenerationTests
                       }
                     }
                     """,
+                                        []),
+                                new ChatResult(
+                                        """
+                                        {
+                                            "say": "Spotify is open now.",
+                                            "log": "Spotify is open and ready for the next action."
+                                        }
+                                        """,
                     [])
             ]);
             await using var mcpManager = new McpClientManager(
@@ -107,10 +115,12 @@ public sealed class TurnProcessorSkillGenerationTests
                 CancellationToken.None,
                 turnSource: "test");
 
-            Assert.Equal(1, llmClient.CallCount);
+            Assert.Equal(2, llmClient.CallCount);
             Assert.NotNull(secondTurn.UpdatedConfig);
             Assert.Contains("saved the new Spotify skill group draft", secondTurn.Reply.SpokenText, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("Special task: the user approved generating a new app skill group for Spotify", llmClient.LastSystemPrompt, StringComparison.Ordinal);
+            Assert.Contains("Spotify is open now", secondTurn.Reply.SpokenText, StringComparison.Ordinal);
+            Assert.Contains("Special task: the user approved generating a new app skill group for Spotify", llmClient.SystemPrompts[0], StringComparison.Ordinal);
+            Assert.Contains("Spotify Surface And State", llmClient.SystemPrompts[1], StringComparison.Ordinal);
             Assert.True(File.Exists(Path.Combine(skillsDirectory, "spotify", "spotify-surface-and-state.skill.md")));
             Assert.Contains(secondTurn.UpdatedConfig!.AgentPrompts.Skills, skill => skill.Key == "spotify-surface-and-state");
         }
@@ -213,7 +223,7 @@ public sealed class TurnProcessorSkillGenerationTests
             Assert.Equal(1, llmClient.CallCount);
             Assert.Null(secondTurn.UpdatedConfig);
             Assert.Contains("open Spotify now", secondTurn.Reply.SpokenText, StringComparison.Ordinal);
-            Assert.DoesNotContain("Special task: the user approved generating a new app skill group for Spotify", llmClient.LastSystemPrompt ?? string.Empty, StringComparison.Ordinal);
+            Assert.DoesNotContain("Special task: the user approved generating a new app skill group for Spotify", llmClient.SystemPrompts.SingleOrDefault() ?? string.Empty, StringComparison.Ordinal);
             Assert.False(Directory.Exists(Path.Combine(skillsDirectory, "spotify")));
         }
         finally
@@ -267,7 +277,7 @@ public sealed class TurnProcessorSkillGenerationTests
 
         public int CallCount { get; private set; }
 
-        public string? LastSystemPrompt { get; private set; }
+        public List<string?> SystemPrompts { get; } = [];
 
         public LlmProviderId ProviderId => LlmProviderId.OpenAiApi;
 
@@ -288,7 +298,7 @@ public sealed class TurnProcessorSkillGenerationTests
             CancellationToken cancellationToken)
         {
             CallCount += 1;
-            LastSystemPrompt = systemPrompt;
+            SystemPrompts.Add(systemPrompt);
             if (_responses.Count == 0)
             {
                 throw new InvalidOperationException("No queued LLM responses remain.");

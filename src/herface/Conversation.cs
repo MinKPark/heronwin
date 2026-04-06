@@ -67,7 +67,8 @@ internal static class AgentRunner
         ILlmClient llmClient,
         McpClientManager mcpManager,
         CancellationToken cancellationToken,
-        Func<string, CancellationToken, Task>? intermediateStepNarrator = null)
+        Func<string, CancellationToken, Task>? intermediateStepNarrator = null,
+        bool displayUserMessage = true)
     {
         var turnStopwatch = Stopwatch.StartNew();
         var messages = history.ToList();
@@ -99,7 +100,10 @@ internal static class AgentRunner
                 ["usedFallbackPrompt"] = composedPrompt.UsesFallbackDefinition,
                 ["activeSkills"] = composedPrompt.ActiveSkills.Select(skill => skill.Key).ToArray(),
             });
-        Display.UserMessage(userText);
+        if (displayUserMessage)
+        {
+            Display.UserMessage(userText);
+        }
         var usedAnyTools = false;
         var performedDesktopAction = false;
         var performedConfidenceEvidenceRetry = false;
