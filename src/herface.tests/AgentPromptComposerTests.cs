@@ -41,7 +41,7 @@ public sealed class AgentPromptComposerTests
         Assert.Contains("launch skill", actual.SystemPrompt, StringComparison.Ordinal);
         Assert.Contains("refresh skill", actual.SystemPrompt, StringComparison.Ordinal);
         Assert.Equal(
-            ["desktop-launch-and-first-look", "ui-refresh-and-evidence"],
+            ["desktop-launch-and-first-look", "generic-app-policy", "ui-refresh-and-evidence"],
             actual.ActiveSkills.Select(skill => skill.Key));
     }
 
@@ -62,6 +62,23 @@ public sealed class AgentPromptComposerTests
         Assert.DoesNotContain(actual.ActiveSkills, skill => skill.Key == "desktop-launch-and-first-look");
         Assert.Contains(actual.ActiveSkills, skill => skill.Key == "action-discovery-and-invocation");
         Assert.Contains(actual.ActiveSkills, skill => skill.Key == "ui-refresh-and-evidence");
+    }
+
+    [Fact]
+    public void Compose_ActivatesGenericAppPolicySkill_FromToolAvailability()
+    {
+        var catalog = CreateCatalog();
+
+        var actual = AgentPromptComposer.Compose(
+            catalog,
+            "Close this window.",
+            [
+                new ToolDefinition("select_window", "desc", default),
+                new ToolDefinition("describe_selected_window", "desc", default),
+                new ToolDefinition("send_input_to_window", "desc", default)
+            ]);
+
+        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "generic-app-policy");
     }
 
     [Fact]
@@ -416,6 +433,27 @@ public sealed class AgentPromptComposerTests
             CoreDefinition: "core prompt",
             Skills:
             [
+                CreateSkill(
+                    "generic-app-policy",
+                    "generic app policy skill",
+                    Activation(
+                        whenAnyTools:
+                        [
+                            "select_window",
+                            "launch_app_via_taskbar_search",
+                            "describe_selected_window",
+                            "capture_selected_window_screenshot",
+                            "send_input_to_window",
+                            "click_selected_window_element",
+                            "invoke_selected_window_element",
+                            "focus_selected_window_element",
+                            "set_selected_window_element_value",
+                            "invoke_main_menu_item",
+                            "invoke_context_menu_item",
+                            "select_taskbar_app"
+                        ]),
+                    group: "generic-app",
+                    priority: 140),
                 CreateSkill(
                     "action-discovery-and-invocation",
                     "action skill",

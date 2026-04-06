@@ -141,6 +141,21 @@ public sealed class AgentPromptLoaderTests
         Assert.Contains("help.netflix.com", prompt.PromptText, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void RepositoryGenericAppSkill_IncludesCloseAndWindowTargetingGuidance()
+    {
+        var skillsDirectory = Path.Combine(FindRepoRoot(), ".github", "agents", "skills");
+
+        var prompts = AgentPromptLoader.LoadSkillPrompts(skillsDirectory);
+
+        var prompt = prompts.Single(prompt => prompt.Key == "generic-app-policy");
+        Assert.Equal("generic-app", prompt.Metadata.Group);
+        Assert.Contains("stable target identifier such as `windowHandle`", prompt.PromptText, StringComparison.Ordinal);
+        Assert.Contains("prefer closing the currently selected window", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Alt+F4", prompt.PromptText, StringComparison.Ordinal);
+        Assert.Contains("official help, support, or documentation pages", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string FindRepoRoot()
     {
         var current = new DirectoryInfo(AppContext.BaseDirectory);

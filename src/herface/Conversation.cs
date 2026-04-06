@@ -75,12 +75,6 @@ internal static class AgentRunner
         var availableToolNames = tools
             .Select(tool => tool.Name)
             .ToHashSet(StringComparer.Ordinal);
-        var runtimeToolPolicy = BuildRuntimeToolPolicy(tools);
-        if (!string.IsNullOrWhiteSpace(runtimeToolPolicy))
-        {
-            messages.Add(new AgentMessage.Summary(runtimeToolPolicy));
-        }
-
         var ordinalActionSummary = BuildOrdinalActionReferenceSummary(userText, history);
         if (!string.IsNullOrWhiteSpace(ordinalActionSummary))
         {
@@ -728,6 +722,44 @@ internal static class AgentRunner
                                 ["toolCallId"] = toolCall.Id,
                                 ["reason"] = reason,
                                 ["elementPath"] = browserSearchFieldReplacementPath,
+                                ["error"] = DebugTrace.Preview(ex.ToString(), 700),
+                            });
+                    }
+                }
+
+                if (toolCall.Name == "select_window" &&
+                    string.IsNullOrWhiteSpace(recentListWindowsOutput) &&
+                    availableToolNames.Contains("list_windows"))
+                {
+                    try
+                    {
+                        var listResult = await mcpManager.CallToolAsync(
+                            "list_windows",
+                            new Dictionary<string, object?>(),
+                            cancellationToken);
+                        DebugTrace.WriteStructuredEvent(
+                            "agent.select_window_preflight_list_windows",
+                            new Dictionary<string, object?>
+                            {
+                                ["turn"] = turnId,
+                                ["toolCallId"] = toolCall.Id,
+                                ["isError"] = listResult.IsError,
+                                ["resultPreview"] = DebugTrace.Preview(listResult.Text, 700),
+                            });
+
+                        if (!listResult.IsError)
+                        {
+                            recentListWindowsOutput = listResult.Text;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugTrace.WriteStructuredEvent(
+                            "agent.select_window_preflight_list_windows_failed",
+                            new Dictionary<string, object?>
+                            {
+                                ["turn"] = turnId,
+                                ["toolCallId"] = toolCall.Id,
                                 ["error"] = DebugTrace.Preview(ex.ToString(), 700),
                             });
                     }
@@ -1437,78 +1469,6 @@ internal static class AgentRunner
         rewrittenArgs["fullDepth"] = true;
         rewrittenArgs.Remove("maxDepth");
         return true;
-    }
-
-    internal static string? BuildRuntimeToolPolicy(IReadOnlyList<ToolDefinition> tools)
-    {
-        var toolNames = tools.Select(tool => tool.Name).ToHashSet(StringComparer.Ordinal);
-        var parts = new List<string>();
-
-        if (toolNames.Contains("select_window"))
-        {
-            parts.Add(
-                "When recent tool evidence already provides a stable target identifier such as `windowHandle`, prefer reusing that exact identifier over a broader text match.");
-        }
-
-        if (toolNames.Contains("select_window") && toolNames.Contains("launch_app_via_taskbar_search"))
-        {
-            parts.Add(
-                "For requests to open or play a named app such as `Netflix`, do not satisfy the request by selecting an unrelated already-open window just because it exists. Select a matching app window only when its title matches the requested app; otherwise launch the requested app.");
-        }
-
-        if (toolNames.Contains("describe_selected_window") && toolNames.Contains("launch_app_via_taskbar_search"))
-        {
-            parts.Add(
-                "If an app or site is already active from the previous turn, first decide whether the new request should be handled inside that current app or by Windows itself. Prefer staying in the current app for follow-up content, navigation, and selection requests; use Windows or taskbar app actions only when the user explicitly asks to open, launch, switch, or manage apps/windows, or when the current app clearly cannot satisfy the request.");
-        }
-
-        if (toolNames.Contains("send_input_to_window"))
-        {
-            parts.Add(
-                "Treat `send_input_to_window` as explicit keyboard or text input that still requires follow-up verification; key presses and text entry alone do not confirm that the intended visible UI result occurred.");
-        }
-
-        if (toolNames.Contains("launch_app_via_taskbar_search")
-            && toolNames.Contains("send_input_to_window")
-            && (toolNames.Contains("describe_selected_window")
-                || toolNames.Contains("capture_selected_window_screenshot")))
-        {
-            parts.Add(
-                "If no more-specific app or site skill clearly applies and the user needs product-specific instructions, use the browser to look up guidance instead of improvising. Prefer official help, support, or documentation pages for well-known apps and services before third-party guides.");
-        }
-
-        if (toolNames.Overlaps(
-                [
-                    "click_selected_window_element",
-                    "invoke_selected_window_element",
-                    "focus_selected_window_element",
-                    "set_selected_window_element_value",
-                    "send_input_to_window",
-                    "launch_app_via_taskbar_search",
-                    "invoke_main_menu_item",
-                    "invoke_context_menu_item",
-                    "select_taskbar_app"
-                ]))
-        {
-            parts.Add(
-                "Final replies must report what already happened in this turn. Do not say things like `I'm turning it off now` or `I'll open it` unless you already performed a desktop action toward that outcome.");
-        }
-
-        if (toolNames.Contains("describe_selected_window") || toolNames.Contains("capture_selected_window_screenshot"))
-        {
-            parts.Add(
-                "For conditional instructions such as \"if profile selection is visible\" or \"if a passcode is required\", inspect the current UI first. If the condition is present and the user named a target or action, perform that action instead of stopping just because the target is visible. If the condition is absent, treat that conditional step as a successful no-op instead of forcing a click, and phrase the reply as \"condition not present, so no action was needed\" rather than as an incomplete or failed outcome.");
-            parts.Add(
-                "If a profile picker is visible, do not guess between profile tiles or click controls such as `Manage Profiles`, `Add Profile`, or `Done` unless the user explicitly named that exact target. If no exact profile or picker control was requested, stop after reporting that profile selection is still required.");
-        }
-
-        if (toolNames.Contains("launch_app_via_taskbar_search"))
-        {
-            parts.Add(
-                "Use `launch_app_via_taskbar_search` only for launching Windows apps. When a browser window is already selected and the user wants to search for content such as a show, movie, article, or page, keep the interaction inside the browser or website instead of using Windows Search.");
-        }
-
-        return parts.Count == 0 ? null : string.Join(" ", parts);
     }
 
     internal static string? BuildOrdinalActionReferenceSummary(
@@ -3051,11 +3011,11 @@ internal static class AgentRunner
                 .Select(window => new WindowListMatch(
                     TryGetJsonStringProperty(window, "handle"),
                     TryGetJsonStringProperty(window, "title"),
+                    TryGetJsonStringProperty(window, "className"),
                     TryGetJsonBooleanProperty(window, "isSelected") == true,
                     HasUsableWindowBounds(window)))
                 .Where(match => !string.IsNullOrWhiteSpace(match.Handle) &&
-                                !string.IsNullOrWhiteSpace(match.Title) &&
-                                match.Title.Contains(titleContains, StringComparison.OrdinalIgnoreCase))
+                                WindowListMatchContains(match, titleContains))
                 .ToArray();
 
             var selectedMatches = matches.Where(match => match.IsSelected).ToArray();
@@ -3144,6 +3104,19 @@ internal static class AgentRunner
         }
 
         return false;
+    }
+
+    private static bool WindowListMatchContains(WindowListMatch match, string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        return (!string.IsNullOrWhiteSpace(match.Title) &&
+                match.Title.Contains(text, StringComparison.OrdinalIgnoreCase)) ||
+               (!string.IsNullOrWhiteSpace(match.ClassName) &&
+                match.ClassName.Contains(text, StringComparison.OrdinalIgnoreCase));
     }
 
     internal static bool ShouldBlockTaskbarSearchForBrowserContentQuery(
@@ -4349,6 +4322,7 @@ internal static class AgentRunner
     private sealed record WindowListMatch(
         string? Handle,
         string? Title,
+        string? ClassName,
         bool IsSelected,
         bool HasUsableBounds);
 

@@ -132,80 +132,6 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
-    public void BuildRuntimeToolPolicy_ReturnsIdentifierPreference_WhenWindowSelectionToolExists()
-    {
-        var actual = AgentRunner.BuildRuntimeToolPolicy(
-            [
-                new ToolDefinition("select_window", "desc", default)
-            ]);
-
-        Assert.NotNull(actual);
-        Assert.Contains("windowHandle", actual!, StringComparison.Ordinal);
-        Assert.DoesNotContain("list_windows", actual, StringComparison.Ordinal);
-        Assert.DoesNotContain("launch_app_via_taskbar_search", actual, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void BuildRuntimeToolPolicy_ReturnsVerificationReminder_WhenInputToolExists()
-    {
-        var actual = AgentRunner.BuildRuntimeToolPolicy(
-            [
-                new ToolDefinition("send_input_to_window", "desc", default)
-            ]);
-
-        Assert.NotNull(actual);
-        Assert.Contains("follow-up verification", actual!, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("open a new tab first", actual, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("address bar", actual, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void BuildRuntimeToolPolicy_IncludesNamedAppLaunchGuidance_WhenSelectionAndLaunchToolsExist()
-    {
-        var actual = AgentRunner.BuildRuntimeToolPolicy(
-            [
-                new ToolDefinition("select_window", "desc", default),
-                new ToolDefinition("launch_app_via_taskbar_search", "desc", default)
-            ]);
-
-        Assert.NotNull(actual);
-        Assert.Contains("named app such as `Netflix`", actual!, StringComparison.Ordinal);
-        Assert.Contains("unrelated already-open window", actual, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void BuildRuntimeToolPolicy_IncludesConditionalNoOpAndBrowserSearchGuidance_WhenRelevantToolsExist()
-    {
-        var actual = AgentRunner.BuildRuntimeToolPolicy(
-            [
-                new ToolDefinition("describe_selected_window", "desc", default),
-                new ToolDefinition("launch_app_via_taskbar_search", "desc", default)
-            ]);
-
-        Assert.NotNull(actual);
-        Assert.Contains("conditional step as a successful no-op", actual!, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("perform that action instead of stopping just because the target is visible", actual, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("do not guess between profile tiles", actual, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("already active from the previous turn", actual, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("keep the interaction inside the browser", actual, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void BuildRuntimeToolPolicy_IncludesOfficialInstructionLookupFallback_WhenBrowserCapableToolsExist()
-    {
-        var actual = AgentRunner.BuildRuntimeToolPolicy(
-            [
-                new ToolDefinition("launch_app_via_taskbar_search", "desc", default),
-                new ToolDefinition("send_input_to_window", "desc", default),
-                new ToolDefinition("describe_selected_window", "desc", default)
-            ]);
-
-        Assert.NotNull(actual);
-        Assert.Contains("product-specific instructions", actual!, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("official help, support, or documentation pages", actual, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
     public void BuildToolSpecificGuidance_ReturnsHint_ForNavigationKeyFallback()
     {
         var actual = AgentRunner.BuildToolSpecificGuidance(
@@ -458,6 +384,44 @@ public sealed class AgentRunnerDecisionTests
         Assert.False(rewritten);
         Assert.Equal("Microsoft Edge", actualArgs["titleContains"]);
         Assert.False(actualArgs.ContainsKey("windowHandle"));
+    }
+
+    [Fact]
+    public void TryRewriteSelectWindowArguments_UsesSelectedHandle_WhenClassNameMatchesLocalizedWindow()
+    {
+        var recentListWindowsOutput =
+            """
+            {
+              "SelectedWindowHandle": "0x00180398",
+              "Windows": [
+                {
+                  "Handle": "0x00180398",
+                  "Title": "Boot To Work.bat - 메모장",
+                  "ClassName": "Notepad",
+                  "ProcessId": 23792,
+                  "Bounds": { "Left": 1972, "Top": 52, "Width": 1440, "Height": 746 },
+                  "IsSelected": true
+                },
+                {
+                  "Handle": "0x00100784",
+                  "Title": "herface.debug.log - 메모장",
+                  "ClassName": "Notepad",
+                  "ProcessId": 23792,
+                  "Bounds": { "Left": 299, "Top": 196, "Width": 1440, "Height": 746 },
+                  "IsSelected": false
+                }
+              ]
+            }
+            """;
+
+        var rewritten = AgentRunner.TryRewriteSelectWindowArguments(
+            new Dictionary<string, object?> { ["titleContains"] = "Notepad" },
+            recentListWindowsOutput,
+            out var actualArgs);
+
+        Assert.True(rewritten);
+        Assert.Equal("0x00180398", actualArgs["windowHandle"]);
+        Assert.False(actualArgs.ContainsKey("titleContains"));
     }
 
     [Fact]
