@@ -1,4 +1,4 @@
-﻿using Xunit;
+using Xunit;
 
 namespace HeronWin.Brain.Tests;
 
@@ -50,15 +50,15 @@ public sealed class DebugTraceTests
     [Fact]
     public void ShouldLogFullToolPayload_ReturnsTrue_ForUiTreeTools()
     {
-        Assert.True(McpClientManager.ShouldLogFullToolPayload("describe_selected_window", "{ }"));
-        Assert.True(McpClientManager.ShouldLogFullToolPayload("describe_selected_window_focus", "{ }"));
+        Assert.True(McpClientManager.ShouldLogFullToolPayload("describe_window", "{ }"));
+        Assert.True(McpClientManager.ShouldLogFullToolPayload("describe_window_focus", "{ }"));
     }
 
     [Fact]
     public void ShouldLogFullToolPayload_ReturnsFalse_ForNonTreeTools()
     {
-        Assert.False(McpClientManager.ShouldLogFullToolPayload("invoke_selected_window_element", "{ }"));
-        Assert.False(McpClientManager.ShouldLogFullToolPayload("describe_selected_window", ""));
+        Assert.False(McpClientManager.ShouldLogFullToolPayload("invoke_window_element", "{ }"));
+        Assert.False(McpClientManager.ShouldLogFullToolPayload("describe_window", ""));
     }
 
     [Fact]
@@ -80,3 +80,4 @@ public sealed class DebugTraceTests
             actual);
     }
 }
+

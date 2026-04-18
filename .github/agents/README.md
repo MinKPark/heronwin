@@ -31,7 +31,7 @@ If the split files are missing, `herface` falls back to `.github/agents/her.agen
 The runtime already has a clean separation between:
 
 - orchestration in `herface`
-- capabilities in MCP servers such as `eyesandhands`
+- capabilities in MCP servers such as `cognition` and `execution`
 
 Splitting the prompt layer the same way keeps durable agent policy separate from scenario-specific guidance.
 
@@ -91,11 +91,11 @@ Pick only the smallest set of skills that clearly apply to the current user turn
 
 ## MCP Boundary
 
-Skills can prefer MCP tools from `eyesandhands`, but they should not redefine the tool contract itself.
+Skills can prefer MCP tools from `cognition` and `execution`, but they should not redefine the tool contract itself.
 
 - Agent/core decides how to think and report
 - Skills decide which playbook to use
-- MCP servers such as `eyesandhands` provide the actual capability surface
+- MCP servers such as `cognition` and `execution` provide the actual capability surface
 
 ## Current Runtime Notes
 
@@ -117,3 +117,5 @@ Skills can prefer MCP tools from `eyesandhands`, but they should not redefine th
 ## Good Next Step
 
 The next improvement would be broadening the intent vocabulary so skills can activate from richer request shapes without adding new skill-name-specific code.
+
+

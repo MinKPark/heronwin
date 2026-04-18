@@ -1,4 +1,4 @@
-﻿using Xunit;
+using Xunit;
 
 namespace HeronWin.Brain.Tests;
 
@@ -31,9 +31,9 @@ public sealed class AgentPromptComposerTests
             "Open Spotify.",
             [
                 new ToolDefinition("list_windows", "desc", default),
-                new ToolDefinition("select_window", "desc", default),
-                new ToolDefinition("launch_app_via_taskbar_search", "desc", default),
-                new ToolDefinition("describe_selected_window", "desc", default)
+                new ToolDefinition("activate_window", "desc", default),
+                new ToolDefinition("launch_application", "desc", default),
+                new ToolDefinition("describe_window", "desc", default)
             ]);
 
         Assert.False(actual.UsesFallbackDefinition);
@@ -54,9 +54,9 @@ public sealed class AgentPromptComposerTests
             catalog,
             "Open the File menu.",
             [
-                new ToolDefinition("list_main_menu_items", "desc", default),
-                new ToolDefinition("invoke_main_menu_item", "desc", default),
-                new ToolDefinition("describe_selected_window", "desc", default)
+                new ToolDefinition("list_window_main_menu_items", "desc", default),
+                new ToolDefinition("invoke_window_main_menu_item", "desc", default),
+                new ToolDefinition("describe_window", "desc", default)
             ]);
 
         Assert.DoesNotContain(actual.ActiveSkills, skill => skill.Key == "desktop-launch-and-first-look");
@@ -73,9 +73,9 @@ public sealed class AgentPromptComposerTests
             catalog,
             "Close this window.",
             [
-                new ToolDefinition("select_window", "desc", default),
-                new ToolDefinition("describe_selected_window", "desc", default),
-                new ToolDefinition("send_input_to_window", "desc", default)
+                new ToolDefinition("activate_window", "desc", default),
+                new ToolDefinition("describe_window", "desc", default),
+                new ToolDefinition("press_window_key", "desc", default)
             ]);
 
         Assert.Contains(actual.ActiveSkills, skill => skill.Key == "generic-app-policy");
@@ -90,9 +90,9 @@ public sealed class AgentPromptComposerTests
             catalog,
             "Can you go to the Netflix website?",
             [
-                new ToolDefinition("describe_selected_window", "desc", default),
-                new ToolDefinition("invoke_selected_window_element", "desc", default),
-                new ToolDefinition("send_input_to_window", "desc", default)
+                new ToolDefinition("describe_window", "desc", default),
+                new ToolDefinition("invoke_window_element", "desc", default),
+                new ToolDefinition("press_window_key", "desc", default)
             ]);
 
         Assert.Contains(actual.ActiveSkills, skill => skill.Key == "browser-navigation-and-web-operations");
@@ -110,9 +110,9 @@ public sealed class AgentPromptComposerTests
             catalog,
             "How do I turn off subtitles in Hulu? Look up the official instructions.",
             [
-                new ToolDefinition("describe_selected_window", "desc", default),
-                new ToolDefinition("send_input_to_window", "desc", default),
-                new ToolDefinition("capture_selected_window_screenshot", "desc", default)
+                new ToolDefinition("describe_window", "desc", default),
+                new ToolDefinition("press_window_key", "desc", default),
+                new ToolDefinition("capture_window_screenshot", "desc", default)
             ]);
 
         Assert.Contains(actual.ActiveSkills, skill => skill.Key == "browser-navigation-and-web-operations");
@@ -129,8 +129,8 @@ public sealed class AgentPromptComposerTests
             catalog,
             "How do I click the Save button?",
             [
-                new ToolDefinition("click_selected_window_element", "desc", default),
-                new ToolDefinition("describe_selected_window", "desc", default)
+                new ToolDefinition("click_window_element", "desc", default),
+                new ToolDefinition("describe_window", "desc", default)
             ]);
 
         Assert.DoesNotContain(actual.ActiveSkills, skill => skill.Key == "browser-navigation-and-web-operations");
@@ -146,9 +146,9 @@ public sealed class AgentPromptComposerTests
             catalog,
             "Go to the Netflix website.",
             [
-                new ToolDefinition("describe_selected_window", "desc", default),
-                new ToolDefinition("click_selected_window_element", "desc", default),
-                new ToolDefinition("capture_selected_window_screenshot", "desc", default)
+                new ToolDefinition("describe_window", "desc", default),
+                new ToolDefinition("click_window_element", "desc", default),
+                new ToolDefinition("capture_window_screenshot", "desc", default)
             ]);
 
         Assert.Contains(actual.ActiveSkills, skill => skill.Key == "browser-navigation-and-web-operations");
@@ -165,10 +165,10 @@ public sealed class AgentPromptComposerTests
             "Open the Netflix website in Edge.",
             [
                 new ToolDefinition("list_windows", "desc", default),
-                new ToolDefinition("select_window", "desc", default),
-                new ToolDefinition("launch_app_via_taskbar_search", "desc", default),
-                new ToolDefinition("describe_selected_window", "desc", default),
-                new ToolDefinition("send_input_to_window", "desc", default)
+                new ToolDefinition("activate_window", "desc", default),
+                new ToolDefinition("launch_application", "desc", default),
+                new ToolDefinition("describe_window", "desc", default),
+                new ToolDefinition("press_window_key", "desc", default)
             ]);
 
         Assert.Contains(actual.ActiveSkills, skill => skill.Key == "browser-navigation-and-web-operations");
@@ -185,10 +185,10 @@ public sealed class AgentPromptComposerTests
             catalog,
             "Search for Boyfriend on Demand within Netflix using the visible Search control.",
             [
-                new ToolDefinition("describe_selected_window", "desc", default),
-                new ToolDefinition("set_selected_window_element_value", "desc", default),
-                new ToolDefinition("send_input_to_window", "desc", default),
-                new ToolDefinition("capture_selected_window_screenshot", "desc", default)
+                new ToolDefinition("describe_window", "desc", default),
+                new ToolDefinition("set_window_element_text", "desc", default),
+                new ToolDefinition("press_window_key", "desc", default),
+                new ToolDefinition("capture_window_screenshot", "desc", default)
             ]);
 
         Assert.Contains(actual.ActiveSkills, skill => skill.Key == "search-and-enumeration");
@@ -205,11 +205,11 @@ public sealed class AgentPromptComposerTests
             catalog,
             "Search for Boyfriend on Demand within the Netflix website.",
             [
-                new ToolDefinition("describe_selected_window", "desc", default),
-                new ToolDefinition("invoke_selected_window_element", "desc", default),
-                new ToolDefinition("set_selected_window_element_value", "desc", default),
-                new ToolDefinition("send_input_to_window", "desc", default),
-                new ToolDefinition("capture_selected_window_screenshot", "desc", default)
+                new ToolDefinition("describe_window", "desc", default),
+                new ToolDefinition("invoke_window_element", "desc", default),
+                new ToolDefinition("set_window_element_text", "desc", default),
+                new ToolDefinition("press_window_key", "desc", default),
+                new ToolDefinition("capture_window_screenshot", "desc", default)
             ]);
 
         Assert.Contains(actual.ActiveSkills, skill => skill.Key == "browser-navigation-and-web-operations");
@@ -226,8 +226,8 @@ public sealed class AgentPromptComposerTests
             catalog,
             "Click the visible Boyfriend on Demand result.",
             [
-                new ToolDefinition("click_selected_window_element", "desc", default),
-                new ToolDefinition("describe_selected_window", "desc", default)
+                new ToolDefinition("click_window_element", "desc", default),
+                new ToolDefinition("describe_window", "desc", default)
             ]);
 
         Assert.Contains(actual.ActiveSkills, skill => skill.Key == "action-discovery-and-invocation");
@@ -254,8 +254,8 @@ public sealed class AgentPromptComposerTests
             "Open Spotify.",
             [
                 new ToolDefinition("list_windows", "desc", default),
-                new ToolDefinition("select_window", "desc", default),
-                new ToolDefinition("describe_selected_window", "desc", default)
+                new ToolDefinition("activate_window", "desc", default),
+                new ToolDefinition("describe_window", "desc", default)
             ]);
 
         Assert.Contains(actual.ActiveSkills, skill => skill.Key == "desktop-launch-and-first-look");
@@ -281,13 +281,13 @@ public sealed class AgentPromptComposerTests
                 CreateSkill(
                     "ui-refresh-and-evidence",
                     "refresh skill",
-                    Activation(whenAnyTools: ["describe_selected_window"]),
+                    Activation(whenAnyTools: ["describe_window"]),
                     group: "any-app",
                     priority: 150),
                 CreateSkill(
                     "netflix-surface-and-state",
                     "netflix core skill",
-                    Activation(whenAnyKeywords: ["netflix"], whenAnyTools: ["describe_selected_window"]),
+                    Activation(whenAnyKeywords: ["netflix"], whenAnyTools: ["describe_window"]),
                     group: "netflix",
                     priority: 350),
                 CreateSkill(
@@ -296,7 +296,7 @@ public sealed class AgentPromptComposerTests
                     Activation(
                         whenAllKeywords: ["netflix"],
                         whenAnyKeywords: ["profile", "profiles"],
-                        whenAnyTools: ["describe_selected_window"]),
+                        whenAnyTools: ["describe_window"]),
                     group: "netflix",
                     priority: 400)
             ]);
@@ -307,7 +307,7 @@ public sealed class AgentPromptComposerTests
             [],
             [
                 new ToolDefinition("list_windows", "desc", default),
-                new ToolDefinition("describe_selected_window", "desc", default)
+                new ToolDefinition("describe_window", "desc", default)
             ]);
 
         Assert.Contains("### Windows Skill Group", actual.SystemPrompt, StringComparison.Ordinal);
@@ -344,7 +344,7 @@ public sealed class AgentPromptComposerTests
                     "netflix core skill",
                     Activation(
                         whenAnyKeywords: ["netflix"],
-                        whenAnyTools: ["describe_selected_window"]),
+                        whenAnyTools: ["describe_window"]),
                     group: "netflix",
                     priority: 350),
                 CreateSkill(
@@ -353,7 +353,7 @@ public sealed class AgentPromptComposerTests
                     Activation(
                         whenAllKeywords: ["netflix"],
                         whenAnyKeywords: ["profile", "profiles"],
-                        whenAnyTools: ["describe_selected_window"]),
+                        whenAnyTools: ["describe_window"]),
                     group: "netflix",
                     priority: 400)
             ]);
@@ -365,7 +365,7 @@ public sealed class AgentPromptComposerTests
                 new AgentMessage.Summary("Environment context: selected window is Netflix - Microsoft Edge. Visible cue: profile picker.")
             ],
             [
-                new ToolDefinition("describe_selected_window", "desc", default)
+                new ToolDefinition("describe_window", "desc", default)
             ]);
 
         Assert.Contains(actual.ActiveSkills, skill => skill.Key == "netflix-surface-and-state");
@@ -387,7 +387,7 @@ public sealed class AgentPromptComposerTests
                     "netflix core skill",
                     Activation(
                         whenAnyKeywords: ["netflix"],
-                        whenAnyTools: ["describe_selected_window"]),
+                        whenAnyTools: ["describe_window"]),
                     group: "netflix",
                     priority: 350),
                 CreateSkill(
@@ -396,7 +396,7 @@ public sealed class AgentPromptComposerTests
                     Activation(
                         whenAllKeywords: ["netflix"],
                         whenAnyKeywords: ["subtitle", "subtitles", "audio"],
-                        whenAnyTools: ["describe_selected_window"]),
+                        whenAnyTools: ["describe_window"]),
                     group: "netflix",
                     priority: 500),
                 CreateSkill(
@@ -405,7 +405,7 @@ public sealed class AgentPromptComposerTests
                     Activation(
                         whenAllKeywords: ["netflix"],
                         whenAnyKeywords: ["profile", "profiles", "pin"],
-                        whenAnyTools: ["describe_selected_window"]),
+                        whenAnyTools: ["describe_window"]),
                     group: "netflix",
                     priority: 400)
             ]);
@@ -417,7 +417,7 @@ public sealed class AgentPromptComposerTests
                 new AgentMessage.Summary("Environment context: selected window is Netflix. Visible cue: Back to Browse and Audio & Subtitles.")
             ],
             [
-                new ToolDefinition("describe_selected_window", "desc", default)
+                new ToolDefinition("describe_window", "desc", default)
             ]);
 
         Assert.Contains(actual.ActiveSkills, skill => skill.Key == "netflix-surface-and-state");
@@ -439,18 +439,18 @@ public sealed class AgentPromptComposerTests
                     Activation(
                         whenAnyTools:
                         [
-                            "select_window",
-                            "launch_app_via_taskbar_search",
-                            "describe_selected_window",
-                            "capture_selected_window_screenshot",
-                            "send_input_to_window",
-                            "click_selected_window_element",
-                            "invoke_selected_window_element",
-                            "focus_selected_window_element",
-                            "set_selected_window_element_value",
-                            "invoke_main_menu_item",
-                            "invoke_context_menu_item",
-                            "select_taskbar_app"
+                            "activate_window",
+                            "launch_application",
+                            "describe_window",
+                            "capture_window_screenshot",
+                            "press_window_key",
+                            "click_window_element",
+                            "invoke_window_element",
+                            "focus_window_element",
+                            "set_window_element_text",
+                            "invoke_window_main_menu_item",
+                            "invoke_window_context_menu_item",
+                            "activate_taskbar_app"
                         ]),
                     group: "generic-app",
                     priority: 140),
@@ -462,14 +462,14 @@ public sealed class AgentPromptComposerTests
                         unlessAnyIntents: ["browser_request"],
                         whenAnyTools:
                         [
-                            "list_main_menu_items",
-                            "list_context_menu_items",
-                            "invoke_main_menu_item",
-                            "invoke_context_menu_item",
-                            "invoke_selected_window_element",
-                            "click_selected_window_element",
-                            "focus_selected_window_element",
-                            "send_input_to_window"
+                            "list_window_main_menu_items",
+                            "list_window_context_menu_items",
+                            "invoke_window_main_menu_item",
+                            "invoke_window_context_menu_item",
+                            "invoke_window_element",
+                            "click_window_element",
+                            "focus_window_element",
+                            "press_window_key"
                         ]),
                     group: "any-app",
                     priority: 200),
@@ -480,14 +480,14 @@ public sealed class AgentPromptComposerTests
                         whenAnyIntents: ["browser_request", "instruction_lookup_request"],
                         whenAnyTools:
                         [
-                            "describe_selected_window",
-                            "describe_selected_window_focus",
-                            "invoke_selected_window_element",
-                            "click_selected_window_element",
-                            "focus_selected_window_element",
-                            "set_selected_window_element_value",
-                            "send_input_to_window",
-                            "capture_selected_window_screenshot"
+                            "describe_window",
+                            "describe_window_focus",
+                            "invoke_window_element",
+                            "click_window_element",
+                            "focus_window_element",
+                            "set_window_element_text",
+                            "press_window_key",
+                            "capture_window_screenshot"
                         ]),
                     group: "edge",
                     priority: 300),
@@ -499,10 +499,10 @@ public sealed class AgentPromptComposerTests
                         whenAnyTools:
                         [
                             "list_windows",
-                            "select_window",
-                            "list_taskbar_elements",
-                            "select_taskbar_app",
-                            "launch_app_via_taskbar_search"
+                            "activate_window",
+                            "list_taskbar_items",
+                            "activate_taskbar_app",
+                            "launch_application"
                         ]),
                     group: "windows",
                     priority: 100),
@@ -513,9 +513,9 @@ public sealed class AgentPromptComposerTests
                         whenAnyIntents: ["search_or_enumeration_request"],
                         whenAnyTools:
                         [
-                            "describe_selected_window",
-                            "describe_selected_window_focus",
-                            "capture_selected_window_screenshot"
+                            "describe_window",
+                            "describe_window_focus",
+                            "capture_window_screenshot"
                         ]),
                     group: "any-app",
                     priority: 210),
@@ -525,9 +525,9 @@ public sealed class AgentPromptComposerTests
                     Activation(
                         whenAnyTools:
                         [
-                            "describe_selected_window",
-                            "describe_selected_window_focus",
-                            "capture_selected_window_screenshot"
+                            "describe_window",
+                            "describe_window_focus",
+                            "capture_window_screenshot"
                         ]),
                     group: "any-app",
                     priority: 150)
@@ -574,3 +574,5 @@ public sealed class AgentPromptComposerTests
     private static AgentSkillActivation EmptyActivation
         => Activation();
 }
+
+

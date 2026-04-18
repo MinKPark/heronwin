@@ -15,9 +15,9 @@ public sealed class ArtifactCleanupTests
     }
 
     [Fact]
-    public void GetEyesAndHandsScreenshotDirectory_PointsToLogsFolder()
+    public void GetDesktopScreenshotDirectory_PointsToLogsFolder()
     {
-        var actual = ArtifactCleanup.GetEyesAndHandsScreenshotDirectory(@"C:\temp\brain\");
+        var actual = ArtifactCleanup.GetDesktopScreenshotDirectory(@"C:\temp\brain\");
 
         Assert.Equal(Path.Combine(@"C:\temp\brain\", "logs"), actual);
     }

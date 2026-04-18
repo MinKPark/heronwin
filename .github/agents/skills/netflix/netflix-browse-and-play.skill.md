@@ -4,12 +4,13 @@ group: netflix
 priority: 450
 summary: "Handle Netflix browse navigation, search results, title targeting, and play follow-through."
 preferred_tools:
-  - eyesandhands/describe_selected_window
-  - eyesandhands/capture_selected_window_screenshot
-  - eyesandhands/click_selected_window_element
-  - eyesandhands/invoke_selected_window_element
-  - eyesandhands/set_selected_window_element_value
-  - eyesandhands/send_input_to_window
+  - cognition/describe_window
+  - cognition/capture_window_screenshot
+  - execution/click_window_element
+  - execution/invoke_window_element
+  - execution/set_window_element_text
+  - execution/press_window_key
+  - execution/type_window_text
 activation:
   when_all_keywords:
     - netflix
@@ -30,12 +31,13 @@ activation:
     - results
     - back to browse
   when_any_tools:
-    - describe_selected_window
-    - capture_selected_window_screenshot
-    - click_selected_window_element
-    - invoke_selected_window_element
-    - set_selected_window_element_value
-    - send_input_to_window
+    - describe_window
+    - capture_window_screenshot
+    - click_window_element
+    - invoke_window_element
+    - set_window_element_text
+    - press_window_key
+    - type_window_text
 applies_when:
   - The user is browsing Netflix, choosing a title, or trying to start playback.
 ---
@@ -56,3 +58,4 @@ applies_when:
 - If a click lands on a title-detail page with controls such as `Back to Browse`, treat that as title-detail evidence and continue from there instead of claiming playback already started.
 - If playback is not visible yet, continue from the freshest title-detail, row, or result state instead of stopping after the first successful click.
 - For multi-step requests such as search, open, and play, do not stop after the earlier stage if the requested play state is still unfinished.
+

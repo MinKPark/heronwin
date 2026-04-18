@@ -44,14 +44,16 @@ It is responsible for:
 - settings editing for the selected `brain` `.env`,
 - named-pipe connectivity to `brain`.
 
-### `herbody`
+### `body`
 
-`herbody` holds local MCP servers under `src/herbody`.
+`body` holds local MCP servers and shared desktop automation code under `src/body`.
 
-Current servers:
+Current components:
 
-- `eyesandhands`: Windows UI inspection and interaction through Win32 and UI
-  Automation.
+- `cognition`: stateless Windows UI inspection.
+- `execution`: stateless Windows UI interaction.
+- `desktop-automation`: shared Windows automation library used by `cognition`
+  and `execution`.
 - `process-manager`: process listing, start, and stop operations.
 
 ### Prompt And Skill Layer
@@ -72,7 +74,7 @@ The normal runtime flow is:
 
 1. `brain` receives a voice turn or scripted command.
 2. `brain` composes the active prompt and skill set.
-3. `brain` calls local MCP servers such as `eyesandhands` or
+3. `brain` calls local MCP servers such as `cognition`, `execution`, or
    `process-manager`.
 4. `brain` records traces and artifacts for verification and debugging.
 5. `face` receives status updates from `brain` over a named pipe and reflects
@@ -94,7 +96,7 @@ The active repository implementation is the .NET and TypeScript code under
 
 Current areas of emphasis:
 
-- Windows desktop automation through `eyesandhands`,
+- Windows desktop automation through `cognition` and `execution`,
 - reliable tool-use behavior through skills plus runtime guardrails,
 - scenario-driven development for flows such as Netflix playback,
 - face/brain coordination through local process and pipe orchestration.

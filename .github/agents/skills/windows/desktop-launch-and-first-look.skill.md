@@ -4,23 +4,23 @@ group: windows
 priority: 100
 summary: "Open or switch to an app, then verify the first visible state."
 preferred_tools:
-  - eyesandhands/list_windows
-  - eyesandhands/select_window
-  - eyesandhands/list_taskbar_elements
-  - eyesandhands/select_taskbar_app
-  - eyesandhands/launch_app_via_taskbar_search
-  - eyesandhands/describe_selected_window
-  - eyesandhands/capture_selected_window_screenshot
+  - cognition/list_windows
+  - execution/activate_window
+  - cognition/list_taskbar_items
+  - execution/activate_taskbar_app
+  - execution/launch_application
+  - cognition/describe_window
+  - cognition/capture_window_screenshot
 activation:
   when_any_intents:
     - launch_request
     - direct_browser_navigation_request
   when_any_tools:
     - list_windows
-    - select_window
-    - list_taskbar_elements
-    - select_taskbar_app
-    - launch_app_via_taskbar_search
+    - activate_window
+    - list_taskbar_items
+    - activate_taskbar_app
+    - launch_application
 applies_when:
   - The user asks to open, start, launch, switch to, or bring forward an application.
 ---
@@ -38,12 +38,12 @@ applies_when:
 
 ## Tool Preference
 
-- Use `eyesandhands/list_windows` before launching.
-- If a likely window already exists, use `eyesandhands/select_window`.
+- Use `cognition/list_windows` before launching.
+- If a likely window already exists, use `execution/activate_window`.
 - If recent evidence already exposed a specific `windowHandle`, prefer that exact handle over a broader title match.
-- If the app is not open, inspect the taskbar with `eyesandhands/list_taskbar_elements`.
-- If the app looks pinned or already present on the taskbar, use `eyesandhands/select_taskbar_app`.
-- If it is not clearly available as a taskbar app button, use `eyesandhands/launch_app_via_taskbar_search`.
+- If the app is not open, inspect the taskbar with `cognition/list_taskbar_items`.
+- If the app looks pinned or already present on the taskbar, use `execution/activate_taskbar_app`.
+- If it is not clearly available as a taskbar app button, use `execution/launch_application`.
 - Ask the user to launch the app manually only after the available window-selection and taskbar-based launch routes are unavailable, ambiguous, or fail.
 
 ## First-Look Rules
@@ -55,7 +55,7 @@ applies_when:
 
 ## Evidence Rules
 
-- Use `eyesandhands/describe_selected_window` first for the initial app description.
+- Use `cognition/describe_window` first for the initial app description.
 - If UI Automation only exposes generic containers, sparse metadata, or otherwise does not support a useful description, capture a screenshot and describe the visible UI from the image.
 - When using the screenshot fallback, say briefly that the visual description comes from the screenshot because UI Automation was not detailed enough.
 
@@ -63,3 +63,5 @@ applies_when:
 
 - Stop and ask the user for guidance after reporting a startup error or warning dialog.
 - Do not imply that an app opened successfully unless the selected window evidence supports it.
+
+

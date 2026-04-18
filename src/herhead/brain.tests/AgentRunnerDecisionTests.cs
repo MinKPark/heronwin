@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using Xunit;
 
 namespace HeronWin.Brain.Tests;
@@ -126,7 +126,7 @@ public sealed class AgentRunnerDecisionTests
     public void ShouldCollectFocusSnapshotAfterAction_ReturnsTrue_ForNavigationKeys()
     {
         var actual = AgentRunner.ShouldCollectFocusSnapshotAfterAction(
-            "send_input_to_window",
+            "press_window_key",
             new Dictionary<string, object?> { ["key"] = "Tab" });
 
         Assert.True(actual);
@@ -136,7 +136,7 @@ public sealed class AgentRunnerDecisionTests
     public void BuildToolSpecificGuidance_ReturnsHint_ForNavigationKeyFallback()
     {
         var actual = AgentRunner.BuildToolSpecificGuidance(
-            "send_input_to_window",
+            "press_window_key",
             "{}",
             new Dictionary<string, object?> { ["key"] = "Tab" });
 
@@ -149,7 +149,7 @@ public sealed class AgentRunnerDecisionTests
     public void BuildToolSpecificGuidance_ReturnsFailureHint_ForTaskbarAppLaunchWithoutSelectedWindow()
     {
         var actual = AgentRunner.BuildToolSpecificGuidance(
-            "select_taskbar_app",
+            "activate_taskbar_app",
             """{"SelectedWindow":null}""",
             new Dictionary<string, object?>());
 
@@ -164,7 +164,7 @@ public sealed class AgentRunnerDecisionTests
     public void BuildToolSpecificGuidance_ReturnsFailureHint_ForTaskbarSearchLaunchWithoutSelectedWindow()
     {
         var actual = AgentRunner.BuildToolSpecificGuidance(
-            "launch_app_via_taskbar_search",
+            "launch_application",
             """{"SelectedWindow":null}""",
             new Dictionary<string, object?>());
 
@@ -235,7 +235,7 @@ public sealed class AgentRunnerDecisionTests
             out var rewrittenArgs);
 
         Assert.True(rewritten);
-        Assert.Equal("launch_app_via_taskbar_search", rewrittenToolName);
+        Assert.Equal("launch_application", rewrittenToolName);
         Assert.Equal("Netflix", rewrittenArgs["appName"]);
     }
 
@@ -276,7 +276,7 @@ public sealed class AgentRunnerDecisionTests
             out var rewrittenArgs);
 
         Assert.True(rewritten);
-        Assert.Equal("select_window", rewrittenToolName);
+        Assert.Equal("activate_window", rewrittenToolName);
         Assert.Equal("0x00060A88", rewrittenArgs["windowHandle"]);
     }
 
@@ -508,7 +508,7 @@ public sealed class AgentRunnerDecisionTests
         using var modifiers = JsonDocument.Parse("""["Control"]""");
         var actual = AgentRunner.NeedsBrowserWindowPreflight(
             "Go to the Netflix website.",
-            "send_input_to_window",
+            "press_window_key",
             new Dictionary<string, object?> { ["key"] = "L", ["modifiers"] = modifiers.RootElement },
             """{"Window":{"Handle":"0x004C08DE","Title":"heronwin - Visual Studio Code","ClassName":"Chrome_WidgetWin_1"}}""");
 
@@ -520,7 +520,7 @@ public sealed class AgentRunnerDecisionTests
     {
         var actual = AgentRunner.NeedsBrowserWindowPreflight(
             "Go to the Netflix website.",
-            "send_input_to_window",
+            "type_window_text",
             new Dictionary<string, object?> { ["text"] = "https://www.netflix.com" },
             """{"Window":{"Handle":"0x00060A88","Title":"Netflix - Microsoft Edge","ClassName":"Chrome_WidgetWin_1"}}""");
 
@@ -532,7 +532,7 @@ public sealed class AgentRunnerDecisionTests
     {
         var actual = AgentRunner.ShouldBlockTaskbarSearchForBrowserContentQuery(
             "Search for the show Boyfriend on Demand.",
-            "launch_app_via_taskbar_search",
+            "launch_application",
             """{"Window":{"Handle":"0x00060A88","Title":"Netflix - Microsoft Edge","ClassName":"Chrome_WidgetWin_1"}}""");
 
         Assert.True(actual);
@@ -543,7 +543,7 @@ public sealed class AgentRunnerDecisionTests
     {
         var actual = AgentRunner.ShouldBlockTaskbarSearchForBrowserContentQuery(
             "Launch the Calculator app from the taskbar search.",
-            "launch_app_via_taskbar_search",
+            "launch_application",
             """{"Window":{"Handle":"0x00060A88","Title":"Netflix - Microsoft Edge","ClassName":"Chrome_WidgetWin_1"}}""");
 
         Assert.False(actual);
@@ -602,7 +602,7 @@ public sealed class AgentRunnerDecisionTests
 
         var actual = AgentRunner.ShouldBlockUnnamedProfilePickerAction(
             "Play Netflix.",
-            "click_selected_window_element",
+            "click_window_element",
             new Dictionary<string, object?> { ["elementPath"] = "1/0/0/1/1/0/0/0/0/0/0/0/0/3" },
             snapshot,
             out var blockedMessage);
@@ -657,7 +657,7 @@ public sealed class AgentRunnerDecisionTests
 
         var actual = AgentRunner.ShouldBlockUnnamedProfilePickerAction(
             "Select Min.",
-            "click_selected_window_element",
+            "click_window_element",
             new Dictionary<string, object?> { ["elementPath"] = "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0" },
             snapshot,
             out var blockedMessage);
@@ -712,7 +712,7 @@ public sealed class AgentRunnerDecisionTests
 
         var actual = AgentRunner.ShouldBlockUnnamedProfilePickerAction(
             "Open Manage Profiles.",
-            "click_selected_window_element",
+            "click_window_element",
             new Dictionary<string, object?> { ["elementPath"] = "1/0/0/1/1/0/0/0/0/0/0/0/0/3" },
             snapshot,
             out var blockedMessage);
@@ -745,7 +745,7 @@ public sealed class AgentRunnerDecisionTests
             """;
 
         var actual = AgentRunner.TryExtractStructuredNetflixPinDigits(
-            "send_input_to_window",
+            "type_window_text",
             new Dictionary<string, object?> { ["text"] = "3579" },
             recentWindowContext: null,
             recentFocusContext: focusSnapshot,
@@ -779,7 +779,7 @@ public sealed class AgentRunnerDecisionTests
             """;
 
         var actual = AgentRunner.TryExtractStructuredNetflixPinDigits(
-            "send_input_to_window",
+            "type_window_text",
             new Dictionary<string, object?> { ["text"] = "3" },
             recentWindowContext: null,
             recentFocusContext: focusSnapshot,
@@ -829,7 +829,7 @@ public sealed class AgentRunnerDecisionTests
     public void TryRewriteBrowserAddressBarActionToShortcut_ReturnsTrue_ForBrowserAddressBarElement()
     {
         var actual = AgentRunner.TryRewriteBrowserAddressBarActionToShortcut(
-            "invoke_selected_window_element",
+            "invoke_window_element",
             new Dictionary<string, object?> { ["elementPath"] = "1/0/0/0/0/0" },
             """
             {
@@ -865,7 +865,7 @@ public sealed class AgentRunnerDecisionTests
     public void TryRewriteBrowserAddressBarActionToShortcut_ReturnsFalse_ForNonAddressBarElement()
     {
         var actual = AgentRunner.TryRewriteBrowserAddressBarActionToShortcut(
-            "invoke_selected_window_element",
+            "invoke_window_element",
             new Dictionary<string, object?> { ["elementPath"] = "1/0/0/0/1/0/0/0/0/0/0" },
             """
             {
@@ -953,7 +953,7 @@ public sealed class AgentRunnerDecisionTests
         var actionableUiTreeContext = AgentRunner.GetCurrentUiTreeContext(screenshotOnlySnapshot, uiTreeSnapshot);
         var rewritten = AgentRunner.TryRewriteGenericContainerActionToNamedTarget(
             "Could you select profile min and end?",
-            "click_selected_window_element",
+            "click_window_element",
             new Dictionary<string, object?> { ["elementPath"] = "1/0/0/1/1/0/0/0/0/0/0/0/0" },
             actionableUiTreeContext,
             out var rewrittenArgs);
@@ -1008,7 +1008,7 @@ public sealed class AgentRunnerDecisionTests
         const string rawToolText = "{ \"SelectedWindow\": { \"Handle\": \"0x0033061A\", \"Title\": \"Netflix\" } }";
 
         var actual = AgentRunner.ResolveToolResultContextForModel(
-            "launch_app_via_taskbar_search",
+            "launch_application",
             rawToolText,
             toolIsError: false,
             currentUiElementContext: keptUiElementContext,
@@ -1026,7 +1026,7 @@ public sealed class AgentRunnerDecisionTests
         const string rawToolText = "{ \"SelectedWindow\": { \"Handle\": \"0x0033061A\", \"Title\": \"Netflix\" }, \"Screenshot\": { \"MimeType\": \"image/png\" } }";
 
         var actual = AgentRunner.ResolveToolResultContextForModel(
-            "capture_selected_window_screenshot",
+            "capture_window_screenshot",
             rawToolText,
             toolIsError: false,
             currentUiElementContext: keptUiElementContext,
@@ -1044,7 +1044,7 @@ public sealed class AgentRunnerDecisionTests
         const string rawToolText = "{ \"FocusedElement\": { \"Name\": \"Search the web\", \"ControlType\": \"Edit\" } }";
 
         var actual = AgentRunner.ResolveToolResultContextForModel(
-            "describe_selected_window_focus",
+            "describe_window_focus",
             rawToolText,
             toolIsError: false,
             currentUiElementContext: null,
@@ -1105,7 +1105,7 @@ public sealed class AgentRunnerDecisionTests
             """;
 
         var actual = AgentRunner.ResolveToolResultContextForModel(
-            "describe_selected_window",
+            "describe_window",
             snapshot,
             toolIsError: false,
             currentUiElementContext: null,
@@ -1124,7 +1124,7 @@ public sealed class AgentRunnerDecisionTests
         const string rawToolText = "Error: timed out waiting for the selected window.";
 
         var actual = AgentRunner.ResolveToolResultContextForModel(
-            "click_selected_window_element",
+            "click_window_element",
             rawToolText,
             toolIsError: true,
             currentUiElementContext: keptUiElementContext,
@@ -1192,7 +1192,7 @@ public sealed class AgentRunnerDecisionTests
 
         var rewritten = AgentRunner.TryRewriteGenericContainerActionToNamedTarget(
             "Could you select profile min and end?",
-            "click_selected_window_element",
+            "click_window_element",
             new Dictionary<string, object?> { ["elementPath"] = "1/0/0/1/1/0/0/0/0/0/0/0/0" },
             snapshot,
             out var rewrittenArgs);
@@ -1260,7 +1260,7 @@ public sealed class AgentRunnerDecisionTests
 
         var rewritten = AgentRunner.TryRewriteGenericContainerActionToNamedTarget(
             "Select Min.",
-            "click_selected_window_element",
+            "click_window_element",
             new Dictionary<string, object?> { ["elementPath"] = "1/0/0/1/1/0/0/0/0/0/0/0/0/1" },
             snapshot,
             out var rewrittenArgs);
@@ -1294,7 +1294,7 @@ public sealed class AgentRunnerDecisionTests
 
         var rewritten = AgentRunner.TryRewriteGenericContainerActionToNamedTarget(
             "Could you select profile min and end?",
-            "click_selected_window_element",
+            "click_window_element",
             new Dictionary<string, object?> { ["elementPath"] = "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0" },
             snapshot,
             out _);
@@ -1338,7 +1338,7 @@ public sealed class AgentRunnerDecisionTests
 
         var rewritten = AgentRunner.TryRewriteGenericContainerActionToNamedTarget(
             "Select Min.",
-            "invoke_selected_window_element",
+            "invoke_window_element",
             new Dictionary<string, object?> { ["elementPath"] = "1/0/0/1/1/0/0/0/0/0/0/2/0/0" },
             snapshot,
             out var rewrittenArgs);
@@ -1383,7 +1383,7 @@ public sealed class AgentRunnerDecisionTests
 
         var rewritten = AgentRunner.TryRewriteGenericContainerActionToNamedTarget(
             "Let's pick men.",
-            "invoke_selected_window_element",
+            "invoke_window_element",
             new Dictionary<string, object?> { ["elementPath"] = "1/0/0/1/1/0/0/0/0/0/0/2/0/0" },
             snapshot,
             out var rewrittenArgs);
@@ -1428,7 +1428,7 @@ public sealed class AgentRunnerDecisionTests
 
         var rewritten = AgentRunner.TryRewriteGenericContainerActionToNamedTarget(
             "Select Min.",
-            "click_selected_window_element",
+            "click_window_element",
             new Dictionary<string, object?> { ["elementPath"] = "1/0/0/1/1/0/0/0/0/0/0/2/0/0" },
             snapshot,
             out var rewrittenArgs);
@@ -1465,7 +1465,7 @@ public sealed class AgentRunnerDecisionTests
 
         var rewritten = AgentRunner.TryRewriteGenericContainerActionToNamedTarget(
             "Close it.",
-            "invoke_selected_window_element",
+            "invoke_window_element",
             new Dictionary<string, object?> { ["elementPath"] = "root" },
             snapshot,
             out _);
@@ -1566,7 +1566,7 @@ public sealed class AgentRunnerDecisionTests
     public void BuildToolStepNarration_ReturnsSearchLaunchSentence()
     {
         var actual = AgentRunner.BuildToolStepNarration(
-            "launch_app_via_taskbar_search",
+            "launch_application",
             new Dictionary<string, object?> { ["appName"] = "Netflix" });
 
         Assert.Equal("Okay, let me open Netflix.", actual);
@@ -1577,7 +1577,7 @@ public sealed class AgentRunnerDecisionTests
     {
         using var modifiers = JsonDocument.Parse("""["Control"]""");
         var actual = AgentRunner.BuildToolStepNarration(
-            "send_input_to_window",
+            "press_window_key",
             new Dictionary<string, object?> { ["key"] = "L", ["modifiers"] = modifiers.RootElement.Clone() });
 
         Assert.Equal("Okay, I'm pressing Control plus L.", actual);
@@ -1587,7 +1587,7 @@ public sealed class AgentRunnerDecisionTests
     public void BuildToolStepNarration_ReturnsUrlSentence_ForTypedUrl()
     {
         var actual = AgentRunner.BuildToolStepNarration(
-            "send_input_to_window",
+            "type_window_text",
             new Dictionary<string, object?> { ["text"] = "https://www.netflix.com" });
 
         Assert.Equal("Okay, I'm putting the site in.", actual);
@@ -1608,7 +1608,7 @@ public sealed class AgentRunnerDecisionTests
         var actual = AgentRunner.ResolveToolStepNarration(
             """{"say":"I'm clicking Play now.","log":"Trying the visible Play control."}""",
             1,
-            "click_selected_window_element",
+            "click_window_element",
             new Dictionary<string, object?>());
 
         Assert.NotNull(actual);
@@ -1634,9 +1634,9 @@ public sealed class AgentRunnerDecisionTests
         var actual = AgentRunner.ResolveToolStepNarration(
             assistantContent: null,
             toolCallCount: 2,
-            toolName: "capture_selected_window_screenshot",
+            toolName: "capture_window_screenshot",
             args: new Dictionary<string, object?>(),
-            previousToolName: "describe_selected_window");
+            previousToolName: "describe_window");
 
         Assert.Null(actual);
     }
@@ -1647,9 +1647,9 @@ public sealed class AgentRunnerDecisionTests
         var actual = AgentRunner.ResolveToolStepNarration(
             """{"say":"Let me zoom in on that for a sec.","log":"Capturing a screenshot after the UI tree."}""",
             1,
-            "capture_selected_window_screenshot",
+            "capture_window_screenshot",
             new Dictionary<string, object?>(),
-            previousToolName: "describe_selected_window");
+            previousToolName: "describe_window");
 
       Assert.Null(actual);
     }
@@ -1679,8 +1679,8 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Theory]
-    [InlineData("click_selected_window_element")]
-    [InlineData("set_selected_window_element_value")]
+    [InlineData("click_window_element")]
+    [InlineData("set_window_element_text")]
     public void IsDesktopActionTool_ReturnsTrue_ForDirectUiStateChanges(string toolName)
     {
         var actual = AgentRunner.IsDesktopActionTool(toolName);
@@ -1692,9 +1692,9 @@ public sealed class AgentRunnerDecisionTests
     public void ShouldCapturePostActionDebugScreenshot_ReturnsTrue_WhenDebugTraceIsEnabledAndScreenshotToolExists()
     {
         var actual = AgentRunner.ShouldCapturePostActionDebugScreenshot(
-            "click_selected_window_element",
+            "click_window_element",
             debugTraceEnabled: true,
-            new HashSet<string>(StringComparer.Ordinal) { "capture_selected_window_screenshot" });
+            new HashSet<string>(StringComparer.Ordinal) { "capture_window_screenshot" });
 
         Assert.True(actual);
     }
@@ -1703,9 +1703,9 @@ public sealed class AgentRunnerDecisionTests
     public void ShouldCapturePostActionDebugScreenshot_ReturnsFalse_WhenDebugTraceIsDisabled()
     {
         var actual = AgentRunner.ShouldCapturePostActionDebugScreenshot(
-            "click_selected_window_element",
+            "click_window_element",
             debugTraceEnabled: false,
-            new HashSet<string>(StringComparer.Ordinal) { "capture_selected_window_screenshot" });
+            new HashSet<string>(StringComparer.Ordinal) { "capture_window_screenshot" });
 
         Assert.False(actual);
     }
@@ -1714,9 +1714,9 @@ public sealed class AgentRunnerDecisionTests
     public void ShouldCapturePostActionDebugScreenshot_ReturnsFalse_WhenToolIsNotDesktopAction()
     {
         var actual = AgentRunner.ShouldCapturePostActionDebugScreenshot(
-            "describe_selected_window",
+            "describe_window",
             debugTraceEnabled: true,
-            new HashSet<string>(StringComparer.Ordinal) { "capture_selected_window_screenshot" });
+            new HashSet<string>(StringComparer.Ordinal) { "capture_window_screenshot" });
 
         Assert.False(actual);
     }
@@ -1725,7 +1725,7 @@ public sealed class AgentRunnerDecisionTests
     public void ShouldCapturePostActionDebugScreenshot_ReturnsFalse_WhenScreenshotToolIsUnavailable()
     {
         var actual = AgentRunner.ShouldCapturePostActionDebugScreenshot(
-            "click_selected_window_element",
+            "click_window_element",
             debugTraceEnabled: true,
             new HashSet<string>(StringComparer.Ordinal));
 
@@ -1736,7 +1736,7 @@ public sealed class AgentRunnerDecisionTests
     public void BuildToolSpecificGuidance_ReturnsPostActionVerificationHint_ForClick()
     {
         var actual = AgentRunner.BuildToolSpecificGuidance(
-            "click_selected_window_element",
+            "click_window_element",
             "{}",
             new Dictionary<string, object?>());
 
@@ -1749,7 +1749,7 @@ public sealed class AgentRunnerDecisionTests
     public void BuildToolSpecificGuidance_ReturnsPostActionVerificationHint_ForDirectValueEntry()
     {
         var actual = AgentRunner.BuildToolSpecificGuidance(
-            "set_selected_window_element_value",
+            "set_window_element_text",
             "{}",
             new Dictionary<string, object?>());
 
@@ -1797,11 +1797,11 @@ public sealed class AgentRunnerDecisionTests
 
         var actual = AgentRunner.TryRewriteBrowserSearchFieldValueEntryToTyping(
             "Search for Boyfriend on Demand within Netflix.",
-            "set_selected_window_element_value",
+            "set_window_element_text",
             new Dictionary<string, object?>
             {
                 ["elementPath"] = "1/0/0/1/1/0/0/0/0/0/0/0/0/0/3",
-                ["value"] = "Boyfriend on Demand"
+                ["text"] = "Boyfriend on Demand"
             },
             snapshot,
             out var rewrittenArgs,
@@ -1816,7 +1816,7 @@ public sealed class AgentRunnerDecisionTests
     public void BuildToolSpecificGuidance_ReturnsNull_ForModifiedShortcut()
     {
         var actual = AgentRunner.BuildToolSpecificGuidance(
-            "send_input_to_window",
+            "press_window_key",
             "{}",
             new Dictionary<string, object?> { ["key"] = "F4", ["modifiers"] = JsonDocument.Parse("""["Alt"]""").RootElement });
 
@@ -1861,3 +1861,4 @@ public sealed class AgentRunnerDecisionTests
         Assert.Contains("ask for clarification", actual!, StringComparison.OrdinalIgnoreCase);
     }
 }
+

@@ -196,7 +196,7 @@ public sealed class MainViewModel : ObservableObject
             new FaceStatusSnapshot(FaceStatusKind.Listening, "Listening", "Capturing the user request now.", DateTimeOffset.Now, IsDemo: true),
             new FaceStatusSnapshot(FaceStatusKind.Transcribing, "Transcribing", "Turning speech into text.", DateTimeOffset.Now, IsDemo: true),
             new FaceStatusSnapshot(FaceStatusKind.Thinking, "Thinking", "Planning the next move.", DateTimeOffset.Now, IsDemo: true),
-            new FaceStatusSnapshot(FaceStatusKind.Acting, "Acting", "Calling tools and checking the screen.", DateTimeOffset.Now, ToolName: "describe_selected_window", IsDemo: true),
+            new FaceStatusSnapshot(FaceStatusKind.Acting, "Acting", "Calling tools and checking the screen.", DateTimeOffset.Now, ToolName: "describe_window", IsDemo: true),
             new FaceStatusSnapshot(FaceStatusKind.Speaking, "Speaking", "Answering back to the user.", DateTimeOffset.Now, Transcript: "Netflix is open, and it is waiting on the profile picker.", IsDemo: true)
         };
 

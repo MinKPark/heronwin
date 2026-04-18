@@ -4,28 +4,30 @@ group: any-app
 priority: 200
 summary: "Find and perform a requested action in the current app."
 preferred_tools:
-  - eyesandhands/list_main_menu_items
-  - eyesandhands/list_context_menu_items
-  - eyesandhands/invoke_main_menu_item
-  - eyesandhands/invoke_context_menu_item
-  - eyesandhands/click_selected_window_element
-  - eyesandhands/invoke_selected_window_element
-  - eyesandhands/focus_selected_window_element
-  - eyesandhands/send_input_to_window
+  - cognition/list_window_main_menu_items
+  - cognition/list_window_context_menu_items
+  - execution/invoke_window_main_menu_item
+  - execution/invoke_window_context_menu_item
+  - execution/click_window_element
+  - execution/invoke_window_element
+  - execution/focus_window_element
+  - execution/press_window_key
+  - execution/type_window_text
 activation:
   when_any_intents:
     - action_request
   unless_any_intents:
     - browser_request
   when_any_tools:
-    - list_main_menu_items
-    - list_context_menu_items
-    - invoke_main_menu_item
-    - invoke_context_menu_item
-    - invoke_selected_window_element
-    - click_selected_window_element
-    - focus_selected_window_element
-    - send_input_to_window
+    - list_window_main_menu_items
+    - list_window_context_menu_items
+    - invoke_window_main_menu_item
+    - invoke_window_context_menu_item
+    - invoke_window_element
+    - click_window_element
+    - focus_window_element
+    - press_window_key
+    - type_window_text
 applies_when:
   - The user asks to click, press, open, select, save, rename, or otherwise activate something in the current app.
 ---
@@ -42,14 +44,14 @@ applies_when:
 
 ## Menu Rules
 
-- Check `eyesandhands/list_main_menu_items` first.
-- If the requested action is not clearly in the main menu, check `eyesandhands/list_context_menu_items` for the currently focused element.
+- Check `cognition/list_window_main_menu_items` first.
+- If the requested action is not clearly in the main menu, check `cognition/list_window_context_menu_items` for the currently focused element.
 - If more than one menu action looks plausible, ask the user to confirm before invoking anything.
 - When using a context menu, say briefly which element the menu belongs to.
 
 ## Direct Action Rules
 
-- When the user explicitly asks to click, press, open, select, or invoke a visible UI element and you have an element path for it, use `eyesandhands/invoke_selected_window_element` first and prefer `eyesandhands/click_selected_window_element` when direct invocation is unavailable or unreliable for that visible target.
+- When the user explicitly asks to click, press, open, select, or invoke a visible UI element and you have an element path for it, use `execution/invoke_window_element` first and prefer `execution/click_window_element` when direct invocation is unavailable or unreliable for that visible target.
 - If the user asks to open something from visible search results and a matching visible result tile or row is already on screen, target that visible result instead of re-entering the search query or re-focusing the search field.
 - If the immediately preceding evidence or reply already confirmed that the requested title is visible in search results, continue from that visible result. Do not click the site logo, home link, or generic navigation controls just because they appear earlier in the tree.
 - If the requested title is visible as a named result tile and a hover preview or play overlay is also visible, prefer the named matching result tile unless the preview itself clearly shows the same title.
@@ -59,11 +61,11 @@ applies_when:
 - If a conditional request says "if X is visible, do Y," then perform `Y` when `X` is present. Do not stop just because the target is visible.
 - If the condition is absent, report a successful no-op instead of framing the step as failed or incomplete.
 - For that successful no-op reply, prefer language like "No action was needed because the requested prompt was not present" and avoid phrases like "I did not click" or "I did not type" unless the user explicitly asked for a postmortem.
-- For a conditional prompt, dialog, passcode, or overlay check, start with `eyesandhands/describe_selected_window` and, if needed, `eyesandhands/capture_selected_window_screenshot` before trying focus or invocation tools.
-- For a conditional prompt, dialog, passcode, or overlay check, do not call `eyesandhands/describe_selected_window_focus` unless the fresh tree or screenshot already shows a visible input target, keypad, or dialog whose focus matters.
-- Do not call `eyesandhands/describe_selected_window_focus` just to determine whether a conditional prompt, dialog, passcode, or overlay exists. Use focus inspection only after the prompt is already visible and you need to confirm the active input target.
+- For a conditional prompt, dialog, passcode, or overlay check, start with `cognition/describe_window` and, if needed, `cognition/capture_window_screenshot` before trying focus or invocation tools.
+- For a conditional prompt, dialog, passcode, or overlay check, do not call `cognition/describe_window_focus` unless the fresh tree or screenshot already shows a visible input target, keypad, or dialog whose focus matters.
+- Do not call `cognition/describe_window_focus` just to determine whether a conditional prompt, dialog, passcode, or overlay exists. Use focus inspection only after the prompt is already visible and you need to confirm the active input target.
 - If the current selected window already appears to be the right app and the condition is absent in the fresh evidence, stop immediately instead of re-selecting the same window or attempting unrelated element actions.
-- If the visible control is exposed only through a sparse or generic subtree, still prefer direct element targeting with `eyesandhands/invoke_selected_window_element` or `eyesandhands/click_selected_window_element` over ad hoc `Tab` or arrow-key retries.
+- If the visible control is exposed only through a sparse or generic subtree, still prefer direct element targeting with `execution/invoke_window_element` or `execution/click_window_element` over ad hoc `Tab` or arrow-key retries.
 - When a visible control is already exposed in the tree, do not replace direct targeting with repeated standalone `Tab` or arrow-key exploration.
 - If a direct element activation attempt fails once, refresh the UI state and choose a fresh exact target from the new evidence rather than mutating the old path into an approximate guess.
 - After a direct open or play action that changes the screen toward playback, refresh both the UI tree and a screenshot before deciding whether the requested content is actually playing.
@@ -71,7 +73,7 @@ applies_when:
 
 ## Keyboard Rules
 
-- Use `eyesandhands/send_input_to_window` when the user explicitly asks for a shortcut, a named key press, or text entry.
+- Use `execution/press_window_key` when the user explicitly asks for a shortcut or named key press. Use `execution/type_window_text` when the user explicitly asks for text entry.
 - Do not use it as the first fallback for activating visible controls.
 - Do not chain repeated standalone `Tab` presses without re-checking focus or the refreshed window tree after each navigation attempt.
 - After shortcuts, text entry, or other keyboard input that could change the UI, refresh state before claiming success.
@@ -80,3 +82,5 @@ applies_when:
 ## Stop Conditions
 
 - If the action still is not confirmed after a small number of materially different attempts, stop and ask the user for guidance.
+
+

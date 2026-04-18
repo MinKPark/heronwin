@@ -5,7 +5,7 @@ internal static class ArtifactCleanup
     internal static string GetLogsDirectory(string baseDirectory)
         => DebugTrace.BuildLogsDirectory(baseDirectory);
 
-    internal static string GetEyesAndHandsScreenshotDirectory(string baseDirectory)
+    internal static string GetDesktopScreenshotDirectory(string baseDirectory)
         => GetLogsDirectory(baseDirectory);
 
     internal static string GetDebugVoiceRecordingDirectory(string baseDirectory)

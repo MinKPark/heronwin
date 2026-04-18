@@ -4,33 +4,35 @@ group: edge
 priority: 300
 summary: "Operate browser chrome and navigate directly to websites without turning URLs into search queries."
 preferred_tools:
-  - eyesandhands/list_windows
-  - eyesandhands/select_window
-  - eyesandhands/launch_app_via_taskbar_search
-  - eyesandhands/describe_selected_window
-  - eyesandhands/describe_selected_window_focus
-  - eyesandhands/click_selected_window_element
-  - eyesandhands/invoke_selected_window_element
-  - eyesandhands/focus_selected_window_element
-  - eyesandhands/set_selected_window_element_value
-  - eyesandhands/send_input_to_window
-  - eyesandhands/capture_selected_window_screenshot
+  - cognition/list_windows
+  - execution/activate_window
+  - execution/launch_application
+  - cognition/describe_window
+  - cognition/describe_window_focus
+  - execution/click_window_element
+  - execution/invoke_window_element
+  - execution/focus_window_element
+  - execution/set_window_element_text
+  - execution/press_window_key
+  - execution/type_window_text
+  - cognition/capture_window_screenshot
 activation:
   when_any_intents:
     - browser_request
     - instruction_lookup_request
   when_any_tools:
     - list_windows
-    - select_window
-    - launch_app_via_taskbar_search
-    - describe_selected_window
-    - describe_selected_window_focus
-    - invoke_selected_window_element
-    - click_selected_window_element
-    - focus_selected_window_element
-    - set_selected_window_element_value
-    - send_input_to_window
-    - capture_selected_window_screenshot
+    - activate_window
+    - launch_application
+    - describe_window
+    - describe_window_focus
+    - invoke_window_element
+    - click_window_element
+    - focus_window_element
+    - set_window_element_text
+    - press_window_key
+    - type_window_text
+    - capture_window_screenshot
 applies_when:
   - The user asks to go to a website, URL, address bar, page, tab, or other browser chrome control.
   - The user asks to look up instructions, help, documentation, or an official support page for an app or service.
@@ -83,8 +85,8 @@ applies_when:
 - If the current website is temporarily showing fullscreen playback, a preview overlay, or another mode that hides the site search UI, first recover the site’s normal browsing surface with site-native controls such as Back, Back to Browse, Escape, or the site header before attempting the in-site search.
 - For site-native search, first identify the visible site search control or search affordance from the refreshed page state before typing.
 - When a site search control is exposed in the UI tree, copy its exact full `path` or `uiPath` from the latest evidence. Do not shorten or approximate that identifier.
-- When a visible site search field is editable and the tools include `eyesandhands/set_selected_window_element_value`, prefer setting that exact field value directly before using generic typing.
-- When a visible site result tile, poster, or play control is clearly the requested target and the tools include `eyesandhands/click_selected_window_element`, prefer that exact-path click over guessed keyboard navigation if direct invocation is unavailable or unreliable.
+- When a visible site search field is editable and the tools include `execution/set_window_element_text`, prefer setting that exact field value directly before using generic typing.
+- When a visible site result tile, poster, or play control is clearly the requested target and the tools include `execution/click_window_element`, prefer that exact-path click over guessed keyboard navigation if direct invocation is unavailable or unreliable.
 - If a site search control path fails once, refresh the page state and select a fresh exact target from the newest evidence instead of mutating the old path.
 - Do not claim a site search step succeeded until the search field, query text, or visible results for the requested title are actually on screen.
 - If the browser lands on a web search engine results page during a request to search within the current site, treat that as a wrong surface and repair back to the intended site-native flow.
@@ -114,3 +116,5 @@ applies_when:
 - Treat back, forward, refresh, home, tabs, and the address bar as browser chrome controls rather than page elements.
 - Prefer direct browser chrome targeting when those controls are exposed by the accessibility tree.
 - When the user asks to switch tabs or use browser chrome, avoid guessing from page content alone.
+
+

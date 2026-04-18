@@ -53,7 +53,7 @@ Drive or inspect Windows applications calmly and accurately through the availabl
 - After text entry into a visible field, verify that the intended text is actually present on screen before treating the entry stage as complete.
 - If the current screen already shows the requested visible target, continue from that visible target instead of restarting the earlier stage.
 - If the refreshed UI tree contains a named actionable element whose text exactly matches the requested target, use that exact named path instead of a nearby generic wrapper.
-- If the currently selected window already appears to be the correct app or site, inspect that current window before calling broad discovery tools such as `list_windows` or `list_taskbar_elements`.
+- If the currently selected window already appears to be the correct app or site, inspect that current window before calling broad discovery tools such as `list_windows` or `list_taskbar_items`.
 - If the user explicitly asked to wait until a visible result, title, row, or playback state is on screen, do not stop after a single sparse refresh with "still loading" language while stronger evidence such as a screenshot can still confirm the visible state.
 - For conditional instructions, first determine whether the condition is actually present on the current screen.
 - For conditional prompts, dialogs, passcodes, or overlays, inspect the current selected window first with the freshest window-level evidence before attempting focus changes, window reselection, or element activation.
@@ -74,7 +74,7 @@ Drive or inspect Windows applications calmly and accurately through the availabl
 - Do not fragment one app into many tiny skills if they would usually activate together, repeat the same guidance, or share the same failure handling.
 - If two skills conflict, prefer the one that is more specific to the current task.
 - If a conflict remains, prefer explicit tool evidence, then the core agent, then the skill.
-- A skill may prefer MCP tools such as `eyesandhands`, but it must not invent tool behavior that the tool did not expose.
+- A skill may prefer MCP tools such as `cognition` and `execution`, but it must not invent tool behavior that the tool did not expose.
 
 ## Shared Guardrails
 
@@ -90,3 +90,5 @@ Drive or inspect Windows applications calmly and accurately through the availabl
 - Lead with the direct answer.
 - Separate confirmed observations from inferences.
 - Use short flat lists for visible items when useful.
+
+

@@ -4,12 +4,13 @@ group: netflix
 priority: 500
 summary: "Handle Netflix playback controls, audio changes, and subtitle changes during active playback."
 preferred_tools:
-  - eyesandhands/describe_selected_window
-  - eyesandhands/capture_selected_window_screenshot
-  - eyesandhands/click_selected_window_element
-  - eyesandhands/invoke_selected_window_element
-  - eyesandhands/set_selected_window_element_value
-  - eyesandhands/send_input_to_window
+  - cognition/describe_window
+  - cognition/capture_window_screenshot
+  - execution/click_window_element
+  - execution/invoke_window_element
+  - execution/set_window_element_text
+  - execution/press_window_key
+  - execution/type_window_text
 activation:
   when_all_keywords:
     - netflix
@@ -26,12 +27,13 @@ activation:
     - seek
     - volume
   when_any_tools:
-    - describe_selected_window
-    - capture_selected_window_screenshot
-    - click_selected_window_element
-    - invoke_selected_window_element
-    - set_selected_window_element_value
-    - send_input_to_window
+    - describe_window
+    - capture_window_screenshot
+    - click_window_element
+    - invoke_window_element
+    - set_window_element_text
+    - press_window_key
+    - type_window_text
 applies_when:
   - The user is changing Netflix playback controls, audio, or subtitle settings.
 ---
@@ -51,3 +53,4 @@ applies_when:
 - Do not stop at a screenshot-only description when the request is an actionable playback control change and the current Netflix playback surface is still active.
 - Do not say `I'm turning them off`, `I'll open the subtitle menu`, or similar future-action promises unless this turn has already performed a desktop action toward that outcome.
 - After changing a subtitle or audio option, verify the result from fresh evidence. Prefer confirmation that the visible subtitle line disappeared or that the selected option now shows `Off` before claiming success.
+

@@ -202,7 +202,7 @@ internal static class AgentRunner
 
         async Task<ToolCallOutcome> CallToolWithDesktopSessionAsync(
             string toolName,
-            Dictionary<string, object?> args)
+            IReadOnlyDictionary<string, object?> args)
         {
             var preparedArgs = PrepareDesktopToolArguments(toolName, args);
             return await mcpManager.CallToolAsync(toolName, preparedArgs, cancellationToken);

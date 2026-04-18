@@ -1,4 +1,5 @@
 using HeronWin.Body.DesktopAutomation;
+using HeronWin.Body.Cognition;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;

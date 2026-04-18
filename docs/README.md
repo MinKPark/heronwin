@@ -22,7 +22,7 @@ Last updated: 2026-04-18
 - Latest recorded verification in this docs set:
   - `dotnet build src\heronwin.sln` passed with 0 warnings and 0 errors.
   - `dotnet test src\heronwin.sln` passed with 266 total tests.
-  - `npm run build` in `src\herbody\process-manager` passed.
+  - `npm run build` in `src\body\process-manager` passed.
 - Local tool versions used for the snapshot:
   - .NET SDK `10.0.201`
   - Node.js `v24.14.1`
@@ -40,7 +40,7 @@ dotnet test src\heronwin.sln
 Build the TypeScript MCP server:
 
 ```powershell
-cd src\herbody\process-manager
+cd src\body\process-manager
 npm install
 npm run build
 ```
@@ -76,8 +76,10 @@ Useful launcher variants:
 
 - [brain README](../src/herhead/brain/README.md)
 - [face README](../src/herhead/face/README.md)
-- [herbody README](../src/herbody/README.md)
-- [process-manager README](../src/herbody/process-manager/README.md)
-- [eyesandhands README](../src/herbody/eyesandhands/README.md)
+- [body README](../src/body/README.md)
+- [process-manager README](../src/body/process-manager/README.md)
+- [desktop-automation README](../src/body/desktop-automation/README.md)
+- [cognition README](../src/body/cognition/README.md)
+- [execution README](../src/body/execution/README.md)
 - [agent and skills README](../.github/agents/README.md)
 - [skill-vs-code policy](../.github/agents/skill-vs-code-policy.md)

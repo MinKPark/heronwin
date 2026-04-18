@@ -150,3 +150,5 @@ The YouTube fullscreen blocking Netflix navigation issue belongs in code, not on
 - the fix protects the agent even when the model chooses a brittle UIA path
 
 By contrast, "prefer direct URL navigation over web search" belongs primarily in the browser skill because it is a scenario playbook rule.
+
+

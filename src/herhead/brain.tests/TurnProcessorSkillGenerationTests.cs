@@ -88,11 +88,13 @@ public sealed class TurnProcessorSkillGenerationTests
                 null);
 
             var history = new List<AgentMessage>();
+            var desktopSession = new DesktopSessionContext();
 
             var firstTurn = await BrainTurnProcessor.ProcessAsync(
                 turnId: 1,
                 userText: "Open Spotify.",
                 history,
+                desktopSession,
                 config,
                 llmClient,
                 mcpManager,
@@ -109,6 +111,7 @@ public sealed class TurnProcessorSkillGenerationTests
                 turnId: 2,
                 userText: "yes, generate it first",
                 history,
+                desktopSession,
                 config,
                 llmClient,
                 mcpManager,
@@ -196,11 +199,13 @@ public sealed class TurnProcessorSkillGenerationTests
                 null);
 
             var history = new List<AgentMessage>();
+            var desktopSession = new DesktopSessionContext();
 
             var firstTurn = await BrainTurnProcessor.ProcessAsync(
                 turnId: 1,
                 userText: "Open Spotify.",
                 history,
+                desktopSession,
                 config,
                 llmClient,
                 mcpManager,
@@ -214,6 +219,7 @@ public sealed class TurnProcessorSkillGenerationTests
                 turnId: 2,
                 userText: "Just open it.",
                 history,
+                desktopSession,
                 config,
                 llmClient,
                 mcpManager,

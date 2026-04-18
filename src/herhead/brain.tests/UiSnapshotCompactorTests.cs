@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using Xunit;
 
 namespace HeronWin.Brain.Tests;
@@ -63,7 +63,7 @@ public sealed class UiSnapshotCompactorTests
             MaxThrottleRetries: 2);
 
         var actual = UiSnapshotCompactor.CompactToolTextForContext(
-            "describe_selected_window",
+            "describe_window",
             snapshot,
             profile);
 
@@ -231,7 +231,7 @@ public sealed class UiSnapshotCompactorTests
             MaxThrottleRetries: 2);
 
         var actual = UiSnapshotCompactor.CompactToolTextForContext(
-            "describe_selected_window",
+            "describe_window",
             snapshot,
             profile);
 
@@ -327,7 +327,7 @@ public sealed class UiSnapshotCompactorTests
             MaxThrottleRetries: 2);
 
         var actual = UiSnapshotCompactor.CompactToolTextForContext(
-            "describe_selected_window",
+            "describe_window",
             snapshot,
             profile);
 
@@ -403,7 +403,7 @@ public sealed class UiSnapshotCompactorTests
             MaxThrottleRetries: 2);
 
         var actual = UiSnapshotCompactor.CompactToolTextForContext(
-            "describe_selected_window",
+            "describe_window",
             snapshot,
             profile);
 
@@ -478,7 +478,7 @@ public sealed class UiSnapshotCompactorTests
             MaxThrottleRetries: 2);
 
         var actual = UiSnapshotCompactor.CompactToolTextForContext(
-            "describe_selected_window",
+            "describe_window",
             snapshot,
             profile);
 
@@ -559,7 +559,7 @@ public sealed class UiSnapshotCompactorTests
             MaxThrottleRetries: 2);
 
         var actual = UiSnapshotCompactor.CompactToolTextForContext(
-            "describe_selected_window",
+            "describe_window",
             snapshot,
             profile);
 
@@ -605,3 +605,4 @@ public sealed class UiSnapshotCompactorTests
         Assert.InRange(delay.TotalSeconds, 47, 48);
     }
 }
+

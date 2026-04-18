@@ -4,12 +4,13 @@ group: netflix
 priority: 350
 summary: "Shared Netflix surface model and state-verification rules."
 preferred_tools:
-  - eyesandhands/describe_selected_window
-  - eyesandhands/capture_selected_window_screenshot
-  - eyesandhands/click_selected_window_element
-  - eyesandhands/invoke_selected_window_element
-  - eyesandhands/set_selected_window_element_value
-  - eyesandhands/send_input_to_window
+  - cognition/describe_window
+  - cognition/capture_window_screenshot
+  - execution/click_window_element
+  - execution/invoke_window_element
+  - execution/set_window_element_text
+  - execution/press_window_key
+  - execution/type_window_text
 activation:
   when_any_keywords:
     - netflix
@@ -18,12 +19,13 @@ activation:
     - continue watching
     - my list
   when_any_tools:
-    - describe_selected_window
-    - capture_selected_window_screenshot
-    - click_selected_window_element
-    - invoke_selected_window_element
-    - set_selected_window_element_value
-    - send_input_to_window
+    - describe_window
+    - capture_window_screenshot
+    - click_window_element
+    - invoke_window_element
+    - set_window_element_text
+    - press_window_key
+    - type_window_text
 applies_when:
   - The user is acting inside Netflix and the request depends on interpreting the current Netflix surface correctly.
 ---
@@ -42,3 +44,4 @@ applies_when:
 - If a click returns to browse, home, or profile-management surfaces instead of the requested title or control, treat that as drift and recover from the newest evidence.
 - When the UI tree and screenshot disagree, prefer the screenshot for visible Netflix state and use the tree for exact target paths when they are still consistent.
 - Pair this shared Netflix skill with the narrower Netflix skill that matches the active surface, such as profile and PIN, browse and play, or playback controls.
+
