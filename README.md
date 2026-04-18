@@ -48,6 +48,7 @@ The TypeScript MCP server supports `npm run dev` (via [tsx](https://tsx.is)) for
 
 ## Documentation
 
+- [progress and status](./PROGRESS.md)
 - [brain README](./src/herhead/brain/README.md)
 - [herbody README](./src/herbody/README.md)
 - [process-manager README](./src/herbody/process-manager/README.md)
