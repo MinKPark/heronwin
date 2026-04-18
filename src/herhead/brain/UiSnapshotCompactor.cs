@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using System.Text.Json;
 
 namespace HeronWin.Brain;
@@ -37,8 +37,8 @@ internal static class UiSnapshotCompactor
         LlmModelProfile modelProfile)
         => toolName switch
         {
-            "describe_selected_window" => CompactSnapshot(toolText, modelProfile, focusMode: false),
-            "describe_selected_window_focus" => CompactSnapshot(toolText, modelProfile, focusMode: true),
+            "describe_window" => CompactSnapshot(toolText, modelProfile, focusMode: false),
+            "describe_window_focus" => CompactSnapshot(toolText, modelProfile, focusMode: true),
             _ => toolText
         };
 
@@ -119,7 +119,7 @@ internal static class UiSnapshotCompactor
             if (omittedNodes > 0)
             {
                 lines.Add(
-                    $"Omitted {omittedNodes} lower-value nodes. If this is still too sparse, call describe_selected_window again or capture_selected_window_screenshot.");
+                    $"Omitted {omittedNodes} lower-value nodes. If this is still too sparse, call describe_window again or capture_window_screenshot.");
             }
         }
         else

@@ -176,6 +176,7 @@ Display.Separator();
 FaceBridge.PublishStatus("standby", "Standby", $"Listening for \"{config.WakeWord}\".");
 
 var history = new List<AgentMessage>();
+var desktopSession = new DesktopSessionContext();
 var isActive = false;
 var audioOutputActive = 0;
 var agentWorkActive = 0;
@@ -203,6 +204,7 @@ var agentTask = Task.Run(async () =>
                 queuedTurn.TurnId,
                 queuedTurn.Text,
                 history,
+                desktopSession,
                 config,
                 llmClient,
                 mcpManager,

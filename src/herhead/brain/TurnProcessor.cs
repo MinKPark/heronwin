@@ -18,6 +18,7 @@ internal static class BrainTurnProcessor
         long turnId,
         string userText,
         List<AgentMessage> history,
+        DesktopSessionContext desktopSession,
         AppConfig config,
         ILlmClient llmClient,
         McpClientManager mcpManager,
@@ -129,6 +130,7 @@ internal static class BrainTurnProcessor
             composedPrompt,
             llmClient,
             mcpManager,
+            desktopSession,
             cancellationToken,
             intermediateStepNarrator);
 
@@ -193,6 +195,7 @@ internal static class BrainTurnProcessor
                 continuationPrompt,
                 llmClient,
                 mcpManager,
+                desktopSession,
                 cancellationToken,
                 intermediateStepNarrator,
                 displayUserMessage: false);

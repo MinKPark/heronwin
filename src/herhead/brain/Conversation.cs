@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -66,6 +66,7 @@ internal static class AgentRunner
         ComposedAgentPrompt composedPrompt,
         ILlmClient llmClient,
         McpClientManager mcpManager,
+        DesktopSessionContext desktopSession,
         CancellationToken cancellationToken,
         Func<string, CancellationToken, Task>? intermediateStepNarrator = null,
         bool displayUserMessage = true)
@@ -103,13 +104,23 @@ internal static class AgentRunner
         var additionalDesktopEvidenceAttempts = 0;
         const int maxAdditionalDesktopEvidenceAttempts = 2;
         var llmAttempt = 0;
-        string? recentListWindowsOutput = null;
-        string? recentWindowContext = null;
-        string? recentUiTreeContext = null;
-        string? recentFocusContext = null;
-        string? currentUiElementContext = null;
-        string? currentFocusElementContext = null;
+        string? recentListWindowsOutput = desktopSession.RecentListWindowsOutput;
+        string? recentWindowContext = desktopSession.RecentWindowContext;
+        string? recentUiTreeContext = desktopSession.RecentUiTreeContext;
+        string? recentFocusContext = desktopSession.RecentFocusContext;
+        string? currentUiElementContext = desktopSession.CurrentUiElementContext;
+        string? currentFocusElementContext = desktopSession.CurrentFocusElementContext;
         string? lastCompletedToolNameInTurn = null;
+
+        void SyncDesktopSession()
+        {
+            desktopSession.RecentListWindowsOutput = recentListWindowsOutput;
+            desktopSession.RecentWindowContext = recentWindowContext;
+            desktopSession.RecentUiTreeContext = recentUiTreeContext;
+            desktopSession.RecentFocusContext = recentFocusContext;
+            desktopSession.CurrentUiElementContext = currentUiElementContext;
+            desktopSession.CurrentFocusElementContext = currentFocusElementContext;
+        }
 
         void RememberRecentWindowSnapshot(string snapshotText, string? snapshotToolName = null)
         {
@@ -118,20 +129,28 @@ internal static class AgentRunner
                 recentWindowContext = snapshotText;
             }
 
+            if (TryGetPrimaryWindowReference(snapshotText, out var windowHandle, out var windowTitle))
+            {
+                desktopSession.CurrentWindowHandle = windowHandle;
+                desktopSession.CurrentWindowTitle = windowTitle;
+            }
+
             if (SnapshotContainsElementTree(snapshotText))
             {
                 recentUiTreeContext = snapshotText;
                 currentUiElementContext = null;
                 currentFocusElementContext = null;
 
-                if (string.Equals(snapshotToolName, "describe_selected_window", StringComparison.Ordinal))
+                if (string.Equals(snapshotToolName, "describe_window", StringComparison.Ordinal))
                 {
                     currentUiElementContext = UiSnapshotCompactor.CompactToolTextForContext(
-                        "describe_selected_window",
+                        "describe_window",
                         snapshotText,
                         llmClient.ModelProfile);
                 }
             }
+
+            SyncDesktopSession();
         }
 
         string? ResolveActionableUiTreeContext()
@@ -151,7 +170,7 @@ internal static class AgentRunner
             }
 
             currentUiElementContext = UiSnapshotCompactor.CompactToolTextForContext(
-                "describe_selected_window",
+                "describe_window",
                 actionableUiTreeContext,
                 llmClient.ModelProfile);
             return currentUiElementContext;
@@ -170,10 +189,23 @@ internal static class AgentRunner
             }
 
             currentFocusElementContext = UiSnapshotCompactor.CompactToolTextForContext(
-                "describe_selected_window_focus",
+                "describe_window_focus",
                 recentFocusContext,
                 llmClient.ModelProfile);
             return currentFocusElementContext;
+        }
+
+        Dictionary<string, object?> PrepareDesktopToolArguments(
+            string toolName,
+            IReadOnlyDictionary<string, object?> args)
+            => PrepareToolArgumentsForDesktopSession(toolName, args, desktopSession);
+
+        async Task<ToolCallOutcome> CallToolWithDesktopSessionAsync(
+            string toolName,
+            Dictionary<string, object?> args)
+        {
+            var preparedArgs = PrepareDesktopToolArguments(toolName, args);
+            return await mcpManager.CallToolAsync(toolName, preparedArgs, cancellationToken);
         }
 
         while (true)
@@ -280,6 +312,7 @@ internal static class AgentRunner
                     messages.AddRange(await CollectAdditionalConfidenceEvidenceAsync(
                         turnId,
                         mcpManager,
+                        desktopSession,
                         llmClient.ModelProfile,
                         cancellationToken));
                     continue;
@@ -305,6 +338,7 @@ internal static class AgentRunner
                     });
 
                 messages.Add(new AgentMessage.Assistant(responseText));
+                SyncDesktopSession();
                 return parsedReply with { RawText = responseText };
             }
 
@@ -370,7 +404,7 @@ internal static class AgentRunner
                     try
                     {
                         var exitStopwatch = Stopwatch.StartNew();
-                        var exitResult = await mcpManager.CallToolAsync("send_input_to_window", exitArgs, cancellationToken);
+                        var exitResult = await CallToolWithDesktopSessionAsync("press_window_key", exitArgs);
                         DebugTrace.WriteStructuredEvent(
                             "agent.browser_fullscreen_exit_completed",
                             new Dictionary<string, object?>
@@ -417,10 +451,9 @@ internal static class AgentRunner
                     {
                         try
                         {
-                            var listResult = await mcpManager.CallToolAsync(
+                            var listResult = await CallToolWithDesktopSessionAsync(
                                 "list_windows",
-                                new Dictionary<string, object?>(),
-                                cancellationToken);
+                                new Dictionary<string, object?>());
                             DebugTrace.WriteStructuredEvent(
                                 "agent.browser_window_preflight_list_windows",
                                 new Dictionary<string, object?>
@@ -451,17 +484,16 @@ internal static class AgentRunner
                         }
                     }
 
-                    if (availableToolNames.Contains("select_window") &&
+                    if (availableToolNames.Contains("activate_window") &&
                         TryBuildBrowserSelectionArguments(recentListWindowsOutput, out var browserSelectionArgs))
                     {
                         try
                         {
-                            var selectionResult = await mcpManager.CallToolAsync(
-                                "select_window",
-                                browserSelectionArgs,
-                                cancellationToken);
+                            var selectionResult = await CallToolWithDesktopSessionAsync(
+                                "activate_window",
+                                browserSelectionArgs);
                             DebugTrace.WriteStructuredEvent(
-                                "agent.browser_window_preflight_select_window",
+                                "agent.browser_window_preflight_activate_window",
                                 new Dictionary<string, object?>
                                 {
                                     ["turn"] = turnId,
@@ -483,7 +515,7 @@ internal static class AgentRunner
                         catch (Exception ex)
                         {
                             DebugTrace.WriteStructuredEvent(
-                                "agent.browser_window_preflight_select_window_failed",
+                                "agent.browser_window_preflight_activate_window_failed",
                                 new Dictionary<string, object?>
                                 {
                                     ["turn"] = turnId,
@@ -495,7 +527,7 @@ internal static class AgentRunner
                         }
                     }
 
-                    if (!availableToolNames.Contains("launch_app_via_taskbar_search"))
+                    if (!availableToolNames.Contains("launch_application"))
                     {
                         return;
                     }
@@ -506,10 +538,9 @@ internal static class AgentRunner
                         {
                             ["appName"] = "Microsoft Edge",
                         };
-                        var launchResult = await mcpManager.CallToolAsync(
-                            "launch_app_via_taskbar_search",
-                            launchArgs,
-                            cancellationToken);
+                        var launchResult = await CallToolWithDesktopSessionAsync(
+                            "launch_application",
+                            launchArgs);
                         DebugTrace.WriteStructuredEvent(
                             "agent.browser_window_preflight_launch_browser",
                             new Dictionary<string, object?>
@@ -531,12 +562,11 @@ internal static class AgentRunner
 
                         var followUpSelectionArgs = TryBuildLaunchFollowUpSelectionArguments(launchResult.Text);
                         if (followUpSelectionArgs is not null &&
-                            availableToolNames.Contains("select_window"))
+                            availableToolNames.Contains("activate_window"))
                         {
-                            var followUpResult = await mcpManager.CallToolAsync(
-                                "select_window",
-                                followUpSelectionArgs,
-                                cancellationToken);
+                            var followUpResult = await CallToolWithDesktopSessionAsync(
+                                "activate_window",
+                                followUpSelectionArgs);
                             DebugTrace.WriteStructuredEvent(
                                 "agent.browser_window_preflight_select_launched_browser",
                                 new Dictionary<string, object?>
@@ -581,7 +611,7 @@ internal static class AgentRunner
 
                     attemptedBrowserSearchFieldTypingPrime = true;
 
-                    if (availableToolNames.Contains("focus_selected_window_element"))
+                    if (availableToolNames.Contains("focus_window_element"))
                     {
                         try
                         {
@@ -589,10 +619,9 @@ internal static class AgentRunner
                             {
                                 ["elementPath"] = browserSearchFieldReplacementPath,
                             };
-                            var focusResult = await mcpManager.CallToolAsync(
-                                "focus_selected_window_element",
-                                focusArgs,
-                                cancellationToken);
+                            var focusResult = await CallToolWithDesktopSessionAsync(
+                                "focus_window_element",
+                                focusArgs);
                             DebugTrace.WriteStructuredEvent(
                                 "agent.browser_site_search_field_focus_completed",
                                 new Dictionary<string, object?>
@@ -634,10 +663,9 @@ internal static class AgentRunner
                             ["key"] = "A",
                             ["modifiers"] = new[] { "Control" },
                         };
-                        var selectAllResult = await mcpManager.CallToolAsync(
-                            "send_input_to_window",
-                            selectAllArgs,
-                            cancellationToken);
+                        var selectAllResult = await CallToolWithDesktopSessionAsync(
+                            "press_window_key",
+                            selectAllArgs);
                         DebugTrace.WriteStructuredEvent(
                             "agent.browser_site_search_field_select_all_completed",
                             new Dictionary<string, object?>
@@ -684,10 +712,9 @@ internal static class AgentRunner
                         {
                             ["key"] = "Enter",
                         };
-                        var submitResult = await mcpManager.CallToolAsync(
-                            "send_input_to_window",
-                            submitArgs,
-                            cancellationToken);
+                        var submitResult = await CallToolWithDesktopSessionAsync(
+                            "press_window_key",
+                            submitArgs);
                         DebugTrace.WriteStructuredEvent(
                             "agent.browser_site_search_field_submit_completed",
                             new Dictionary<string, object?>
@@ -732,18 +759,17 @@ internal static class AgentRunner
                     }
                 }
 
-                if (toolCall.Name == "select_window" &&
+                if (toolCall.Name == "activate_window" &&
                     string.IsNullOrWhiteSpace(recentListWindowsOutput) &&
                     availableToolNames.Contains("list_windows"))
                 {
                     try
                     {
-                        var listResult = await mcpManager.CallToolAsync(
+                        var listResult = await CallToolWithDesktopSessionAsync(
                             "list_windows",
-                            new Dictionary<string, object?>(),
-                            cancellationToken);
+                            new Dictionary<string, object?>());
                         DebugTrace.WriteStructuredEvent(
-                            "agent.select_window_preflight_list_windows",
+                            "agent.activate_window_preflight_list_windows",
                             new Dictionary<string, object?>
                             {
                                 ["turn"] = turnId,
@@ -760,7 +786,7 @@ internal static class AgentRunner
                     catch (Exception ex)
                     {
                         DebugTrace.WriteStructuredEvent(
-                            "agent.select_window_preflight_list_windows_failed",
+                            "agent.activate_window_preflight_list_windows_failed",
                             new Dictionary<string, object?>
                             {
                                 ["turn"] = turnId,
@@ -770,7 +796,7 @@ internal static class AgentRunner
                     }
                 }
 
-                if (toolCall.Name == "select_window" &&
+                if (toolCall.Name == "activate_window" &&
                     TryRewriteSelectWindowArguments(executableArgs, recentListWindowsOutput, out var rewrittenSelectArgs))
                 {
                     executableArgs = rewrittenSelectArgs;
@@ -788,12 +814,12 @@ internal static class AgentRunner
                         });
                 }
 
-                if (toolCall.Name == "select_window" &&
+                if (toolCall.Name == "activate_window" &&
                     TryRewriteSelectWindowForRequestedApp(
                         userText,
                         executableArgs,
                         recentListWindowsOutput,
-                        availableToolNames.Contains("launch_app_via_taskbar_search"),
+                        availableToolNames.Contains("launch_application"),
                         out var rewrittenSelectToolName,
                         out var rewrittenRequestedAppArgs))
                 {
@@ -808,7 +834,7 @@ internal static class AgentRunner
                             ["toolCallId"] = toolCall.Id,
                             ["tool"] = toolCall.Name,
                             ["executedTool"] = executableToolName,
-                            ["reason"] = executableToolName == "launch_app_via_taskbar_search"
+                            ["reason"] = executableToolName == "launch_application"
                                 ? "requested_app_launch_preferred_over_unrelated_window"
                                 : "requested_app_window_match_preferred",
                             ["originalArgumentsPreview"] = DebugTrace.Preview(toolCall.Arguments, 600),
@@ -816,7 +842,7 @@ internal static class AgentRunner
                         });
                 }
 
-                if (executableToolName == "describe_selected_window" &&
+                if (executableToolName == "describe_window" &&
                     TryRewriteDescribeSelectedWindowToFullDepth(executableArgs, out var rewrittenDescribeArgs))
                 {
                     executableArgs = rewrittenDescribeArgs;
@@ -889,7 +915,7 @@ internal static class AgentRunner
                         out var rewrittenBrowserSearchTypingArgs,
                         out var rewrittenBrowserSearchFieldPath))
                 {
-                    executableToolName = "send_input_to_window";
+                    executableToolName = "type_window_text";
                     executableArgs = rewrittenBrowserSearchTypingArgs;
                     effectiveArgumentsText = JsonSerializer.Serialize(executableArgs, JsonSerializerOptionsCache.Default);
                     browserSearchFieldReplacementPath = rewrittenBrowserSearchFieldPath;
@@ -917,7 +943,7 @@ internal static class AgentRunner
                         out var rewrittenBrowserAddressBarArgs))
                 {
                     await MaybeExitBrowserFullscreenAsync("browser_address_bar_shortcut_rewrite");
-                    executableToolName = "send_input_to_window";
+                    executableToolName = "press_window_key";
                     executableArgs = rewrittenBrowserAddressBarArgs;
                     effectiveArgumentsText = JsonSerializer.Serialize(executableArgs, JsonSerializerOptionsCache.Default);
                     toolRewriteNote =
@@ -935,15 +961,35 @@ internal static class AgentRunner
                         });
                 }
 
+                var preparedExecutableArgs = PrepareDesktopToolArguments(executableToolName, executableArgs);
+                var preparedArgumentsText = JsonSerializer.Serialize(preparedExecutableArgs, JsonSerializerOptionsCache.Default);
+                if (!string.Equals(preparedArgumentsText, effectiveArgumentsText, StringComparison.Ordinal))
+                {
+                    DebugTrace.WriteStructuredEvent(
+                        "agent.tool_call_arguments_injected",
+                        new Dictionary<string, object?>
+                        {
+                            ["turn"] = turnId,
+                            ["toolCallId"] = toolCall.Id,
+                            ["tool"] = toolCall.Name,
+                            ["executedTool"] = executableToolName,
+                            ["reason"] = "desktop_session_window_handle_injected",
+                            ["originalArgumentsPreview"] = DebugTrace.Preview(effectiveArgumentsText, 600),
+                            ["rewrittenArgumentsPreview"] = DebugTrace.Preview(preparedArgumentsText, 600),
+                        });
+                    executableArgs = preparedExecutableArgs;
+                    effectiveArgumentsText = preparedArgumentsText;
+                }
+
                 await MaybeEnsureBrowserWindowBeforeBrowserNavigationAsync("browser_navigation_preflight");
 
-                if (executableToolName == "send_input_to_window" &&
+                if (string.Equals(executableToolName, "type_window_text", StringComparison.Ordinal) &&
                     LooksLikeUrl(TryGetStringArgument(executableArgs, "text") ?? string.Empty))
                 {
                     await MaybeExitBrowserFullscreenAsync("browser_url_entry");
                 }
 
-                if (executableToolName == "send_input_to_window" &&
+                if (string.Equals(executableToolName, "type_window_text", StringComparison.Ordinal) &&
                     ShouldOpenNewTabBeforeBrowserUrlEntry(userText, executableArgs, recentWindowContext))
                 {
                     var newTabArgs = new Dictionary<string, object?>
@@ -955,7 +1001,7 @@ internal static class AgentRunner
                     try
                     {
                         var newTabStopwatch = Stopwatch.StartNew();
-                        var newTabResult = await mcpManager.CallToolAsync("send_input_to_window", newTabArgs, cancellationToken);
+                        var newTabResult = await CallToolWithDesktopSessionAsync("press_window_key", newTabArgs);
                         DebugTrace.WriteStructuredEvent(
                             "agent.browser_new_tab_prime_completed",
                             new Dictionary<string, object?>
@@ -986,7 +1032,7 @@ internal static class AgentRunner
                     }
                 }
 
-                if (executableToolName == "send_input_to_window" &&
+                if (string.Equals(executableToolName, "type_window_text", StringComparison.Ordinal) &&
                     ShouldPrimeBrowserAddressBarForUrlEntry(executableArgs, recentWindowContext, recentFocusContext))
                 {
                     var primeArgs = new Dictionary<string, object?>
@@ -998,7 +1044,7 @@ internal static class AgentRunner
                     try
                     {
                         var primeStopwatch = Stopwatch.StartNew();
-                        var primeResult = await mcpManager.CallToolAsync("send_input_to_window", primeArgs, cancellationToken);
+                        var primeResult = await CallToolWithDesktopSessionAsync("press_window_key", primeArgs);
                         DebugTrace.WriteStructuredEvent(
                             "agent.browser_url_entry_prime_completed",
                             new Dictionary<string, object?>
@@ -1103,7 +1149,7 @@ internal static class AgentRunner
                     continue;
                 }
 
-                if (executableToolName == "send_input_to_window" &&
+                if (string.Equals(executableToolName, "type_window_text", StringComparison.Ordinal) &&
                     !string.IsNullOrWhiteSpace(browserSearchFieldReplacementPath))
                 {
                     await MaybePrimeBrowserSearchFieldForReplacementTypingAsync("browser_site_search_field_typing");
@@ -1145,8 +1191,9 @@ internal static class AgentRunner
                             toolCall.Id,
                             structuredNetflixPinDigits,
                             mcpManager,
+                            desktopSession,
                             cancellationToken)
-                        : await mcpManager.CallToolAsync(executableToolName, executableArgs, cancellationToken);
+                        : await CallToolWithDesktopSessionAsync(executableToolName, executableArgs);
                 }
                 catch (Exception ex)
                 {
@@ -1173,7 +1220,7 @@ internal static class AgentRunner
                 if (!toolOutput.IsError)
                 {
                     if (rewroteBrowserSearchFieldValueEntry &&
-                        executableToolName == "send_input_to_window")
+                        string.Equals(executableToolName, "type_window_text", StringComparison.Ordinal))
                     {
                         await MaybeSubmitBrowserSearchFieldAfterTypingAsync("browser_site_search_field_typing_submit");
                     }
@@ -1184,16 +1231,16 @@ internal static class AgentRunner
                     }
 
                     RememberRecentWindowSnapshot(toolOutput.Text, executableToolName);
-                    if (executableToolName == "describe_selected_window")
+                    if (executableToolName == "describe_window")
                     {
                         freshToolUiElementContext = currentUiElementContext;
                     }
 
-                    if (toolCall.Name is "focus_selected_window_element" or "describe_selected_window_focus")
+                    if (toolCall.Name is "focus_window_element" or "describe_window_focus")
                     {
                         recentFocusContext = toolOutput.Text;
                         currentFocusElementContext = UiSnapshotCompactor.CompactToolTextForContext(
-                            "describe_selected_window_focus",
+                            "describe_window_focus",
                             toolOutput.Text,
                             llmClient.ModelProfile);
                         freshToolFocusElementContext = currentFocusElementContext;
@@ -1221,7 +1268,7 @@ internal static class AgentRunner
                         });
                     try
                     {
-                        if (executableToolName == "launch_app_via_taskbar_search")
+                        if (executableToolName == "launch_application")
                         {
                             var appName = TryGetStringArgument(executableArgs, "appName");
                             if (!string.IsNullOrWhiteSpace(appName))
@@ -1232,11 +1279,10 @@ internal static class AgentRunner
                                     try
                                     {
                                         var followUpSelectionStopwatch = Stopwatch.StartNew();
-                                        var selectResult = await mcpManager.CallToolAsync(
-                                            "select_window",
-                                            followUpSelectionArgs,
-                                            cancellationToken);
-                                        Display.ToolResult("select_window", selectResult.Text, selectResult.Images.Count);
+                                        var selectResult = await CallToolWithDesktopSessionAsync(
+                                            "activate_window",
+                                            followUpSelectionArgs);
+                                        Display.ToolResult("activate_window", selectResult.Text, selectResult.Images.Count);
                                         if (!selectResult.IsError)
                                         {
                                             RememberRecentWindowSnapshot(selectResult.Text);
@@ -1249,7 +1295,7 @@ internal static class AgentRunner
                                                 selectResult.Images));
                                         }
                                         DebugTrace.WriteStructuredEvent(
-                                            "agent.desktop_followup_select_window",
+                                            "agent.desktop_followup_activate_window",
                                             new Dictionary<string, object?>
                                             {
                                                 ["turn"] = turnId,
@@ -1266,7 +1312,7 @@ internal static class AgentRunner
                                         followUpEvidence.Add(new AgentMessage.User(
                                             $"Attempt to re-select the launched app window for \"{appName}\" was unavailable: {ex.Message}"));
                                         DebugTrace.WriteStructuredEvent(
-                                            "agent.desktop_followup_select_window_failed",
+                                            "agent.desktop_followup_activate_window_failed",
                                             new Dictionary<string, object?>
                                             {
                                                 ["turn"] = turnId,
@@ -1281,7 +1327,7 @@ internal static class AgentRunner
                                     followUpEvidence.Add(new AgentMessage.User(
                                         $"Internal window re-selection after launching \"{appName}\" was skipped because the launch tool did not surface a launched app window. Treat the launch as unconfirmed and rely on the fresh UI snapshot before deciding what to do next."));
                                     DebugTrace.WriteStructuredEvent(
-                                        "agent.desktop_followup_select_window_skipped",
+                                        "agent.desktop_followup_activate_window_skipped",
                                         new Dictionary<string, object?>
                                         {
                                             ["turn"] = turnId,
@@ -1293,12 +1339,11 @@ internal static class AgentRunner
                         }
 
                         var postActionSnapshotStopwatch = Stopwatch.StartNew();
-                        var postActionSnapshot = await mcpManager.CallToolAsync(
-                            "describe_selected_window",
-                            new Dictionary<string, object?> { ["fullDepth"] = true },
-                            cancellationToken);
-                        Display.ToolResult("describe_selected_window", postActionSnapshot.Text, postActionSnapshot.Images.Count);
-                        RememberRecentWindowSnapshot(postActionSnapshot.Text, "describe_selected_window");
+                        var postActionSnapshot = await CallToolWithDesktopSessionAsync(
+                            "describe_window",
+                            new Dictionary<string, object?> { ["fullDepth"] = true });
+                        Display.ToolResult("describe_window", postActionSnapshot.Text, postActionSnapshot.Images.Count);
+                        RememberRecentWindowSnapshot(postActionSnapshot.Text, "describe_window");
                         freshToolUiElementContext = currentUiElementContext;
                         if (!string.IsNullOrWhiteSpace(currentUiElementContext))
                         {
@@ -1338,10 +1383,9 @@ internal static class AgentRunner
                             try
                             {
                                 var debugScreenshotStopwatch = Stopwatch.StartNew();
-                                var debugScreenshot = await mcpManager.CallToolAsync(
-                                    "capture_selected_window_screenshot",
-                                    new Dictionary<string, object?>(),
-                                    cancellationToken);
+                                var debugScreenshot = await CallToolWithDesktopSessionAsync(
+                                    "capture_window_screenshot",
+                                    new Dictionary<string, object?>());
                                 DebugTrace.WriteStructuredEvent(
                                     "agent.desktop_followup_debug_screenshot",
                                     new Dictionary<string, object?>
@@ -1372,19 +1416,18 @@ internal static class AgentRunner
                         if (ShouldCollectFocusSnapshotAfterAction(executableToolName, executableArgs))
                         {
                             var focusSnapshotStopwatch = Stopwatch.StartNew();
-                            var focusSnapshot = await mcpManager.CallToolAsync(
-                                "describe_selected_window_focus",
-                                new Dictionary<string, object?> { ["maxDepth"] = 3 },
-                                cancellationToken);
-                            Display.ToolResult("describe_selected_window_focus", focusSnapshot.Text, focusSnapshot.Images.Count);
+                            var focusSnapshot = await CallToolWithDesktopSessionAsync(
+                                "describe_window_focus",
+                                new Dictionary<string, object?> { ["maxDepth"] = 3 });
+                            Display.ToolResult("describe_window_focus", focusSnapshot.Text, focusSnapshot.Images.Count);
                             recentFocusContext = focusSnapshot.Text;
                             currentFocusElementContext = UiSnapshotCompactor.CompactToolTextForContext(
-                                "describe_selected_window_focus",
+                                "describe_window_focus",
                                 focusSnapshot.Text,
                                 llmClient.ModelProfile);
                             freshToolFocusElementContext = currentFocusElementContext;
                             var compactFocusSnapshot = UiSnapshotCompactor.CompactToolTextForContext(
-                                "describe_selected_window_focus",
+                                "describe_window_focus",
                                 focusSnapshot.Text,
                                 llmClient.ModelProfile);
                             followUpEvidence.Add(new AgentMessage.User(
@@ -1432,7 +1475,7 @@ internal static class AgentRunner
                     toolOutput.Text,
                     toolOutput.IsError,
                     freshToolUiElementContext
-                        ?? (string.Equals(executableToolName, "capture_selected_window_screenshot", StringComparison.Ordinal)
+                        ?? (string.Equals(executableToolName, "capture_window_screenshot", StringComparison.Ordinal)
                             ? ResolveCurrentUiElementContext()
                             : null),
                     freshToolFocusElementContext ?? ResolveCurrentFocusElementContext(),
@@ -1445,16 +1488,17 @@ internal static class AgentRunner
     }
 
     internal static bool IsDesktopActionTool(string toolName)
-        => toolName is "launch_app_via_taskbar_search"
-            or "select_taskbar_app"
-            or "select_window"
-            or "click_selected_window_element"
-            or "focus_selected_window_element"
-            or "invoke_selected_window_element"
-            or "invoke_main_menu_item"
-            or "invoke_context_menu_item"
-            or "send_input_to_window"
-            or "set_selected_window_element_value";
+        => toolName is "launch_application"
+            or "activate_taskbar_app"
+            or "activate_window"
+            or "click_window_element"
+            or "focus_window_element"
+            or "invoke_window_element"
+            or "invoke_window_main_menu_item"
+            or "invoke_window_context_menu_item"
+            or "press_window_key"
+            or "type_window_text"
+            or "set_window_element_text";
 
     internal static bool ShouldCapturePostActionDebugScreenshot(
         string toolName,
@@ -1462,7 +1506,7 @@ internal static class AgentRunner
         IReadOnlySet<string> availableToolNames)
         => debugTraceEnabled
             && IsDesktopActionTool(toolName)
-            && availableToolNames.Contains("capture_selected_window_screenshot");
+            && availableToolNames.Contains("capture_window_screenshot");
 
     internal static bool TryRewriteDescribeSelectedWindowToFullDepth(
         IReadOnlyDictionary<string, object?> args,
@@ -1509,7 +1553,7 @@ internal static class AgentRunner
         string toolName,
         IReadOnlyDictionary<string, object?> args)
     {
-        if (toolName != "send_input_to_window")
+        if (!string.Equals(toolName, "press_window_key", StringComparison.Ordinal))
         {
             return false;
         }
@@ -1626,31 +1670,32 @@ internal static class AgentRunner
     {
         return toolName switch
         {
-            "select_window" => BuildSelectWindowNarration(args),
-            "select_taskbar_app" => BuildTaskbarSelectionNarration(args),
-            "launch_app_via_taskbar_search" => BuildTaskbarSearchLaunchNarration(args),
-            "invoke_main_menu_item" => "Okay, I'm trying that menu option.",
-            "invoke_context_menu_item" => "Okay, I'm trying that option.",
-            "click_selected_window_element" => "Okay, I'm clicking that.",
-            "focus_selected_window_element" => BuildElementFocusNarration(args),
-            "invoke_selected_window_element" => BuildElementInvokeNarration(args),
-            "set_selected_window_element_value" => "Okay, I'm typing that in.",
-            "send_input_to_window" => BuildSendInputNarration(args),
+            "activate_window" => BuildSelectWindowNarration(args),
+            "activate_taskbar_app" => BuildTaskbarSelectionNarration(args),
+            "launch_application" => BuildTaskbarSearchLaunchNarration(args),
+            "invoke_window_main_menu_item" => "Okay, I'm trying that menu option.",
+            "invoke_window_context_menu_item" => "Okay, I'm trying that option.",
+            "click_window_element" => "Okay, I'm clicking that.",
+            "focus_window_element" => BuildElementFocusNarration(args),
+            "invoke_window_element" => BuildElementInvokeNarration(args),
+            "set_window_element_text" => "Okay, I'm typing that in.",
+            "press_window_key" => BuildSendInputNarration(args),
+            "type_window_text" => BuildSendInputNarration(args),
             _ => null
         };
     }
 
     private static bool IsSilentInspectionTool(string toolName)
         => toolName is "list_windows"
-            or "describe_selected_window"
-            or "describe_selected_window_focus"
-            or "capture_selected_window_screenshot"
-            or "list_taskbar_elements"
-            or "list_main_menu_items"
-            or "list_context_menu_items";
+            or "describe_window"
+            or "describe_window_focus"
+            or "capture_window_screenshot"
+            or "list_taskbar_items"
+            or "list_window_main_menu_items"
+            or "list_window_context_menu_items";
 
     private static bool IsWindowEvidenceTool(string? toolName)
-        => toolName is "describe_selected_window" or "capture_selected_window_screenshot";
+        => toolName is "describe_window" or "capture_window_screenshot";
 
     internal static string? BuildToolSpecificGuidance(
         string toolName,
@@ -1661,25 +1706,25 @@ internal static class AgentRunner
         {
             return toolName switch
             {
-                "select_taskbar_app" =>
+                "activate_taskbar_app" =>
                     "The taskbar app activation did not surface a launched or selected app window. Do not imply that the app opened successfully, and do not treat the unchanged current window as the requested app just because it is still visible. Use fresh evidence before deciding what happened, and if another materially different launch route is available, prefer that over repeating the same route.",
-                "launch_app_via_taskbar_search" =>
+                "launch_application" =>
                     "The taskbar search launch did not surface a launched app window. Do not imply that the app opened successfully, do not assume a same-title app window exists just because Search shows a matching result, and do not treat the unchanged current window as the requested app just because it is still visible. Use fresh evidence before deciding what happened, and if another materially different launch route is available, prefer that next.",
                 _ => null
             };
         }
 
-        if (toolName is "click_selected_window_element" or "invoke_selected_window_element")
+        if (toolName is "click_window_element" or "invoke_window_element")
         {
             return "Treat this direct UI activation as unconfirmed until the freshest post-action snapshot or screenshot shows the requested screen change. A screenshot from before the click does not verify the post-click state, and if the same picker, dialog, or page is still visible after the action, continue from that fresh evidence instead of claiming success.";
         }
 
-        if (toolName == "set_selected_window_element_value")
+        if (toolName == "set_window_element_text")
         {
             return "Treat this direct field entry as unconfirmed until the freshest post-action snapshot or screenshot shows the intended text or the resulting screen change. If the field still looks empty or unchanged after entry, retry with a materially different method or report that the entry is not yet confirmed.";
         }
 
-        if (toolName != "send_input_to_window")
+        if (!IsWindowInputTool(toolName))
         {
             return null;
         }
@@ -1704,7 +1749,7 @@ internal static class AgentRunner
 
     private static bool IsLaunchAttemptWithoutSelectedWindow(string toolName, string toolOutputText)
     {
-        if (toolName is not "select_taskbar_app" and not "launch_app_via_taskbar_search")
+        if (toolName is not "activate_taskbar_app" and not "launch_application")
         {
             return false;
         }
@@ -2157,6 +2202,7 @@ internal static class AgentRunner
     private static async Task<IReadOnlyList<AgentMessage>> CollectAdditionalConfidenceEvidenceAsync(
         long turnId,
         McpClientManager mcpManager,
+        DesktopSessionContext desktopSession,
         LlmModelProfile modelProfile,
         CancellationToken cancellationToken)
     {
@@ -2182,12 +2228,15 @@ internal static class AgentRunner
         {
             var snapshotStopwatch = Stopwatch.StartNew();
             var retrySnapshot = await mcpManager.CallToolAsync(
-                "describe_selected_window",
-                new Dictionary<string, object?> { ["fullDepth"] = true },
+                "describe_window",
+                PrepareToolArgumentsForDesktopSession(
+                    "describe_window",
+                    new Dictionary<string, object?> { ["fullDepth"] = true },
+                    desktopSession),
                 cancellationToken);
-            Display.ToolResult("describe_selected_window", retrySnapshot.Text, retrySnapshot.Images.Count);
+            Display.ToolResult("describe_window", retrySnapshot.Text, retrySnapshot.Images.Count);
             var compactRetrySnapshot = UiSnapshotCompactor.CompactToolTextForContext(
-                "describe_selected_window",
+                "describe_window",
                 retrySnapshot.Text,
                 modelProfile);
             extraEvidence.Add(new AgentMessage.User(
@@ -2226,10 +2275,13 @@ internal static class AgentRunner
         {
             var screenshotStopwatch = Stopwatch.StartNew();
             var screenshot = await mcpManager.CallToolAsync(
-                "capture_selected_window_screenshot",
-                new Dictionary<string, object?>(),
+                "capture_window_screenshot",
+                PrepareToolArgumentsForDesktopSession(
+                    "capture_window_screenshot",
+                    new Dictionary<string, object?>(),
+                    desktopSession),
                 cancellationToken);
-            Display.ToolResult("capture_selected_window_screenshot", screenshot.Text, screenshot.Images.Count);
+            Display.ToolResult("capture_window_screenshot", screenshot.Text, screenshot.Images.Count);
             extraEvidence.Add(new AgentMessage.User(
                 "Second-pass screenshot capture after waiting 1 more second completed for the current selected window. Keep using the newest compacted UIElement tree above unless the screenshot contradicts it."));
             if (screenshot.Images.Count > 0)
@@ -2347,6 +2399,94 @@ internal static class AgentRunner
         return null;
     }
 
+    internal static bool TryGetPrimaryWindowReference(
+        string toolOutputText,
+        out string? windowHandle,
+        out string? windowTitle)
+    {
+        windowHandle = null;
+        windowTitle = null;
+
+        if (TryGetWindowProperty(toolOutputText, "selectedWindow", out var selectedWindow) &&
+            selectedWindow.ValueKind == JsonValueKind.Object)
+        {
+            windowHandle = TryGetJsonStringProperty(selectedWindow, "handle");
+            windowTitle = TryGetJsonStringProperty(selectedWindow, "title");
+            return !string.IsNullOrWhiteSpace(windowHandle) || !string.IsNullOrWhiteSpace(windowTitle);
+        }
+
+        if (TryGetWindowProperty(toolOutputText, "window", out var window) &&
+            window.ValueKind == JsonValueKind.Object)
+        {
+            windowHandle = TryGetJsonStringProperty(window, "handle");
+            windowTitle = TryGetJsonStringProperty(window, "title");
+            return !string.IsNullOrWhiteSpace(windowHandle) || !string.IsNullOrWhiteSpace(windowTitle);
+        }
+
+        return false;
+    }
+
+    internal static bool IsWindowInputTool(string toolName)
+        => toolName is "press_window_key" or "type_window_text";
+
+    internal static bool ToolUsesCurrentWindow(string toolName)
+        => toolName is "activate_window"
+            or "describe_window"
+            or "capture_window_screenshot"
+            or "describe_window_focus"
+            or "list_window_main_menu_items"
+            or "list_window_context_menu_items"
+            or "focus_window_element"
+            or "click_window_element"
+            or "invoke_window_element"
+            or "set_window_element_text"
+            or "press_window_key"
+            or "type_window_text"
+            or "invoke_window_main_menu_item"
+            or "invoke_window_context_menu_item";
+
+    internal static Dictionary<string, object?> PrepareToolArgumentsForDesktopSession(
+        string toolName,
+        IReadOnlyDictionary<string, object?> args,
+        DesktopSessionContext desktopSession)
+    {
+        var preparedArgs = CloneArguments(args);
+
+        if (string.Equals(toolName, "list_windows", StringComparison.Ordinal))
+        {
+            if (string.IsNullOrWhiteSpace(TryGetStringArgument(preparedArgs, "windowHandle")) &&
+                !string.IsNullOrWhiteSpace(desktopSession.CurrentWindowHandle))
+            {
+                preparedArgs["windowHandle"] = desktopSession.CurrentWindowHandle;
+            }
+
+            return preparedArgs;
+        }
+
+        if (!ToolUsesCurrentWindow(toolName))
+        {
+            return preparedArgs;
+        }
+
+        if (!string.IsNullOrWhiteSpace(TryGetStringArgument(preparedArgs, "windowHandle")))
+        {
+            return preparedArgs;
+        }
+
+        if (string.Equals(toolName, "activate_window", StringComparison.Ordinal) &&
+            !string.IsNullOrWhiteSpace(TryGetStringArgument(preparedArgs, "titleContains")))
+        {
+            return preparedArgs;
+        }
+
+        if (!string.IsNullOrWhiteSpace(desktopSession.CurrentWindowHandle))
+        {
+            preparedArgs["windowHandle"] = desktopSession.CurrentWindowHandle;
+        }
+
+        return preparedArgs;
+    }
+
     internal static string? GetCurrentUiTreeContext(
         string? recentWindowContext,
         string? recentUiTreeContext)
@@ -2388,7 +2528,7 @@ internal static class AgentRunner
     {
         if (!toolIsError)
         {
-            if (string.Equals(toolName, "describe_selected_window_focus", StringComparison.Ordinal) &&
+            if (string.Equals(toolName, "describe_window_focus", StringComparison.Ordinal) &&
                 !string.IsNullOrWhiteSpace(currentFocusElementContext))
             {
                 return currentFocusElementContext;
@@ -2406,8 +2546,8 @@ internal static class AgentRunner
 
     internal static bool ShouldUseStoredUiElementContextForToolResult(string toolName)
         => IsDesktopActionTool(toolName)
-            || toolName is "describe_selected_window"
-                or "capture_selected_window_screenshot";
+            || toolName is "describe_window"
+                or "capture_window_screenshot";
 
     internal static bool TryRewriteSelectWindowArguments(
         IReadOnlyDictionary<string, object?> args,
@@ -2441,7 +2581,7 @@ internal static class AgentRunner
         out string rewrittenToolName,
         out Dictionary<string, object?> rewrittenArgs)
     {
-        rewrittenToolName = "select_window";
+        rewrittenToolName = "activate_window";
         rewrittenArgs = new Dictionary<string, object?>(StringComparer.Ordinal);
 
         if (!TryExtractRequestedAppLaunchName(userText, out var requestedAppName) ||
@@ -2461,7 +2601,7 @@ internal static class AgentRunner
             return false;
         }
 
-        rewrittenToolName = "launch_app_via_taskbar_search";
+        rewrittenToolName = "launch_application";
         rewrittenArgs["appName"] = requestedAppName;
         return true;
     }
@@ -2513,7 +2653,7 @@ internal static class AgentRunner
         IReadOnlyDictionary<string, object?> args,
         string? recentWindowContext)
     {
-        if (toolName != "send_input_to_window" ||
+        if (!IsWindowInputTool(toolName) ||
             SnapshotLooksLikeBrowserWindow(recentWindowContext) ||
             !UserRequestLooksLikeWebsiteNavigation(userText))
         {
@@ -2611,7 +2751,7 @@ internal static class AgentRunner
         out Dictionary<string, object?> rewrittenArgs)
     {
         rewrittenArgs = new Dictionary<string, object?>(StringComparer.Ordinal);
-        if (toolName is not "invoke_selected_window_element" and not "focus_selected_window_element")
+        if (toolName is not "invoke_window_element" and not "focus_window_element")
         {
             return false;
         }
@@ -2637,7 +2777,7 @@ internal static class AgentRunner
         out Dictionary<string, object?> rewrittenArgs)
     {
         rewrittenArgs = new Dictionary<string, object?>(StringComparer.Ordinal);
-        if (toolName is not "invoke_selected_window_element" and not "focus_selected_window_element")
+        if (toolName is not "invoke_window_element" and not "focus_window_element")
         {
             return false;
         }
@@ -2655,7 +2795,7 @@ internal static class AgentRunner
             return false;
         }
 
-        var requiredAction = toolName == "focus_selected_window_element" ? "focus" : "invoke";
+        var requiredAction = toolName == "focus_window_element" ? "focus" : "invoke";
         if (!TryFindUniqueElementPathByNameAndAction(recentWindowContext, "Search", requiredAction, out var repairedPath))
         {
             return false;
@@ -2678,14 +2818,14 @@ internal static class AgentRunner
         rewrittenArgs = new Dictionary<string, object?>(StringComparer.Ordinal);
         browserSearchFieldPath = null;
 
-        if (toolName != "set_selected_window_element_value" ||
+        if (toolName != "set_window_element_text" ||
             !SnapshotLooksLikeBrowserWindow(recentWindowContext) ||
             !UserRequestLooksLikeBrowserContentSearch(userText))
         {
             return false;
         }
 
-        var value = TryGetStringArgument(args, "value");
+        var value = TryGetStringArgument(args, "text");
         var elementPath = TryGetStringArgument(args, "elementPath") ?? TryGetStringArgument(args, "uiPath");
         if (string.IsNullOrWhiteSpace(value) ||
             string.IsNullOrWhiteSpace(elementPath) ||
@@ -2708,7 +2848,7 @@ internal static class AgentRunner
         out string digits)
     {
         digits = string.Empty;
-        if (toolName != "send_input_to_window")
+        if (!string.Equals(toolName, "type_window_text", StringComparison.Ordinal))
         {
             return false;
         }
@@ -2739,9 +2879,9 @@ internal static class AgentRunner
         out Dictionary<string, object?> rewrittenArgs)
     {
         rewrittenArgs = new Dictionary<string, object?>(StringComparer.Ordinal);
-        if (toolName is not "click_selected_window_element"
-            and not "invoke_selected_window_element"
-            and not "focus_selected_window_element")
+        if (toolName is not "click_window_element"
+            and not "invoke_window_element"
+            and not "focus_window_element")
         {
             return false;
         }
@@ -2758,8 +2898,8 @@ internal static class AgentRunner
 
         var requiredAction = toolName switch
         {
-            "focus_selected_window_element" => "focus",
-            "invoke_selected_window_element" => "invoke",
+            "focus_window_element" => "focus",
+            "invoke_window_element" => "invoke",
             _ => null
         };
 
@@ -2802,7 +2942,7 @@ internal static class AgentRunner
         string? elementPath,
         JsonElement requestedElement)
     {
-        return string.Equals(toolName, "invoke_selected_window_element", StringComparison.Ordinal) &&
+        return string.Equals(toolName, "invoke_window_element", StringComparison.Ordinal) &&
                string.Equals(elementPath, "root", StringComparison.OrdinalIgnoreCase) &&
                ElementHasAction(requestedElement, "close");
     }
@@ -2812,6 +2952,7 @@ internal static class AgentRunner
         string toolCallId,
         string digits,
         McpClientManager mcpManager,
+        DesktopSessionContext desktopSession,
         CancellationToken cancellationToken)
     {
         var lines = new List<string>
@@ -2832,7 +2973,10 @@ internal static class AgentRunner
         {
             var digit = digits[index].ToString();
             var inputArgs = new Dictionary<string, object?> { ["text"] = digit };
-            var inputResult = await mcpManager.CallToolAsync("send_input_to_window", inputArgs, cancellationToken);
+            var inputResult = await mcpManager.CallToolAsync(
+                "type_window_text",
+                PrepareToolArgumentsForDesktopSession("type_window_text", inputArgs, desktopSession),
+                cancellationToken);
             DebugTrace.WriteStructuredEvent(
                 "agent.netflix_pin_entry.digit_input",
                 new Dictionary<string, object?>
@@ -2852,8 +2996,11 @@ internal static class AgentRunner
             }
 
             var focusResult = await mcpManager.CallToolAsync(
-                "describe_selected_window_focus",
-                new Dictionary<string, object?> { ["maxDepth"] = 3 },
+                "describe_window_focus",
+                PrepareToolArgumentsForDesktopSession(
+                    "describe_window_focus",
+                    new Dictionary<string, object?> { ["maxDepth"] = 3 },
+                    desktopSession),
                 cancellationToken);
             var focusSummary = DescribeFocusedElementFromToolOutput(focusResult.Text);
             DebugTrace.WriteStructuredEvent(
@@ -2892,9 +3039,9 @@ internal static class AgentRunner
         out string blockedMessage)
     {
         blockedMessage = string.Empty;
-        if (toolName is not "click_selected_window_element"
-            and not "invoke_selected_window_element"
-            and not "focus_selected_window_element"
+        if (toolName is not "click_window_element"
+            and not "invoke_window_element"
+            and not "focus_window_element"
             || string.IsNullOrWhiteSpace(recentWindowContext))
         {
             return false;
@@ -2919,8 +3066,8 @@ internal static class AgentRunner
 
             var requiredAction = toolName switch
             {
-                "focus_selected_window_element" => "focus",
-                "invoke_selected_window_element" => "invoke",
+                "focus_window_element" => "focus",
+                "invoke_window_element" => "invoke",
                 _ => null
             };
 
@@ -3160,7 +3307,7 @@ internal static class AgentRunner
         string toolName,
         string? recentWindowContext)
     {
-        return toolName == "launch_app_via_taskbar_search"
+        return toolName == "launch_application"
                && SnapshotLooksLikeBrowserWindow(recentWindowContext)
                && UserRequestLooksLikeBrowserContentSearch(userText);
     }

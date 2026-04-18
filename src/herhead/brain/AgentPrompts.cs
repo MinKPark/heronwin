@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace HeronWin.Brain;
@@ -575,18 +575,18 @@ internal static class AgentPromptComposer
         var hasLaunchTools = HasAnyNamedTools(
             availableToolNames,
             "list_windows",
-            "select_window",
-            "list_taskbar_elements",
-            "select_taskbar_app",
-            "launch_app_via_taskbar_search");
+            "activate_window",
+            "list_taskbar_items",
+            "activate_taskbar_app",
+            "launch_application");
 
         return skillKey switch
         {
             "ui-refresh-and-evidence" => HasAnyNamedTools(
                 availableToolNames,
-                "describe_selected_window",
-                "describe_selected_window_focus",
-                "capture_selected_window_screenshot"),
+                "describe_window",
+                "describe_window_focus",
+                "capture_window_screenshot"),
             "desktop-launch-and-first-look"
                 => (requestIntents.Contains("launch_request") || requestIntents.Contains("direct_browser_navigation_request"))
                    && hasLaunchTools,
@@ -594,33 +594,35 @@ internal static class AgentPromptComposer
                 => requestIntents.Contains("browser_request")
                    && HasAnyNamedTools(
                        availableToolNames,
-                       "describe_selected_window",
-                       "describe_selected_window_focus",
-                       "invoke_selected_window_element",
-                       "click_selected_window_element",
-                       "focus_selected_window_element",
-                       "send_input_to_window",
-                       "capture_selected_window_screenshot"),
+                       "describe_window",
+                       "describe_window_focus",
+                       "invoke_window_element",
+                       "click_window_element",
+                       "focus_window_element",
+                       "press_window_key",
+                       "type_window_text",
+                       "capture_window_screenshot"),
             "search-and-enumeration"
                 => requestIntents.Contains("search_or_enumeration_request")
                    && HasAnyNamedTools(
                        availableToolNames,
-                       "describe_selected_window",
-                       "describe_selected_window_focus",
-                       "capture_selected_window_screenshot"),
+                       "describe_window",
+                       "describe_window_focus",
+                       "capture_window_screenshot"),
             "action-discovery-and-invocation"
                 => !requestIntents.Contains("browser_request")
                    && requestIntents.Contains("action_request")
                    && HasAnyNamedTools(
                        availableToolNames,
-                       "list_main_menu_items",
-                       "list_context_menu_items",
-                       "invoke_main_menu_item",
-                       "invoke_context_menu_item",
-                       "invoke_selected_window_element",
-                       "click_selected_window_element",
-                       "focus_selected_window_element",
-                       "send_input_to_window"),
+                       "list_window_main_menu_items",
+                       "list_window_context_menu_items",
+                       "invoke_window_main_menu_item",
+                       "invoke_window_context_menu_item",
+                       "invoke_window_element",
+                       "click_window_element",
+                       "focus_window_element",
+                       "press_window_key",
+                       "type_window_text"),
             _ => false
         };
     }

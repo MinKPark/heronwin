@@ -529,6 +529,7 @@ internal static class ScriptedConversationRunner
             Display.Separator();
             Display.Info($"Scenario: {scenario.Name}");
             var history = new List<AgentMessage>();
+            var desktopSession = new DesktopSessionContext();
             var turns = new List<BrainScriptedTurnResult>();
             var stopScenario = false;
 
@@ -550,6 +551,7 @@ internal static class ScriptedConversationRunner
                         turnId,
                         command,
                         history,
+                        desktopSession,
                         config,
                         llmClient,
                         mcpManager,

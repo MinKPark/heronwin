@@ -22,7 +22,8 @@ $faceProjectPath = Join-Path $PSScriptRoot "src\herhead\face\Face.csproj"
 $faceExecutablePath = Join-Path $PSScriptRoot "src\herhead\face\bin\$Configuration\$TargetFramework\Face.exe"
 $resolvedFaceProjectPath = [System.IO.Path]::GetFullPath($faceProjectPath)
 $resolvedBrainProjectPath = [System.IO.Path]::GetFullPath($brainProjectPath)
-$resolvedEyesAndHandsProjectPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "src\herbody\eyesandhands\eyesandhands.csproj"))
+$resolvedCognitionProjectPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "src\body\cognition\cognition.csproj"))
+$resolvedExecutionProjectPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "src\body\execution\execution.csproj"))
 $resolvedScenarioPath = $null
 $faceProcess = $null
 
@@ -37,7 +38,7 @@ if (-not [string]::IsNullOrWhiteSpace($Scenario) -and $BrainArgs -contains "--sc
     throw "Use either -Scenario or pass --scenario through -BrainArgs, not both."
 }
 
-foreach ($path in @($brainProjectPath, $faceProjectPath, $resolvedEyesAndHandsProjectPath)) {
+foreach ($path in @($brainProjectPath, $faceProjectPath, $resolvedCognitionProjectPath, $resolvedExecutionProjectPath)) {
     if (-not (Test-Path $path)) {
         throw "Required path not found: $path"
     }
@@ -175,8 +176,8 @@ if (-not $NoBuild) {
 
     if ($runBrain) {
         Stop-RunningRepoRuntimeProcesses `
-            -CommandLineNeedles @($resolvedBrainProjectPath, $resolvedEyesAndHandsProjectPath, "src\\herhead\\brain", "src\\herbody\\eyesandhands") `
-            -ProcessNames @("eyesandhands.exe")
+            -CommandLineNeedles @($resolvedBrainProjectPath, $resolvedCognitionProjectPath, $resolvedExecutionProjectPath, "src\\herhead\\brain", "src\\body\\cognition", "src\\body\\execution") `
+            -ProcessNames @("cognition.exe", "execution.exe")
     }
 
     Build-LaunchProjects -ShouldBuildFace:$runFace -ShouldBuildBrain:$runBrain

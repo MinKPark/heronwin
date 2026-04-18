@@ -14,7 +14,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\herbody\eyesandhands\eyesandhands.csproj"
+    <ProjectReference Include="..\..\body\cognition\cognition.csproj"
+                      ReferenceOutputAssembly="false"
+                      PrivateAssets="all" />
+    <ProjectReference Include="..\..\body\execution\execution.csproj"
                       ReferenceOutputAssembly="false"
                       PrivateAssets="all" />
   </ItemGroup>

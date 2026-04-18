@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Diagnostics;
@@ -336,8 +336,8 @@ internal sealed class McpClientManager : IAsyncDisposable
             return false;
         }
 
-        return toolName is "describe_selected_window"
-            or "describe_selected_window_focus";
+        return toolName is "describe_window"
+            or "describe_window_focus";
     }
 
     internal static IReadOnlyList<string> ExtractImageFilePathsFromJsonText(string toolText)
@@ -621,7 +621,7 @@ internal sealed class McpClientManager : IAsyncDisposable
                 ["workingDirectory"] = _envBaseDir,
                 ["serverEnvKeys"] = server.Env?.Keys.OrderBy(static key => key, StringComparer.OrdinalIgnoreCase).ToArray() ?? [],
                 ["stderrCaptureEnabled"] = true,
-                ["eyesAndHandsDebugEnabled"] = IsEyesAndHandsServer(server) && DebugTrace.IsEnabled,
+                ["desktopAutomationDebugEnabled"] = IsDesktopAutomationServer(server) && DebugTrace.IsEnabled,
             });
 
         var transport = new StdioClientTransport(new StdioClientTransportOptions
@@ -750,26 +750,30 @@ internal sealed class McpClientManager : IAsyncDisposable
     {
         environment["BRAIN_DEBUG_SESSION_ID"] = DebugTrace.SessionId;
 
-        if (IsEyesAndHandsServer(server))
+        if (IsDesktopAutomationServer(server))
         {
             environment["BRAIN_DEBUG_ARTIFACT_DIR"] = DebugTrace.BuildLogsDirectory(AppContext.BaseDirectory);
         }
 
-        if (DebugTrace.IsEnabled && IsEyesAndHandsServer(server))
+        if (DebugTrace.IsEnabled && IsDesktopAutomationServer(server))
         {
-            environment["EYESANDHANDS_DEBUG"] = "1";
+            environment["BODY_WINDOWS_DEBUG"] = "1";
         }
     }
 
-    private static bool IsEyesAndHandsServer(McpServerConfig server)
+    private static bool IsDesktopAutomationServer(McpServerConfig server)
     {
-        if (server.Name.Contains("eyesandhands", StringComparison.OrdinalIgnoreCase) ||
-            server.Command.Contains("eyesandhands", StringComparison.OrdinalIgnoreCase))
+        if (server.Name.Contains("cognition", StringComparison.OrdinalIgnoreCase) ||
+            server.Name.Contains("execution", StringComparison.OrdinalIgnoreCase) ||
+            server.Command.Contains("cognition", StringComparison.OrdinalIgnoreCase) ||
+            server.Command.Contains("execution", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        return server.Args?.Any(arg => arg.Contains("eyesandhands", StringComparison.OrdinalIgnoreCase)) == true;
+        return server.Args?.Any(arg =>
+            arg.Contains("cognition", StringComparison.OrdinalIgnoreCase) ||
+            arg.Contains("execution", StringComparison.OrdinalIgnoreCase)) == true;
     }
 
     private static string ResolveMaybeRelativePath(string value, string baseDir)
