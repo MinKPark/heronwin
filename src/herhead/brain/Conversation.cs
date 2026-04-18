@@ -104,6 +104,8 @@ internal static class AgentRunner
         var additionalDesktopEvidenceAttempts = 0;
         const int maxAdditionalDesktopEvidenceAttempts = 2;
         var llmAttempt = 0;
+        var attemptedNetflixProfileSelectionAutoFollowThrough = false;
+        var attemptedNetflixPinAutoFollowThrough = false;
         string? recentListWindowsOutput = desktopSession.RecentListWindowsOutput;
         string? recentWindowContext = desktopSession.RecentWindowContext;
         string? recentUiTreeContext = desktopSession.RecentUiTreeContext;
@@ -206,6 +208,114 @@ internal static class AgentRunner
         {
             var preparedArgs = PrepareDesktopToolArguments(toolName, args);
             return await mcpManager.CallToolAsync(toolName, preparedArgs, cancellationToken);
+        }
+
+        async Task<bool> MaybeContinueNetflixProfileSelectionAsync(string assistantResponseText)
+        {
+            if (attemptedNetflixProfileSelectionAutoFollowThrough ||
+                !TryFindNetflixProfileSelectionTargetPath(userText, ResolveActionableUiTreeContext(), out var profileTargetPath))
+            {
+                return false;
+            }
+
+            attemptedNetflixProfileSelectionAutoFollowThrough = true;
+
+            var invokeArgs = new Dictionary<string, object?> { ["elementPath"] = profileTargetPath };
+            var invokeArgsText = JsonSerializer.Serialize(invokeArgs, JsonSerializerOptionsCache.Default);
+            Display.ToolCall("invoke_window_element", invokeArgsText);
+            var invokeResult = await CallToolWithDesktopSessionAsync("invoke_window_element", invokeArgs);
+            Display.ToolResult("invoke_window_element", invokeResult.Text, invokeResult.Images.Count);
+            usedAnyTools = true;
+            performedDesktopAction = true;
+            lastCompletedToolNameInTurn = "invoke_window_element";
+            if (!invokeResult.IsError)
+            {
+                RememberRecentWindowSnapshot(invokeResult.Text);
+            }
+
+            messages.Add(new AgentMessage.Assistant(assistantResponseText));
+            messages.Add(new AgentMessage.User(
+                "Internal follow-through: the user explicitly asked to select the visible Netflix profile, and the current UI still exposed one exact matching profile target. That target was invoked internally because the prior draft stopped before completing the requested activation. Use the fresh post-action evidence below as the source of truth."));
+
+            var postActionSnapshot = await CallToolWithDesktopSessionAsync(
+                "describe_window",
+                new Dictionary<string, object?> { ["fullDepth"] = true });
+            Display.ToolResult("describe_window", postActionSnapshot.Text, postActionSnapshot.Images.Count);
+            RememberRecentWindowSnapshot(postActionSnapshot.Text, "describe_window");
+            if (!string.IsNullOrWhiteSpace(currentUiElementContext))
+            {
+                messages.Add(new AgentMessage.User(
+                    $"Fresh post-action UI snapshot after internally invoking the requested Netflix profile:\n{currentUiElementContext}"));
+            }
+
+            var screenshot = await CallToolWithDesktopSessionAsync(
+                "capture_window_screenshot",
+                new Dictionary<string, object?>());
+            Display.ToolResult("capture_window_screenshot", screenshot.Text, screenshot.Images.Count);
+            if (screenshot.Images.Count > 0)
+            {
+                messages.Add(new AgentMessage.VisualContext(
+                    "Fresh screenshot evidence after internally invoking the requested Netflix profile. Treat this as the source of truth for the visible screen.",
+                    screenshot.Images));
+            }
+
+            return true;
+        }
+
+        async Task<bool> MaybeContinueNetflixPinEntryAsync(string assistantResponseText)
+        {
+            if (attemptedNetflixPinAutoFollowThrough ||
+                !TryBuildRemainingNetflixPinDigits(
+                    userText,
+                    ResolveActionableUiTreeContext(),
+                    recentFocusContext,
+                    out var remainingDigits))
+            {
+                return false;
+            }
+
+            attemptedNetflixPinAutoFollowThrough = true;
+
+            Display.ToolCall("type_window_text", """{"text":"[remaining Netflix PIN digits redacted]"}""");
+            var pinResult = await ExecuteStructuredNetflixPinEntryAsync(
+                turnId,
+                $"internal-netflix-pin-{llmAttempt}",
+                remainingDigits,
+                mcpManager,
+                desktopSession,
+                cancellationToken);
+            Display.ToolResult("type_window_text", pinResult.Text, pinResult.Images.Count);
+            usedAnyTools = true;
+            performedDesktopAction = true;
+            lastCompletedToolNameInTurn = "type_window_text";
+
+            messages.Add(new AgentMessage.Assistant(assistantResponseText));
+            messages.Add(new AgentMessage.User(
+                "Internal follow-through: the user already provided the Netflix PIN for this turn, and the profile-lock gate remained visible after only a partial entry. The remaining PIN digits were entered internally one at a time. Use the fresh post-action evidence below as the source of truth."));
+
+            var postActionSnapshot = await CallToolWithDesktopSessionAsync(
+                "describe_window",
+                new Dictionary<string, object?> { ["fullDepth"] = true });
+            Display.ToolResult("describe_window", postActionSnapshot.Text, postActionSnapshot.Images.Count);
+            RememberRecentWindowSnapshot(postActionSnapshot.Text, "describe_window");
+            if (!string.IsNullOrWhiteSpace(currentUiElementContext))
+            {
+                messages.Add(new AgentMessage.User(
+                    $"Fresh post-action UI snapshot after internally entering the remaining Netflix PIN digits:\n{currentUiElementContext}"));
+            }
+
+            var screenshot = await CallToolWithDesktopSessionAsync(
+                "capture_window_screenshot",
+                new Dictionary<string, object?>());
+            Display.ToolResult("capture_window_screenshot", screenshot.Text, screenshot.Images.Count);
+            if (screenshot.Images.Count > 0)
+            {
+                messages.Add(new AgentMessage.VisualContext(
+                    "Fresh screenshot evidence after internally entering the remaining Netflix PIN digits. Treat this as the source of truth for the visible screen.",
+                    screenshot.Images));
+            }
+
+            return true;
         }
 
         while (true)
@@ -315,6 +425,16 @@ internal static class AgentRunner
                         desktopSession,
                         llmClient.ModelProfile,
                         cancellationToken));
+                    continue;
+                }
+
+                if (await MaybeContinueNetflixProfileSelectionAsync(responseText))
+                {
+                    continue;
+                }
+
+                if (await MaybeContinueNetflixPinEntryAsync(responseText))
+                {
                     continue;
                 }
 
@@ -1112,6 +1232,43 @@ internal static class AgentRunner
                     continue;
                 }
 
+                if (ShouldBlockProcessLaunchForBrowserRequest(
+                        userText,
+                        executableToolName,
+                        recentWindowContext))
+                {
+                    Display.ToolCall(executableToolName, effectiveArgumentsText);
+                    var blockedMessage =
+                        "Blocked internal policy: this request is about browser navigation or in-browser content, so do not use process-manager to launch a Store link, URI, or other OS process. Use the browser flow instead: select or launch the browser, then use the address bar or the current website's own controls.";
+                    Display.ToolResult(executableToolName, blockedMessage, 0);
+                    DebugTrace.WriteStructuredEvent(
+                        "agent.tool_call_blocked",
+                        new Dictionary<string, object?>
+                        {
+                            ["turn"] = turnId,
+                            ["toolCallId"] = toolCall.Id,
+                            ["tool"] = toolCall.Name,
+                            ["executedTool"] = executableToolName,
+                            ["reason"] = "browser_request_must_not_use_process_manager_launch",
+                            ["resultPreview"] = DebugTrace.Preview(blockedMessage, 900),
+                        });
+                    DebugTrace.WriteStructuredEvent(
+                        "agent.tool_call_completed",
+                        new Dictionary<string, object?>
+                        {
+                            ["turn"] = turnId,
+                            ["toolCallId"] = toolCall.Id,
+                            ["tool"] = toolCall.Name,
+                            ["executedTool"] = executableToolName,
+                            ["elapsedMs"] = 0,
+                            ["isError"] = true,
+                            ["images"] = 0,
+                            ["resultPreview"] = DebugTrace.Preview(blockedMessage, 900),
+                        });
+                    messages.Add(new AgentMessage.ToolResult(toolCall.Id, toolCall.Name, blockedMessage));
+                    continue;
+                }
+
                 if (ShouldBlockUnnamedProfilePickerAction(
                         userText,
                         executableToolName,
@@ -1432,6 +1589,14 @@ internal static class AgentRunner
                                 llmClient.ModelProfile);
                             followUpEvidence.Add(new AgentMessage.User(
                                 $"Post-action focused element snapshot after tool \"{executableToolName}\":\n{compactFocusSnapshot}\nTreat this focused subtree as fresher evidence than any older focus assumptions before sending more navigation keys."));
+                            var focusContinuationGuidance = BuildFocusedElementContinuationGuidance(
+                                userText,
+                                executableToolName,
+                                focusSnapshot.Text);
+                            if (!string.IsNullOrWhiteSpace(focusContinuationGuidance))
+                            {
+                                followUpEvidence.Add(new AgentMessage.User(focusContinuationGuidance));
+                            }
                             DebugTrace.WriteStructuredEvent(
                                 "agent.desktop_followup_focus_snapshot",
                                 new Dictionary<string, object?>
@@ -1745,6 +1910,49 @@ internal static class AgentRunner
         }
 
         return "Standalone navigation keys are a weaker fallback for visible control activation. Refresh focus or window state before sending more navigation keys, and prefer a direct tool-supported target when one is available.";
+    }
+
+    internal static string? BuildFocusedElementContinuationGuidance(
+        string userText,
+        string toolName,
+        string focusSnapshotText)
+    {
+        if (toolName != "press_window_key" && toolName != "focus_window_element")
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(userText) ||
+            string.IsNullOrWhiteSpace(focusSnapshotText) ||
+            !UserRequestLooksLikeActivation(userText) ||
+            UserRequestExplicitlyAsksForFocusOnly(userText))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(focusSnapshotText);
+            if (!TryGetJsonProperty(document.RootElement, "focusedElement", out var focusedElement) ||
+                !ElementLooksLikePreciseActionTarget(focusedElement))
+            {
+                return null;
+            }
+
+            var name = TryGetJsonStringProperty(focusedElement, "name");
+            if (string.IsNullOrWhiteSpace(name) ||
+                !UserTextMentionsElementName(userText, name) ||
+                !ElementHasAction(focusedElement, "invoke"))
+            {
+                return null;
+            }
+
+            return $"Fresh focus evidence shows the exact requested target \"{name}\" is now focused and supports invoke. Focus alone does not complete the user's action request. Invoke the focused target now instead of stopping at focus.";
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static bool IsLaunchAttemptWithoutSelectedWindow(string toolName, string toolOutputText)
@@ -3312,6 +3520,91 @@ internal static class AgentRunner
                && UserRequestLooksLikeBrowserContentSearch(userText);
     }
 
+    internal static bool TryFindNetflixProfileSelectionTargetPath(
+        string userText,
+        string? recentWindowContext,
+        out string matchedPath)
+    {
+        matchedPath = string.Empty;
+        if (!UserRequestLooksLikeProfileSelection(userText) ||
+            string.IsNullOrWhiteSpace(recentWindowContext))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(recentWindowContext);
+            if (!TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree) ||
+                elementTree.ValueKind != JsonValueKind.Object ||
+                !SnapshotContainsVisibleProfilePicker(elementTree))
+            {
+                return false;
+            }
+
+            return TryFindUniqueNamedActionTargetFromUserText(
+                recentWindowContext,
+                userText,
+                "invoke",
+                out matchedPath);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    internal static bool TryBuildRemainingNetflixPinDigits(
+        string userText,
+        string? recentWindowContext,
+        string? recentFocusContext,
+        out string remainingDigits)
+    {
+        remainingDigits = string.Empty;
+        if (!TryExtractRequestedPinDigitsFromUserText(userText, out var fullDigits))
+        {
+            return false;
+        }
+
+        var matchesPinContext =
+            SnapshotLooksLikeNetflixPinFocus(recentFocusContext)
+            || SnapshotLooksLikeNetflixPinWindow(recentWindowContext);
+        if (!matchesPinContext)
+        {
+            return false;
+        }
+
+        var nextDigitIndex = 0;
+        if (TryExtractNetflixPinInputOrdinal(recentFocusContext, out var focusedOrdinal) &&
+            focusedOrdinal >= 1)
+        {
+            nextDigitIndex = Math.Min(focusedOrdinal - 1, fullDigits.Length);
+        }
+
+        if (nextDigitIndex >= fullDigits.Length)
+        {
+            return false;
+        }
+
+        remainingDigits = fullDigits[nextDigitIndex..];
+        return remainingDigits.Length > 0;
+    }
+
+    internal static bool ShouldBlockProcessLaunchForBrowserRequest(
+        string userText,
+        string toolName,
+        string? recentWindowContext)
+    {
+        if (toolName != "start_process")
+        {
+            return false;
+        }
+
+        return UserRequestLooksLikeWebsiteNavigation(userText)
+               || (SnapshotLooksLikeBrowserWindow(recentWindowContext)
+                   && UserRequestLooksLikeBrowserContentSearch(userText));
+    }
+
     private static bool SnapshotContainsBrowserAddressBar(string? snapshotText)
     {
         if (string.IsNullOrWhiteSpace(snapshotText))
@@ -3384,6 +3677,40 @@ internal static class AgentRunner
             using var document = JsonDocument.Parse(snapshotText);
             return TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree) &&
                    ContainsMatchingElement(elementTree, ElementLooksLikeNetflixPinInputOrPrompt);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryExtractNetflixPinInputOrdinal(string? focusSnapshotText, out int ordinal)
+    {
+        ordinal = 0;
+        if (string.IsNullOrWhiteSpace(focusSnapshotText))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(focusSnapshotText);
+            if (!TryGetJsonProperty(document.RootElement, "focusedElement", out var focusedElement))
+            {
+                return false;
+            }
+
+            var name = TryGetJsonStringProperty(focusedElement, "name");
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return false;
+            }
+
+            var match = Regex.Match(
+                name,
+                @"input\s+(?<ordinal>\d+)",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            return match.Success && int.TryParse(match.Groups["ordinal"].Value, out ordinal);
         }
         catch
         {
@@ -4568,6 +4895,68 @@ internal static class AgentRunner
                || userText.Contains("reuse the tab", StringComparison.OrdinalIgnoreCase)
                || userText.Contains("reuse current tab", StringComparison.OrdinalIgnoreCase)
                || userText.Contains("replace this tab", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool UserRequestLooksLikeActivation(string userText)
+    {
+        if (string.IsNullOrWhiteSpace(userText))
+        {
+            return false;
+        }
+
+        return userText.Contains("select", StringComparison.OrdinalIgnoreCase)
+               || userText.Contains("choose", StringComparison.OrdinalIgnoreCase)
+               || userText.Contains("pick", StringComparison.OrdinalIgnoreCase)
+               || userText.Contains("open", StringComparison.OrdinalIgnoreCase)
+               || userText.Contains("click", StringComparison.OrdinalIgnoreCase)
+               || userText.Contains("invoke", StringComparison.OrdinalIgnoreCase)
+               || userText.Contains("press", StringComparison.OrdinalIgnoreCase)
+               || userText.Contains("play", StringComparison.OrdinalIgnoreCase)
+               || userText.Contains("watch", StringComparison.OrdinalIgnoreCase)
+               || userText.Contains("go to", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool UserRequestLooksLikeProfileSelection(string userText)
+    {
+        if (string.IsNullOrWhiteSpace(userText))
+        {
+            return false;
+        }
+
+        return userText.Contains("profile", StringComparison.OrdinalIgnoreCase)
+               && UserRequestLooksLikeActivation(userText);
+    }
+
+    private static bool TryExtractRequestedPinDigitsFromUserText(string userText, out string digits)
+    {
+        digits = string.Empty;
+        if (string.IsNullOrWhiteSpace(userText))
+        {
+            return false;
+        }
+
+        var match = Regex.Match(
+            userText,
+            @"\b(?<digits>\d{2,8})\b",
+            RegexOptions.CultureInvariant);
+        if (!match.Success)
+        {
+            return false;
+        }
+
+        digits = match.Groups["digits"].Value;
+        return digits.Length >= 2;
+    }
+
+    private static bool UserRequestExplicitlyAsksForFocusOnly(string userText)
+    {
+        if (string.IsNullOrWhiteSpace(userText))
+        {
+            return false;
+        }
+
+        return userText.Contains("focus", StringComparison.OrdinalIgnoreCase)
+               && !UserRequestLooksLikeActivation(userText);
     }
 
     private sealed record NamedActionTargetCandidate(

@@ -18,8 +18,9 @@ This file has two jobs:
 |--------|----------|------|-----------|
 | `done` | `P0` | Make the debugging workflow an explicit standing guardrail. | Captured in [Development Guardrails](./DEVELOPMENT_GUARDRAILS.md). |
 | `done` | `n/a` | Create a top-level `docs/` folder and split the project docs into focused files. | Keep the index and cross-links current. |
-| `in_progress` | `P0` | Finish the `body` / `cognition` / `execution` cutover. | Code, prompts, docs, and tests are retargeted and solution build/test passed; after reboot rerun `npm run build` in `src\body\process-manager` and smoke-test the MCP stack through `MCP_SERVERS`. |
-| `next` | `P1` | Clean up leftover historical `src\herbody` paths and stale local config. | Remove only empty leftovers after the post-reboot smoke test confirms the cutover is clean. |
+| `done` | `P0` | Finish the `body` / `cognition` / `execution` cutover. | `process-manager` builds again, `dotnet test src\heronwin.sln` passes with 275 tests, local `MCP_SERVERS` points at `process-manager`/`cognition`/`execution`, and the scripted Netflix smoke flow now exercises the refactored stack end to end through its current log-based checks. |
+| `next` | `P1` | Tighten Netflix search/playback scripted validation. | The latest scripted pass still exposed a Netflix search-control mis-target that current unresolved-outcome checks did not fail, so strengthen both the targeting and the scenario/evaluator criteria. |
+| `next` | `P1` | Clean up leftover historical `src\herbody` paths and stale local config. | Root docs and local MCP wiring are retargeted; remove only any remaining empty leftovers once the cleanup pass is done. |
 | `next` | `P1` | Add dedicated coverage for the WPF `face` app. | Start with settings edits, status mapping, and view-model state transitions. |
 | `next` | `P1` | Broaden the prompt and skill intent vocabulary. | Add a small set of generic intents and cover them with activation tests. |
 | `soon` | `P2` | Add automated tests for `process-manager`. | Start with command validation and process-list parsing, then add integration tests later. |
@@ -42,6 +43,19 @@ part of committed repo history.
   folders so `dotnet build src\heronwin.sln` and
   `dotnet test src\heronwin.sln` pass again; the remaining follow-up is the
   post-reboot `process-manager` build and end-to-end smoke test.
+- 2026-04-18: reran `npm run build` in `src/body/process-manager`, switched the
+  local `brain/.env` MCP wiring from `eyesandhands` to `process-manager`,
+  `cognition`, and `execution`, and added a guardrail that blocks
+  `process-manager/start_process` from hijacking website-navigation requests
+  into Microsoft Store or other OS-process launches.
+- 2026-04-18: added internal Netflix follow-through for named profile
+  selection and remaining PIN digits, then reran the scripted Netflix smoke
+  flow successfully against the refactored `process-manager` / `cognition` /
+  `execution` stack.
+- 2026-04-18: the latest scripted pass also showed one follow-up quality gap:
+  Netflix search targeting can still hit the browser's `Open in app` control,
+  and the current unresolved-outcome checks are not yet strict enough to fail
+  that run.
 
 ## Daily Repo History
 

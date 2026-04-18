@@ -146,6 +146,50 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void BuildFocusedElementContinuationGuidance_ReturnsHint_WhenExactRequestedTargetIsFocused()
+    {
+        var actual = AgentRunner.BuildFocusedElementContinuationGuidance(
+            "If Netflix is showing the profile selection screen, select the profile named Min.",
+            "press_window_key",
+            """
+            {
+              "FocusedElement": {
+                "Path": "focused",
+                "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0/0",
+                "Name": "Min",
+                "ControlType": "Hyperlink",
+                "AvailableActions": [ "focus", "invoke", "scroll_into_view" ]
+              }
+            }
+            """);
+
+        Assert.NotNull(actual);
+        Assert.Contains("Focus alone does not complete", actual!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Invoke the focused target now", actual, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildFocusedElementContinuationGuidance_ReturnsNull_ForFocusOnlyRequest()
+    {
+        var actual = AgentRunner.BuildFocusedElementContinuationGuidance(
+            "Focus the profile named Min.",
+            "press_window_key",
+            """
+            {
+              "FocusedElement": {
+                "Path": "focused",
+                "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0/0",
+                "Name": "Min",
+                "ControlType": "Hyperlink",
+                "AvailableActions": [ "focus", "invoke", "scroll_into_view" ]
+              }
+            }
+            """);
+
+        Assert.Null(actual);
+    }
+
+    [Fact]
     public void BuildToolSpecificGuidance_ReturnsFailureHint_ForTaskbarAppLaunchWithoutSelectedWindow()
     {
         var actual = AgentRunner.BuildToolSpecificGuidance(
@@ -545,6 +589,193 @@ public sealed class AgentRunnerDecisionTests
             "Launch the Calculator app from the taskbar search.",
             "launch_application",
             """{"Window":{"Handle":"0x00060A88","Title":"Netflix - Microsoft Edge","ClassName":"Chrome_WidgetWin_1"}}""");
+
+        Assert.False(actual);
+    }
+
+    [Fact]
+    public void ShouldBlockProcessLaunchForBrowserRequest_ReturnsTrue_ForWebsiteNavigation()
+    {
+        var actual = AgentRunner.ShouldBlockProcessLaunchForBrowserRequest(
+            "Go to the Netflix website.",
+            "start_process",
+            """{"Window":{"Handle":"0x004C08DE","Title":"heronwin - Visual Studio Code","ClassName":"Chrome_WidgetWin_1"}}""");
+
+        Assert.True(actual);
+    }
+
+    [Fact]
+    public void ShouldBlockProcessLaunchForBrowserRequest_ReturnsTrue_ForInBrowserContentSearch()
+    {
+        var actual = AgentRunner.ShouldBlockProcessLaunchForBrowserRequest(
+            "Search for Boyfriend on Demand within Netflix.",
+            "start_process",
+            """{"Window":{"Handle":"0x00060A88","Title":"Netflix - Microsoft Edge","ClassName":"Chrome_WidgetWin_1"}}""");
+
+        Assert.True(actual);
+    }
+
+    [Fact]
+    public void ShouldBlockProcessLaunchForBrowserRequest_ReturnsFalse_ForNormalDesktopLaunch()
+    {
+        var actual = AgentRunner.ShouldBlockProcessLaunchForBrowserRequest(
+            "Open Notepad.",
+            "start_process",
+            """{"Window":{"Handle":"0x004C08DE","Title":"heronwin - Visual Studio Code","ClassName":"Chrome_WidgetWin_1"}}""");
+
+        Assert.False(actual);
+    }
+
+    [Fact]
+    public void TryFindNetflixProfileSelectionTargetPath_ReturnsExactInvokableProfile()
+    {
+        var snapshot =
+            """
+            {
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "1/0/0/1/1/0/0/0/0/0/0",
+                    "UiPath": "1/0/0/1/1/0/0/0/0/0/0",
+                    "Name": "Netflix",
+                    "ControlType": "Document",
+                    "Children": [
+                      {
+                        "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/1",
+                        "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/1",
+                        "Name": "Who's watching?",
+                        "ControlType": "Text",
+                        "ClassName": "profile-gate-label"
+                      },
+                      {
+                        "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0",
+                        "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0",
+                        "Name": "Min",
+                        "ControlType": "ListItem",
+                        "ClassName": "profile",
+                        "AvailableActions": [ "scroll_into_view" ],
+                        "Children": [
+                          {
+                            "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0/0",
+                            "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0/0",
+                            "Name": "Min",
+                            "ControlType": "Hyperlink",
+                            "ClassName": "profile-link",
+                            "AvailableActions": [ "focus", "invoke", "scroll_into_view" ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+            """;
+
+        var actual = AgentRunner.TryFindNetflixProfileSelectionTargetPath(
+            "If Netflix is showing the profile selection screen, select the profile named Min.",
+            snapshot,
+            out var matchedPath);
+
+        Assert.True(actual);
+        Assert.Equal("1/0/0/1/1/0/0/0/0/0/0/0/0/2/0/0", matchedPath);
+    }
+
+    [Fact]
+    public void TryFindNetflixProfileSelectionTargetPath_ReturnsFalse_WhenProfilePickerIsAbsent()
+    {
+        var snapshot =
+            """
+            {
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "1/0/0",
+                    "UiPath": "1/0/0",
+                    "Name": "Netflix Home",
+                    "ControlType": "Document"
+                  }
+                ]
+              }
+            }
+            """;
+
+        var actual = AgentRunner.TryFindNetflixProfileSelectionTargetPath(
+            "Select the profile named Min.",
+            snapshot,
+            out _);
+
+        Assert.False(actual);
+    }
+
+    [Fact]
+    public void TryBuildRemainingNetflixPinDigits_ReturnsRemainingDigits_FromFocusedOrdinal()
+    {
+        var windowSnapshot =
+            """
+            {
+              "Window": {
+                "Handle": "0x009C0680",
+                "Title": "Netflix",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "1/0",
+                    "UiPath": "1/0",
+                    "Name": "Enter Min's PIN to add a profile",
+                    "ControlType": "Text"
+                  }
+                ]
+              }
+            }
+            """;
+        var focusSnapshot =
+            """
+            {
+              "Window": {
+                "Handle": "0x009C0680",
+                "Title": "Netflix",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "FocusedElement": {
+                "Path": "focused",
+                "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/5",
+                "Name": "PIN Entry Input 2.",
+                "ControlType": "Edit",
+                "ClassName": "pin-number-input focus-visible"
+              }
+            }
+            """;
+
+        var actual = AgentRunner.TryBuildRemainingNetflixPinDigits(
+            "If Netflix asks for a profile passcode, type 3579 one digit at a time.",
+            windowSnapshot,
+            focusSnapshot,
+            out var remainingDigits);
+
+        Assert.True(actual);
+        Assert.Equal("579", remainingDigits);
+    }
+
+    [Fact]
+    public void TryBuildRemainingNetflixPinDigits_ReturnsFalse_WhenPinDigitsAreAbsent()
+    {
+        var actual = AgentRunner.TryBuildRemainingNetflixPinDigits(
+            "If Netflix asks for a profile passcode, type it one digit at a time.",
+            """{"Window":{"Title":"Netflix"}}""",
+            """{"Window":{"Title":"Netflix"}}""",
+            out _);
 
         Assert.False(actual);
     }

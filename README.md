@@ -11,9 +11,11 @@ heronwin/
     │   ├── brain/          # .NET 10 AI agent runtime (voice input, scripted runs, MCP client)
     │   ├── face/           # WPF desktop companion window for status, settings, and live state
     │   └── brain.tests/    # xUnit tests for brain
-    ├── herbody/          # MCP servers (TypeScript / C#)
+    ├── body/             # MCP servers and shared desktop automation code
     │   ├── process-manager/   # Start, stop, and list processes on the local machine
-    │   └── eyesandhands/      # Inspect Windows UI and interact with windows via UI Automation
+    │   ├── cognition/         # Inspect Windows UI and window structure
+    │   ├── execution/         # Interact with Windows UI and applications
+    │   └── desktop-automation/# Shared UI Automation library
     └── scenarios/        # YAML scenarios for scripted runs
 ```
 
@@ -22,7 +24,7 @@ heronwin/
 ### 1. Start the process-manager MCP server (build once)
 
 ```bash
-cd src/herbody/process-manager
+cd src/body/process-manager
 npm install
 npm run build
 ```
@@ -44,7 +46,7 @@ dotnet run --project src/herhead/face
 
 ### Running without a build step
 
-The TypeScript MCP server supports `npm run dev` (via [tsx](https://tsx.is)) for hot-reload development. The C# server can be started directly with `dotnet run --project src/herbody/eyesandhands/eyesandhands.csproj`.
+The TypeScript MCP server supports `npm run dev` (via [tsx](https://tsx.is)) for hot-reload development. The C# MCP servers can be started directly with `dotnet run --project src/body/cognition/cognition.csproj` and `dotnet run --project src/body/execution/execution.csproj`.
 
 ## Documentation
 
@@ -54,6 +56,6 @@ The TypeScript MCP server supports `npm run dev` (via [tsx](https://tsx.is)) for
 - [development guardrails](./docs/DEVELOPMENT_GUARDRAILS.md)
 - [brain README](./src/herhead/brain/README.md)
 - [face README](./src/herhead/face/README.md)
-- [herbody README](./src/herbody/README.md)
-- [process-manager README](./src/herbody/process-manager/README.md)
-- [eyesandhands README](./src/herbody/eyesandhands/README.md)
+- [body README](./src/body/README.md)
+- [process-manager README](./src/body/process-manager/README.md)
+- [desktop-automation README](./src/body/desktop-automation/README.md)

@@ -19,7 +19,7 @@ The main goals are:
 
 ## Current Status
 
-As of 2026-04-18, the structural cutover is mostly complete:
+As of 2026-04-18, the structural cutover is complete for the main runtime path:
 
 - `src/body` is the active tree, and `brain` references `cognition` and
   `execution`.
@@ -28,19 +28,24 @@ As of 2026-04-18, the structural cutover is mostly complete:
 - `.github/agents`, repo docs, and code-facing references have been updated to
   use `cognition/...` and `execution/...`.
 - `dotnet build src\heronwin.sln` and `dotnet test src\heronwin.sln` both pass.
+- `npm run build` in `src\body\process-manager` passes again.
+- Local `brain/.env` MCP wiring now points at `process-manager`, `cognition`,
+  and `execution` instead of the old `eyesandhands` executable.
+- A new `brain` guardrail blocks `process-manager/start_process` from hijacking
+  browser-navigation requests into Microsoft Store or other OS-process launch
+  paths.
 
 The previous build failure was not caused by low disk space. It came from a
 repo-local ACL issue on generated `obj` and `bin` folders, which has been
 repaired. A reboot is still useful before the next pass because it can clear any
 lingering file handles.
 
-Remaining work for the next pass:
+Remaining follow-up after the cutover:
 
-- rerun `npm run build` in `src\body\process-manager`,
-- smoke-test `brain`, `cognition`, `execution`, and `process-manager` together
-  through `MCP_SERVERS`,
-- remove any empty historical `src\herbody` leftovers or stale local config
-  after the smoke test,
+- remove any empty historical `src\herbody` leftovers after the cleanup pass,
+- tighten Netflix in-site search targeting plus the scripted unresolved-outcome
+  checks so the scenario fails more strictly when search or playback has not
+  really happened,
 - keep the rename map below as the historical record of the migration.
 
 ## Decisions
@@ -159,20 +164,31 @@ Verified on 2026-04-18:
 ```powershell
 dotnet build src\heronwin.sln
 dotnet test src\heronwin.sln
-```
-
-- `dotnet build src\heronwin.sln` passed with 0 warnings and 0 errors.
-- `dotnet test src\heronwin.sln` passed with 266 total tests.
-
-Still to rerun after reboot:
-
-```powershell
+dotnet test src\herhead\brain.tests\HeronWin.Brain.Tests.csproj
 cd src\body\process-manager
 npm run build
 ```
 
-Then smoke-test the existing Netflix scenario with `brain`, `cognition`,
-`execution`, and `process-manager` wired through `MCP_SERVERS`.
+- `dotnet build src\heronwin.sln` passed with 0 warnings and 0 errors.
+- `dotnet test src\heronwin.sln` passed with 275 total tests.
+- `dotnet test src\herhead\brain.tests\HeronWin.Brain.Tests.csproj` passed
+  with 203 total tests.
+- `npm run build` passed in `src\body\process-manager`.
+
+Smoke-test status:
+
+```powershell
+.\buildandrun.ps1 -BrainOnly -Scenario src\scenarios\netflix-boyfriend-on-demand.yml
+```
+
+- The refactored MCP stack now connects successfully with `process-manager`,
+  `cognition`, and `execution` exposed through `MCP_SERVERS`.
+- With the local Netflix PIN configured, the scripted Netflix flow now clears
+  the real profile picker and profile-lock gate against the refactored stack.
+- The current scripted scenario now passes its existing log-based checks, but
+  the latest run still exposed a Netflix search-control mis-target that the
+  current scenario assertions did not fail. Tightening that validation is a
+  follow-up quality task, not a cutover blocker.
 
 ## Assumptions
 

@@ -12,7 +12,6 @@ Each subdirectory is either a standalone MCP server or a shared package used by 
 | [`execution/`](./execution/) | C# | Stateless Windows UI interaction tools |
 | [`desktop-automation/`](./desktop-automation/) | C# | Shared Windows automation library used by cognition and execution |
 | [`process-manager/`](./process-manager/) | TypeScript | Start, stop, and list local processes |
-| [`micrecorder/`](./micrecorder/) | C# | Local audio capture support |
 
 ## Adding a New Server
 
@@ -23,4 +22,4 @@ Each subdirectory is either a standalone MCP server or a shared package used by 
 ## Prerequisites
 
 - Node.js 18+ for TypeScript services
-- .NET 8+ SDK for C# services
+- .NET 10+ SDK for C# services

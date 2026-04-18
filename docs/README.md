@@ -17,22 +17,33 @@ Last updated: 2026-04-18
 
 - Git baseline: `main` at `c43051a`, tracking `origin/main`.
 - The active implementation lives under `src`.
-- The `body` refactor is mostly landed:
+- The `body` refactor is landed:
   - `src/body` is the active tree.
   - `cognition` and `execution` are in the solution and referenced by `brain`.
   - prompts, skills, tests, and repo docs have been retargeted to the new
     server and tool names.
+  - the local `brain/.env` MCP server wiring now points at `process-manager`,
+    `cognition`, and `execution`.
 - `obsolete/herface-nodejs` is historical reference code and is not part of the
   current runtime path.
 - Latest verified work in the current refactor pass:
   - `dotnet build src\heronwin.sln` passed with 0 warnings and 0 errors.
-  - `dotnet test src\heronwin.sln` passed with 266 total tests.
+  - `dotnet test src\heronwin.sln` passed with 275 total tests.
+  - `dotnet test src\herhead\brain.tests\HeronWin.Brain.Tests.csproj` passed
+    with 203 total tests after adding browser-request guardrails plus Netflix
+    profile-selection and PIN follow-through coverage.
+  - `npm run build` passed in `src\body\process-manager`.
+  - `.\buildandrun.ps1 -BrainOnly -Scenario src\scenarios\netflix-boyfriend-on-demand.yml`
+    passed the current scripted scenario log checks with the refactored
+    `MCP_SERVERS` stack.
   - the build break from the previous session turned out to be a repo-local ACL
     issue on generated `obj` and `bin` output folders, not low disk space.
-- Next steps after reboot:
-  - rerun `npm run build` in `src\body\process-manager`,
-  - smoke-test `brain`, `cognition`, `execution`, and `process-manager`
-    together through `MCP_SERVERS`,
+- Current follow-up:
+  - remove any empty historical `src\herbody` leftovers if they are still
+    present,
+  - tighten Netflix in-site search targeting and the scripted unresolved-outcome
+    checks, because the latest scripted pass still exposed a search-control
+    mis-target before the final turn,
   - remove any empty historical `src\herbody` leftovers if they are still
     present.
 - Local tool versions used for the snapshot:
