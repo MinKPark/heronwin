@@ -34,6 +34,12 @@ As of 2026-04-18, the structural cutover is complete for the main runtime path:
 - A new `brain` guardrail blocks `process-manager/start_process` from hijacking
   browser-navigation requests into Microsoft Store or other OS-process launch
   paths.
+- `brain` now keeps ordinary launch requests app-first: it prefers an installed
+  app or matching app window and asks before falling back to a website when the
+  app launch stayed unconfirmed for a likely web-backed app request.
+- Post-action evidence now stays UIAutomation-first by default. Follow-up
+  screenshots are captured mainly when the refreshed UI tree is unavailable or
+  unchanged after an action that should have changed visible state.
 
 The previous build failure was not caused by low disk space. It came from a
 repo-local ACL issue on generated `obj` and `bin` folders, which has been
@@ -45,7 +51,9 @@ Remaining follow-up after the cutover:
 - remove any empty historical `src\herbody` leftovers after the cleanup pass,
 - tighten Netflix in-site search targeting plus the scripted unresolved-outcome
   checks so the scenario fails more strictly when search or playback has not
-  really happened,
+  really happened. The current scripted Netflix scenario still explicitly says
+  `Go to the Netflix website.`, so its opening step should be retargeted if the
+  smoke flow is meant to exercise the new app-first launch policy,
 - keep the rename map below as the historical record of the migration.
 
 ## Decisions
@@ -81,6 +89,9 @@ Remaining follow-up after the cutover:
   values returned by cognition tools.
 - `launch_application` keeps the current taskbar-search launch strategy for now,
   but the route is not encoded in the tool name.
+- For ordinary "open/launch/play X" requests, `brain` should try the app path
+  before browser navigation. Website flow is the default only when the user
+  explicitly asks for a website, URL, browser tab, or in-browser content.
 
 ## Tool Naming
 
@@ -138,6 +149,11 @@ Use these nouns consistently:
   confidence checks to the new tool names.
 - Replace `eyesandhands`-specific MCP server detection with explicit handling
   for `cognition` and `execution`.
+- When app launch cannot be confirmed and the request was not explicitly for the
+  web, pause and ask before falling back to a website.
+- Prefer fresh `describe_window` / `describe_window_focus` evidence after
+  actions, and only escalate to `capture_window_screenshot` when the UI tree is
+  missing the needed state change or is otherwise insufficient.
 
 ### Body
 
@@ -170,9 +186,9 @@ npm run build
 ```
 
 - `dotnet build src\heronwin.sln` passed with 0 warnings and 0 errors.
-- `dotnet test src\heronwin.sln` passed with 275 total tests.
+- `dotnet test src\heronwin.sln` passed with 281 total tests.
 - `dotnet test src\herhead\brain.tests\HeronWin.Brain.Tests.csproj` passed
-  with 203 total tests.
+  with 209 total tests.
 - `npm run build` passed in `src\body\process-manager`.
 
 Smoke-test status:

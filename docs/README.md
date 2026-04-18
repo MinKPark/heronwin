@@ -28,14 +28,20 @@ Last updated: 2026-04-18
   current runtime path.
 - Latest verified work in the current refactor pass:
   - `dotnet build src\heronwin.sln` passed with 0 warnings and 0 errors.
-  - `dotnet test src\heronwin.sln` passed with 275 total tests.
+  - `dotnet test src\heronwin.sln` passed with 281 total tests.
   - `dotnet test src\herhead\brain.tests\HeronWin.Brain.Tests.csproj` passed
-    with 203 total tests after adding browser-request guardrails plus Netflix
+    with 209 total tests after adding browser-request guardrails, app-first
+    website-fallback confirmation, screenshot-gating checks, and Netflix
     profile-selection and PIN follow-through coverage.
   - `npm run build` passed in `src\body\process-manager`.
   - `.\buildandrun.ps1 -BrainOnly -Scenario src\scenarios\netflix-boyfriend-on-demand.yml`
     passed the current scripted scenario log checks with the refactored
     `MCP_SERVERS` stack.
+  - ordinary app launch requests now stay app-first, and the brain asks before
+    falling back to a website when a likely web-backed app launch remains
+    unconfirmed.
+  - post-action screenshot capture now stays behind the refreshed UIAutomation
+    tree instead of running by default when the tree already changed.
   - the build break from the previous session turned out to be a repo-local ACL
     issue on generated `obj` and `bin` output folders, not low disk space.
 - Current follow-up:
@@ -44,8 +50,8 @@ Last updated: 2026-04-18
   - tighten Netflix in-site search targeting and the scripted unresolved-outcome
     checks, because the latest scripted pass still exposed a search-control
     mis-target before the final turn,
-  - remove any empty historical `src\herbody` leftovers if they are still
-    present.
+  - retarget the scripted Netflix smoke entry step if that scenario should now
+    exercise app-first launch instead of the current explicit website path.
 - Local tool versions used for the snapshot:
   - .NET SDK `10.0.201`
   - Node.js `v24.14.1`

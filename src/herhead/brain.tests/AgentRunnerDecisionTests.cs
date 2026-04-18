@@ -627,6 +627,81 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void ShouldAskToFallbackToWebsite_ReturnsTrue_ForFailedNetflixLaunch()
+    {
+        var actual = AgentRunner.ShouldAskToFallbackToWebsite(
+            "Open Netflix.",
+            "Netflix",
+            """{"SelectedWindow":null}""",
+            """
+            {
+              "Window": {
+                "Handle": "0x00010001",
+                "Title": "Search",
+                "ClassName": "Windows.UI.Core.CoreWindow"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window"
+              }
+            }
+            """);
+
+        Assert.True(actual);
+    }
+
+    [Fact]
+    public void ShouldAskToFallbackToWebsite_ReturnsFalse_ForExplicitWebsiteRequest()
+    {
+        var actual = AgentRunner.ShouldAskToFallbackToWebsite(
+            "Go to the Netflix website.",
+            "Netflix",
+            """{"SelectedWindow":null}""",
+            """
+            {
+              "Window": {
+                "Handle": "0x00010001",
+                "Title": "Search",
+                "ClassName": "Windows.UI.Core.CoreWindow"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window"
+              }
+            }
+            """);
+
+        Assert.False(actual);
+    }
+
+    [Fact]
+    public void ShouldAskToFallbackToWebsite_ReturnsFalse_WhenLaunchAlreadyReachedRequestedApp()
+    {
+        var actual = AgentRunner.ShouldAskToFallbackToWebsite(
+            "Open Netflix.",
+            "Netflix",
+            """{"SelectedWindow":{"Handle":"0x00060A88","Title":"Netflix - Microsoft Edge","ClassName":"Chrome_WidgetWin_1"}}""",
+            """
+            {
+              "Window": {
+                "Handle": "0x00060A88",
+                "Title": "Home - Netflix",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window"
+              }
+            }
+            """);
+
+        Assert.False(actual);
+    }
+
+    [Fact]
     public void TryFindNetflixProfileSelectionTargetPath_ReturnsExactInvokableProfile()
     {
         var snapshot =
@@ -1961,6 +2036,127 @@ public sealed class AgentRunnerDecisionTests
             new HashSet<string>(StringComparer.Ordinal));
 
         Assert.False(actual);
+    }
+
+    [Fact]
+    public void ShouldCaptureScreenshotAfterAction_ReturnsTrue_WhenUiTreeDidNotChange()
+    {
+        const string snapshot =
+            """
+            {
+              "Window": {
+                "Handle": "0x00060A88",
+                "Title": "Netflix",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "0",
+                    "UiPath": "0",
+                    "Name": "Search",
+                    "ControlType": "Edit"
+                  }
+                ]
+              }
+            }
+            """;
+
+        var actual = AgentRunner.ShouldCaptureScreenshotAfterAction(snapshot, snapshot);
+
+        Assert.True(actual);
+    }
+
+    [Fact]
+    public void ShouldCaptureScreenshotAfterAction_ReturnsFalse_WhenUiTreeChanged()
+    {
+        const string beforeSnapshot =
+            """
+            {
+              "Window": {
+                "Handle": "0x00060A88",
+                "Title": "Netflix",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "0",
+                    "UiPath": "0",
+                    "Name": "Search",
+                    "ControlType": "Edit"
+                  }
+                ]
+              }
+            }
+            """;
+        const string afterSnapshot =
+            """
+            {
+              "Window": {
+                "Handle": "0x00060A88",
+                "Title": "Netflix",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "0",
+                    "UiPath": "0",
+                    "Name": "Boyfriend on Demand",
+                    "ControlType": "ListItem"
+                  }
+                ]
+              }
+            }
+            """;
+
+        var actual = AgentRunner.ShouldCaptureScreenshotAfterAction(beforeSnapshot, afterSnapshot);
+
+        Assert.False(actual);
+    }
+
+    [Fact]
+    public void ShouldCaptureScreenshotAfterAction_ReturnsTrue_WhenPostActionTreeIsUnavailable()
+    {
+        const string beforeSnapshot =
+            """
+            {
+              "Window": {
+                "Handle": "0x00060A88",
+                "Title": "Netflix",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window"
+              }
+            }
+            """;
+        const string afterSnapshot =
+            """
+            {
+              "Window": {
+                "Handle": "0x00060A88",
+                "Title": "Netflix",
+                "ClassName": "Chrome_WidgetWin_1"
+              }
+            }
+            """;
+
+        var actual = AgentRunner.ShouldCaptureScreenshotAfterAction(beforeSnapshot, afterSnapshot);
+
+        Assert.True(actual);
     }
 
     [Fact]

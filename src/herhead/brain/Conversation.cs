@@ -113,6 +113,7 @@ internal static class AgentRunner
         string? currentUiElementContext = desktopSession.CurrentUiElementContext;
         string? currentFocusElementContext = desktopSession.CurrentFocusElementContext;
         string? lastCompletedToolNameInTurn = null;
+        AgentReply? forcedReply = null;
 
         void SyncDesktopSession()
         {
@@ -122,6 +123,30 @@ internal static class AgentRunner
             desktopSession.RecentFocusContext = recentFocusContext;
             desktopSession.CurrentUiElementContext = currentUiElementContext;
             desktopSession.CurrentFocusElementContext = currentFocusElementContext;
+        }
+
+        AgentReply FinalizeTurnReply(AgentReply reply)
+        {
+            Display.AssistantReply(reply.SpokenText, reply.LogText);
+            DebugTrace.WriteStructuredEvent(
+                "assistant.reply",
+                new Dictionary<string, object?>
+                {
+                    ["turn"] = turnId,
+                    ["elapsedMs"] = (int)Math.Round(turnStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
+                    ["attempts"] = llmAttempt,
+                    ["usedAnyTools"] = usedAnyTools,
+                    ["performedDesktopAction"] = performedDesktopAction,
+                    ["performedConfidenceEvidenceRetry"] = additionalDesktopEvidenceAttempts > 0,
+                    ["additionalDesktopEvidenceAttempts"] = additionalDesktopEvidenceAttempts,
+                    ["sayText"] = reply.SpokenText,
+                    ["logText"] = reply.LogText,
+                    ["sayPreview"] = DebugTrace.Preview(reply.SpokenText, 400),
+                    ["logPreview"] = DebugTrace.Preview(reply.LogText, 900),
+                    ["rawPreview"] = DebugTrace.Preview(reply.RawText, 1200),
+                });
+            SyncDesktopSession();
+            return reply;
         }
 
         void RememberRecentWindowSnapshot(string snapshotText, string? snapshotToolName = null)
@@ -219,6 +244,7 @@ internal static class AgentRunner
             }
 
             attemptedNetflixProfileSelectionAutoFollowThrough = true;
+            var preActionSnapshot = ResolveActionableUiTreeContext();
 
             var invokeArgs = new Dictionary<string, object?> { ["elementPath"] = profileTargetPath };
             var invokeArgsText = JsonSerializer.Serialize(invokeArgs, JsonSerializerOptionsCache.Default);
@@ -248,15 +274,23 @@ internal static class AgentRunner
                     $"Fresh post-action UI snapshot after internally invoking the requested Netflix profile:\n{currentUiElementContext}"));
             }
 
-            var screenshot = await CallToolWithDesktopSessionAsync(
-                "capture_window_screenshot",
-                new Dictionary<string, object?>());
-            Display.ToolResult("capture_window_screenshot", screenshot.Text, screenshot.Images.Count);
-            if (screenshot.Images.Count > 0)
+            if (ShouldCaptureScreenshotAfterAction(preActionSnapshot, postActionSnapshot.Text))
             {
-                messages.Add(new AgentMessage.VisualContext(
-                    "Fresh screenshot evidence after internally invoking the requested Netflix profile. Treat this as the source of truth for the visible screen.",
-                    screenshot.Images));
+                var screenshot = await CallToolWithDesktopSessionAsync(
+                    "capture_window_screenshot",
+                    new Dictionary<string, object?>());
+                Display.ToolResult("capture_window_screenshot", screenshot.Text, screenshot.Images.Count);
+                if (screenshot.Images.Count > 0)
+                {
+                    messages.Add(new AgentMessage.VisualContext(
+                        "Fresh screenshot evidence after internally invoking the requested Netflix profile. Treat this as the source of truth for the visible screen.",
+                        screenshot.Images));
+                }
+            }
+            else
+            {
+                messages.Add(new AgentMessage.User(
+                    "The refreshed UI Automation tree already changed after the internal Netflix profile selection, so no extra screenshot was captured. Use the newest tree as the source of truth."));
             }
 
             return true;
@@ -275,6 +309,7 @@ internal static class AgentRunner
             }
 
             attemptedNetflixPinAutoFollowThrough = true;
+            var preActionSnapshot = ResolveActionableUiTreeContext();
 
             Display.ToolCall("type_window_text", """{"text":"[remaining Netflix PIN digits redacted]"}""");
             var pinResult = await ExecuteStructuredNetflixPinEntryAsync(
@@ -304,15 +339,23 @@ internal static class AgentRunner
                     $"Fresh post-action UI snapshot after internally entering the remaining Netflix PIN digits:\n{currentUiElementContext}"));
             }
 
-            var screenshot = await CallToolWithDesktopSessionAsync(
-                "capture_window_screenshot",
-                new Dictionary<string, object?>());
-            Display.ToolResult("capture_window_screenshot", screenshot.Text, screenshot.Images.Count);
-            if (screenshot.Images.Count > 0)
+            if (ShouldCaptureScreenshotAfterAction(preActionSnapshot, postActionSnapshot.Text))
             {
-                messages.Add(new AgentMessage.VisualContext(
-                    "Fresh screenshot evidence after internally entering the remaining Netflix PIN digits. Treat this as the source of truth for the visible screen.",
-                    screenshot.Images));
+                var screenshot = await CallToolWithDesktopSessionAsync(
+                    "capture_window_screenshot",
+                    new Dictionary<string, object?>());
+                Display.ToolResult("capture_window_screenshot", screenshot.Text, screenshot.Images.Count);
+                if (screenshot.Images.Count > 0)
+                {
+                    messages.Add(new AgentMessage.VisualContext(
+                        "Fresh screenshot evidence after internally entering the remaining Netflix PIN digits. Treat this as the source of truth for the visible screen.",
+                        screenshot.Images));
+                }
+            }
+            else
+            {
+                messages.Add(new AgentMessage.User(
+                    "The refreshed UI Automation tree already changed after the internal Netflix PIN entry, so no extra screenshot was captured. Use the newest tree as the source of truth."));
             }
 
             return true;
@@ -423,6 +466,7 @@ internal static class AgentRunner
                         turnId,
                         mcpManager,
                         desktopSession,
+                        ResolveActionableUiTreeContext(),
                         llmClient.ModelProfile,
                         cancellationToken));
                     continue;
@@ -438,28 +482,8 @@ internal static class AgentRunner
                     continue;
                 }
 
-                Display.AssistantReply(parsedReply.SpokenText, parsedReply.LogText);
-                DebugTrace.WriteStructuredEvent(
-                    "assistant.reply",
-                    new Dictionary<string, object?>
-                    {
-                        ["turn"] = turnId,
-                        ["elapsedMs"] = (int)Math.Round(turnStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
-                        ["attempts"] = llmAttempt,
-                        ["usedAnyTools"] = usedAnyTools,
-                        ["performedDesktopAction"] = performedDesktopAction,
-                        ["performedConfidenceEvidenceRetry"] = additionalDesktopEvidenceAttempts > 0,
-                        ["additionalDesktopEvidenceAttempts"] = additionalDesktopEvidenceAttempts,
-                        ["sayText"] = parsedReply.SpokenText,
-                        ["logText"] = parsedReply.LogText,
-                        ["sayPreview"] = DebugTrace.Preview(parsedReply.SpokenText, 400),
-                        ["logPreview"] = DebugTrace.Preview(parsedReply.LogText, 900),
-                        ["rawPreview"] = DebugTrace.Preview(responseText, 1200),
-                    });
-
                 messages.Add(new AgentMessage.Assistant(responseText));
-                SyncDesktopSession();
-                return parsedReply with { RawText = responseText };
+                return FinalizeTurnReply(parsedReply with { RawText = responseText });
             }
 
             messages.Add(new AgentMessage.Assistant(result.Text, result.ToolCalls));
@@ -506,6 +530,12 @@ internal static class AgentRunner
                 var attemptedBrowserFullscreenExit = false;
                 var attemptedBrowserWindowPreflight = false;
                 var attemptedBrowserSearchFieldTypingPrime = false;
+                var preActionUiTreeSnapshot = IsDesktopActionTool(executableToolName)
+                    ? ResolveActionableUiTreeContext()
+                    : null;
+                var requestedLaunchAppName = string.Equals(executableToolName, "launch_application", StringComparison.Ordinal)
+                    ? TryGetStringArgument(executableArgs, "appName")
+                    : null;
 
                 async Task MaybeExitBrowserFullscreenAsync(string reason)
                 {
@@ -1535,7 +1565,33 @@ internal static class AgentRunner
                                 ["sourceOfTruth"] = postActionSnapshot.Images.Count > 0 ? "uia_plus_screenshot" : "uia_tree",
                             });
 
-                        if (ShouldCapturePostActionDebugScreenshot(executableToolName, DebugTrace.IsEnabled, availableToolNames))
+                        var shouldCaptureFollowUpScreenshot = ShouldCaptureScreenshotAfterAction(
+                            preActionUiTreeSnapshot,
+                            postActionSnapshot.Text);
+
+                        if (!string.IsNullOrWhiteSpace(requestedLaunchAppName) &&
+                            ShouldAskToFallbackToWebsite(
+                                userText,
+                                requestedLaunchAppName,
+                                toolOutput.Text,
+                                postActionSnapshot.Text))
+                        {
+                            forcedReply = BuildWebsiteFallbackConfirmationReply(requestedLaunchAppName);
+                            DebugTrace.WriteStructuredEvent(
+                                "agent.website_fallback_confirmation_required",
+                                new Dictionary<string, object?>
+                                {
+                                    ["turn"] = turnId,
+                                    ["tool"] = executableToolName,
+                                    ["appName"] = requestedLaunchAppName,
+                                    ["launchWindow"] = DescribePrimaryWindowFromToolOutput(toolOutput.Text),
+                                    ["snapshotWindow"] = DescribePrimaryWindowFromToolOutput(postActionSnapshot.Text),
+                                });
+                        }
+
+                        if (forcedReply is null &&
+                            shouldCaptureFollowUpScreenshot &&
+                            ShouldCapturePostActionDebugScreenshot(executableToolName, DebugTrace.IsEnabled, availableToolNames))
                         {
                             try
                             {
@@ -1562,15 +1618,16 @@ internal static class AgentRunner
                                 DebugTrace.WriteStructuredEvent(
                                     "agent.desktop_followup_debug_screenshot_failed",
                                     new Dictionary<string, object?>
-                                    {
-                                        ["turn"] = turnId,
-                                        ["tool"] = executableToolName,
-                                        ["error"] = DebugTrace.Preview(ex.ToString(), 700),
+                                {
+                                    ["turn"] = turnId,
+                                    ["tool"] = executableToolName,
+                                    ["error"] = DebugTrace.Preview(ex.ToString(), 700),
                                     });
                             }
                         }
 
-                        if (ShouldCollectFocusSnapshotAfterAction(executableToolName, executableArgs))
+                        if (forcedReply is null &&
+                            ShouldCollectFocusSnapshotAfterAction(executableToolName, executableArgs))
                         {
                             var focusSnapshotStopwatch = Stopwatch.StartNew();
                             var focusSnapshot = await CallToolWithDesktopSessionAsync(
@@ -1635,6 +1692,11 @@ internal static class AgentRunner
                     }
                 }
 
+                if (forcedReply is not null)
+                {
+                    break;
+                }
+
                 var toolResultContext = ResolveToolResultContextForModel(
                     executableToolName,
                     toolOutput.Text,
@@ -1649,6 +1711,11 @@ internal static class AgentRunner
             }
 
             messages.AddRange(followUpEvidence);
+            if (forcedReply is not null)
+            {
+                messages.Add(new AgentMessage.Assistant(forcedReply.RawText));
+                return FinalizeTurnReply(forcedReply);
+            }
         }
     }
 
@@ -1672,6 +1739,23 @@ internal static class AgentRunner
         => debugTraceEnabled
             && IsDesktopActionTool(toolName)
             && availableToolNames.Contains("capture_window_screenshot");
+
+    internal static bool ShouldCaptureScreenshotAfterAction(
+        string? preActionSnapshotText,
+        string? postActionSnapshotText)
+    {
+        if (!SnapshotContainsElementTree(postActionSnapshotText))
+        {
+            return true;
+        }
+
+        if (!SnapshotContainsElementTree(preActionSnapshotText))
+        {
+            return false;
+        }
+
+        return SnapshotsShareSameWindowAndElementTree(preActionSnapshotText!, postActionSnapshotText!);
+    }
 
     internal static bool TryRewriteDescribeSelectedWindowToFullDepth(
         IReadOnlyDictionary<string, object?> args,
@@ -2411,6 +2495,7 @@ internal static class AgentRunner
         long turnId,
         McpClientManager mcpManager,
         DesktopSessionContext desktopSession,
+        string? priorUiTreeSnapshot,
         LlmModelProfile modelProfile,
         CancellationToken cancellationToken)
     {
@@ -2427,7 +2512,7 @@ internal static class AgentRunner
         var extraEvidence = new List<AgentMessage>
         {
             new AgentMessage.User(
-                "Your first draft sounded uncertain about the current visible state. Wait 1 more second, then use the new UI Automation snapshot and screenshot below before answering. Prefer the newest screenshot as the source of truth for what is visibly on screen if UI Automation is still sparse.")
+                "Your first draft sounded uncertain about the current visible state. Wait 1 more second, then use the new UI Automation snapshot below before answering. Only rely on a follow-up screenshot if one is also provided because the refreshed tree stayed unchanged or was still too sparse.")
         };
 
         await Task.Delay(1000, cancellationToken);
@@ -2465,6 +2550,56 @@ internal static class AgentRunner
                     ["images"] = retrySnapshot.Images.Count,
                     ["resultPreview"] = DebugTrace.Preview(retrySnapshot.Text, 700),
                 });
+            if (ShouldCaptureScreenshotAfterAction(priorUiTreeSnapshot, retrySnapshot.Text))
+            {
+                try
+                {
+                    var screenshotStopwatch = Stopwatch.StartNew();
+                    var screenshot = await mcpManager.CallToolAsync(
+                        "capture_window_screenshot",
+                        PrepareToolArgumentsForDesktopSession(
+                            "capture_window_screenshot",
+                            new Dictionary<string, object?>(),
+                            desktopSession),
+                        cancellationToken);
+                    Display.ToolResult("capture_window_screenshot", screenshot.Text, screenshot.Images.Count);
+                    extraEvidence.Add(new AgentMessage.User(
+                        "Second-pass screenshot capture ran because the refreshed UI Automation tree still looked unchanged or too sparse to settle the visible state confidently."));
+                    if (screenshot.Images.Count > 0)
+                    {
+                        extraEvidence.Add(new AgentMessage.VisualContext(
+                            "Second-pass screenshot evidence after waiting 1 more second. Treat this as the source of truth for the visible screen.",
+                            screenshot.Images));
+                    }
+                    DebugTrace.WriteStructuredEvent(
+                        "agent.additional_desktop_evidence_screenshot",
+                        new Dictionary<string, object?>
+                        {
+                            ["turn"] = turnId,
+                            ["elapsedMs"] = (int)Math.Round(screenshotStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
+                            ["window"] = DescribePrimaryWindowFromToolOutput(screenshot.Text),
+                            ["images"] = screenshot.Images.Count,
+                            ["resultPreview"] = DebugTrace.Preview(screenshot.Text, 700),
+                        });
+                }
+                catch (Exception ex)
+                {
+                    extraEvidence.Add(new AgentMessage.User(
+                        $"Second-pass screenshot capture after waiting 1 more second was unavailable: {ex.Message}"));
+                    DebugTrace.WriteStructuredEvent(
+                        "agent.additional_desktop_evidence_screenshot_failed",
+                        new Dictionary<string, object?>
+                        {
+                            ["turn"] = turnId,
+                            ["error"] = DebugTrace.Preview(ex.ToString(), 700),
+                        });
+                }
+            }
+            else
+            {
+                extraEvidence.Add(new AgentMessage.User(
+                    "No follow-up screenshot was captured because the refreshed UI Automation tree already changed and remains the stronger evidence source."));
+            }
         }
         catch (Exception ex)
         {
@@ -2472,49 +2607,6 @@ internal static class AgentRunner
                 $"Second-pass UI Automation snapshot after waiting 1 more second was unavailable: {ex.Message}"));
             DebugTrace.WriteStructuredEvent(
                 "agent.additional_desktop_evidence_snapshot_failed",
-                new Dictionary<string, object?>
-                {
-                    ["turn"] = turnId,
-                    ["error"] = DebugTrace.Preview(ex.ToString(), 700),
-                });
-        }
-
-        try
-        {
-            var screenshotStopwatch = Stopwatch.StartNew();
-            var screenshot = await mcpManager.CallToolAsync(
-                "capture_window_screenshot",
-                PrepareToolArgumentsForDesktopSession(
-                    "capture_window_screenshot",
-                    new Dictionary<string, object?>(),
-                    desktopSession),
-                cancellationToken);
-            Display.ToolResult("capture_window_screenshot", screenshot.Text, screenshot.Images.Count);
-            extraEvidence.Add(new AgentMessage.User(
-                "Second-pass screenshot capture after waiting 1 more second completed for the current selected window. Keep using the newest compacted UIElement tree above unless the screenshot contradicts it."));
-            if (screenshot.Images.Count > 0)
-            {
-                extraEvidence.Add(new AgentMessage.VisualContext(
-                    "Second-pass screenshot evidence after waiting 1 more second. Treat this as the source of truth for the visible screen.",
-                    screenshot.Images));
-            }
-            DebugTrace.WriteStructuredEvent(
-                "agent.additional_desktop_evidence_screenshot",
-                new Dictionary<string, object?>
-                {
-                    ["turn"] = turnId,
-                    ["elapsedMs"] = (int)Math.Round(screenshotStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
-                    ["window"] = DescribePrimaryWindowFromToolOutput(screenshot.Text),
-                    ["images"] = screenshot.Images.Count,
-                    ["resultPreview"] = DebugTrace.Preview(screenshot.Text, 700),
-                });
-        }
-        catch (Exception ex)
-        {
-            extraEvidence.Add(new AgentMessage.User(
-                $"Second-pass screenshot capture after waiting 1 more second was unavailable: {ex.Message}"));
-            DebugTrace.WriteStructuredEvent(
-                "agent.additional_desktop_evidence_screenshot_failed",
                 new Dictionary<string, object?>
                 {
                     ["turn"] = turnId,
@@ -3605,6 +3697,104 @@ internal static class AgentRunner
                    && UserRequestLooksLikeBrowserContentSearch(userText));
     }
 
+    internal static bool ShouldAskToFallbackToWebsite(
+        string userText,
+        string requestedAppName,
+        string? launchToolOutputText,
+        string? postActionSnapshotText)
+    {
+        if (string.IsNullOrWhiteSpace(requestedAppName) ||
+            UserRequestLooksLikeWebsiteNavigation(userText) ||
+            !RequestedAppLikelySupportsWebsiteFallback(userText, requestedAppName))
+        {
+            return false;
+        }
+
+        return !LaunchResultLooksConfirmedForRequestedApp(
+            requestedAppName,
+            launchToolOutputText,
+            postActionSnapshotText);
+    }
+
+    internal static bool LaunchResultLooksConfirmedForRequestedApp(
+        string requestedAppName,
+        string? launchToolOutputText,
+        string? postActionSnapshotText)
+    {
+        if (string.IsNullOrWhiteSpace(requestedAppName))
+        {
+            return false;
+        }
+
+        return ToolOutputWindowLooksLikeRequestedApp(launchToolOutputText, requestedAppName)
+               || ToolOutputWindowLooksLikeRequestedApp(postActionSnapshotText, requestedAppName);
+    }
+
+    internal static AgentReply BuildWebsiteFallbackConfirmationReply(string requestedAppName)
+    {
+        var appLabel = TryGetShortSpeechLabel(requestedAppName) ?? requestedAppName.Trim();
+        var say = $"I couldn't confirm that the {appLabel} app opened. Do you want me to continue with the {appLabel} website instead?";
+        var log = say;
+        return new AgentReply(
+            log,
+            say,
+            JsonSerializer.Serialize(new
+            {
+                say,
+                log
+            }));
+    }
+
+    private static bool ToolOutputWindowLooksLikeRequestedApp(string? toolOutputText, string requestedAppName)
+    {
+        return !string.IsNullOrWhiteSpace(toolOutputText)
+               && TryGetPrimaryWindowReference(toolOutputText, out _, out var windowTitle)
+               && !string.IsNullOrWhiteSpace(windowTitle)
+               && TextContainsNormalizedName(windowTitle!, requestedAppName);
+    }
+
+    private static bool RequestedAppLikelySupportsWebsiteFallback(string userText, string requestedAppName)
+    {
+        var normalizedRequest = NormalizeForNameMatching(userText);
+        if (normalizedRequest.Contains(" watch ", StringComparison.Ordinal)
+            || normalizedRequest.Contains(" stream ", StringComparison.Ordinal)
+            || normalizedRequest.Contains(" play ", StringComparison.Ordinal)
+            || normalizedRequest.Contains(" listen ", StringComparison.Ordinal)
+            || normalizedRequest.Contains(" sign in ", StringComparison.Ordinal)
+            || normalizedRequest.Contains(" log in ", StringComparison.Ordinal)
+            || normalizedRequest.Contains(" profile ", StringComparison.Ordinal)
+            || normalizedRequest.Contains(" episode ", StringComparison.Ordinal)
+            || normalizedRequest.Contains(" movie ", StringComparison.Ordinal)
+            || normalizedRequest.Contains(" show ", StringComparison.Ordinal)
+            || normalizedRequest.Contains(" playlist ", StringComparison.Ordinal)
+            || normalizedRequest.Contains(" search within ", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return NormalizeForNameMatching(requestedAppName).Trim() switch
+        {
+            "chatgpt" => true,
+            "claude" => true,
+            "discord" => true,
+            "facebook" => true,
+            "gmail" => true,
+            "hulu" => true,
+            "instagram" => true,
+            "linkedin" => true,
+            "max" => true,
+            "netflix" => true,
+            "prime video" => true,
+            "reddit" => true,
+            "slack" => true,
+            "spotify" => true,
+            "teams" => true,
+            "tiktok" => true,
+            "youtube" => true,
+            _ => false,
+        };
+    }
+
     private static bool SnapshotContainsBrowserAddressBar(string? snapshotText)
     {
         if (string.IsNullOrWhiteSpace(snapshotText))
@@ -3711,6 +3901,48 @@ internal static class AgentRunner
                 @"input\s+(?<ordinal>\d+)",
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
             return match.Success && int.TryParse(match.Groups["ordinal"].Value, out ordinal);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool SnapshotsShareSameWindowAndElementTree(string firstSnapshotText, string secondSnapshotText)
+    {
+        if (!TryGetSnapshotElementTreeSignature(firstSnapshotText, out var firstWindow, out var firstTree) ||
+            !TryGetSnapshotElementTreeSignature(secondSnapshotText, out var secondWindow, out var secondTree))
+        {
+            return false;
+        }
+
+        return string.Equals(firstWindow, secondWindow, StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(firstTree, secondTree, StringComparison.Ordinal);
+    }
+
+    private static bool TryGetSnapshotElementTreeSignature(
+        string? snapshotText,
+        out string windowSignature,
+        out string elementTreeSignature)
+    {
+        windowSignature = DescribePrimaryWindowFromToolOutput(snapshotText ?? string.Empty) ?? string.Empty;
+        elementTreeSignature = string.Empty;
+        if (string.IsNullOrWhiteSpace(snapshotText))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(snapshotText);
+            if (!TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree) ||
+                elementTree.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            elementTreeSignature = elementTree.GetRawText();
+            return true;
         }
         catch
         {

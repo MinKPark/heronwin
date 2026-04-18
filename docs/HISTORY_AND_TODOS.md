@@ -18,8 +18,9 @@ This file has two jobs:
 |--------|----------|------|-----------|
 | `done` | `P0` | Make the debugging workflow an explicit standing guardrail. | Captured in [Development Guardrails](./DEVELOPMENT_GUARDRAILS.md). |
 | `done` | `n/a` | Create a top-level `docs/` folder and split the project docs into focused files. | Keep the index and cross-links current. |
-| `done` | `P0` | Finish the `body` / `cognition` / `execution` cutover. | `process-manager` builds again, `dotnet test src\heronwin.sln` passes with 275 tests, local `MCP_SERVERS` points at `process-manager`/`cognition`/`execution`, and the scripted Netflix smoke flow now exercises the refactored stack end to end through its current log-based checks. |
+| `done` | `P0` | Finish the `body` / `cognition` / `execution` cutover. | `process-manager` builds again, `dotnet test src\heronwin.sln` passes with 281 tests, local `MCP_SERVERS` points at `process-manager`/`cognition`/`execution`, and the scripted Netflix smoke flow now exercises the refactored stack end to end through its current log-based checks. |
 | `next` | `P1` | Tighten Netflix search/playback scripted validation. | The latest scripted pass still exposed a Netflix search-control mis-target that current unresolved-outcome checks did not fail, so strengthen both the targeting and the scenario/evaluator criteria. |
+| `next` | `P1` | Decide how the scripted Netflix smoke should cover app-first launch. | The current scenario still explicitly requests the website, so either retarget it to the app flow or add a deterministic scripted answer for website fallback confirmation. |
 | `next` | `P1` | Clean up leftover historical `src\herbody` paths and stale local config. | Root docs and local MCP wiring are retargeted; remove only any remaining empty leftovers once the cleanup pass is done. |
 | `next` | `P1` | Add dedicated coverage for the WPF `face` app. | Start with settings edits, status mapping, and view-model state transitions. |
 | `next` | `P1` | Broaden the prompt and skill intent vocabulary. | Add a small set of generic intents and cover them with activation tests. |
@@ -56,6 +57,11 @@ part of committed repo history.
   Netflix search targeting can still hit the browser's `Open in app` control,
   and the current unresolved-outcome checks are not yet strict enough to fail
   that run.
+- 2026-04-18: kept ordinary app launch requests app-first, added a forced user
+  confirmation before website fallback when a likely web-backed app launch
+  stayed unconfirmed, and reduced automatic follow-up screenshot capture so the
+  refreshed UIAutomation tree stays the primary evidence source unless it is
+  missing or unchanged.
 
 ## Daily Repo History
 
