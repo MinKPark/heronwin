@@ -4,8 +4,8 @@ Last updated: 2026-04-18
 
 ## Summary
 
-This design defines the full cutover from `src/herbody` to `src/body` and the
-replacement of the current `eyesandhands` MCP server with two MCP servers:
+This design records the cutover from `src/herbody` to `src/body` and the
+replacement of the former `eyesandhands` MCP server with two MCP servers:
 `cognition` and `execution`.
 
 The main goals are:
@@ -16,6 +16,32 @@ The main goals are:
 - make the MCP layer stateless and explicit,
 - normalize tool names to a strict `verb_object` format,
 - split overloaded keyboard/text input into separate tools.
+
+## Current Status
+
+As of 2026-04-18, the structural cutover is mostly complete:
+
+- `src/body` is the active tree, and `brain` references `cognition` and
+  `execution`.
+- `DesktopSessionContext` is in place, and the main brain/test call paths are
+  retargeted to the new tool and server names.
+- `.github/agents`, repo docs, and code-facing references have been updated to
+  use `cognition/...` and `execution/...`.
+- `dotnet build src\heronwin.sln` and `dotnet test src\heronwin.sln` both pass.
+
+The previous build failure was not caused by low disk space. It came from a
+repo-local ACL issue on generated `obj` and `bin` folders, which has been
+repaired. A reboot is still useful before the next pass because it can clear any
+lingering file handles.
+
+Remaining work for the next pass:
+
+- rerun `npm run build` in `src\body\process-manager`,
+- smoke-test `brain`, `cognition`, `execution`, and `process-manager` together
+  through `MCP_SERVERS`,
+- remove any empty historical `src\herbody` leftovers or stale local config
+  after the smoke test,
+- keep the rename map below as the historical record of the migration.
 
 ## Decisions
 
@@ -128,16 +154,24 @@ Use these nouns consistently:
 
 ## Verification
 
-Run:
+Verified on 2026-04-18:
 
 ```powershell
 dotnet build src\heronwin.sln
 dotnet test src\heronwin.sln
+```
+
+- `dotnet build src\heronwin.sln` passed with 0 warnings and 0 errors.
+- `dotnet test src\heronwin.sln` passed with 266 total tests.
+
+Still to rerun after reboot:
+
+```powershell
 cd src\body\process-manager
 npm run build
 ```
 
-Smoke-test the existing Netflix scenario with `brain`, `cognition`,
+Then smoke-test the existing Netflix scenario with `brain`, `cognition`,
 `execution`, and `process-manager` wired through `MCP_SERVERS`.
 
 ## Assumptions

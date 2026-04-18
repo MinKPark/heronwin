@@ -17,12 +17,24 @@ Last updated: 2026-04-18
 
 - Git baseline: `main` at `c43051a`, tracking `origin/main`.
 - The active implementation lives under `src`.
+- The `body` refactor is mostly landed:
+  - `src/body` is the active tree.
+  - `cognition` and `execution` are in the solution and referenced by `brain`.
+  - prompts, skills, tests, and repo docs have been retargeted to the new
+    server and tool names.
 - `obsolete/herface-nodejs` is historical reference code and is not part of the
   current runtime path.
-- Latest recorded verification in this docs set:
+- Latest verified work in the current refactor pass:
   - `dotnet build src\heronwin.sln` passed with 0 warnings and 0 errors.
   - `dotnet test src\heronwin.sln` passed with 266 total tests.
-  - `npm run build` in `src\body\process-manager` passed.
+  - the build break from the previous session turned out to be a repo-local ACL
+    issue on generated `obj` and `bin` output folders, not low disk space.
+- Next steps after reboot:
+  - rerun `npm run build` in `src\body\process-manager`,
+  - smoke-test `brain`, `cognition`, `execution`, and `process-manager`
+    together through `MCP_SERVERS`,
+  - remove any empty historical `src\herbody` leftovers if they are still
+    present.
 - Local tool versions used for the snapshot:
   - .NET SDK `10.0.201`
   - Node.js `v24.14.1`

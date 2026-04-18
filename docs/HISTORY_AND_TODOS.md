@@ -18,7 +18,8 @@ This file has two jobs:
 |--------|----------|------|-----------|
 | `done` | `P0` | Make the debugging workflow an explicit standing guardrail. | Captured in [Development Guardrails](./DEVELOPMENT_GUARDRAILS.md). |
 | `done` | `n/a` | Create a top-level `docs/` folder and split the project docs into focused files. | Keep the index and cross-links current. |
-| `next` | `P0` | refactor herbody code | rename the folder to "body" and split eyesandhands to "cognition" and "execution" MCP servers |
+| `in_progress` | `P0` | Finish the `body` / `cognition` / `execution` cutover. | Code, prompts, docs, and tests are retargeted and solution build/test passed; after reboot rerun `npm run build` in `src\body\process-manager` and smoke-test the MCP stack through `MCP_SERVERS`. |
+| `next` | `P1` | Clean up leftover historical `src\herbody` paths and stale local config. | Remove only empty leftovers after the post-reboot smoke test confirms the cutover is clean. |
 | `next` | `P1` | Add dedicated coverage for the WPF `face` app. | Start with settings edits, status mapping, and view-model state transitions. |
 | `next` | `P1` | Broaden the prompt and skill intent vocabulary. | Add a small set of generic intents and cover them with activation tests. |
 | `soon` | `P2` | Add automated tests for `process-manager`. | Start with command validation and process-list parsing, then add integration tests later. |
@@ -34,6 +35,13 @@ part of committed repo history.
   `docs/DEVELOPMENT_GUARDRAILS.md`.
 - 2026-04-18: moved the standing debugging rule into a dedicated guardrail
   document and updated the root README links.
+- 2026-04-18: landed most of the `src/body` / `cognition` / `execution`
+  refactor across solution references, `brain`, tests, `.github/agents`, and
+  repo docs.
+- 2026-04-18: repaired a local ACL problem on generated `obj` and `bin`
+  folders so `dotnet build src\heronwin.sln` and
+  `dotnet test src\heronwin.sln` pass again; the remaining follow-up is the
+  post-reboot `process-manager` build and end-to-end smoke test.
 
 ## Daily Repo History
 
