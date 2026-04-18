@@ -48,8 +48,12 @@ The TypeScript MCP server supports `npm run dev` (via [tsx](https://tsx.is)) for
 
 ## Documentation
 
-- [progress and status](./PROGRESS.md)
+- [docs index](./docs/README.md)
+- [goal and design](./docs/GOAL_AND_DESIGN.md)
+- [history and todos](./docs/HISTORY_AND_TODOS.md)
+- [development guardrails](./docs/DEVELOPMENT_GUARDRAILS.md)
 - [brain README](./src/herhead/brain/README.md)
+- [face README](./src/herhead/face/README.md)
 - [herbody README](./src/herbody/README.md)
 - [process-manager README](./src/herbody/process-manager/README.md)
 - [eyesandhands README](./src/herbody/eyesandhands/README.md)
