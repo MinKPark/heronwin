@@ -14,6 +14,7 @@ public sealed class SettingsViewModel : ObservableObject
     private string _llmProvider = "openai-api";
     private string _openAiApiKey = string.Empty;
     private string _openAiModel = "gpt-5.4-mini";
+    private string _openAiCodexModel = string.Empty;
     private string _anthropicApiKey = string.Empty;
     private string _anthropicModel = "claude-3-5-sonnet-20241022";
     private string _whisperModel = "whisper-1";
@@ -70,6 +71,12 @@ public sealed class SettingsViewModel : ObservableObject
     {
         get => _openAiModel;
         set => SetProperty(ref _openAiModel, value);
+    }
+
+    public string OpenAiCodexModel
+    {
+        get => _openAiCodexModel;
+        set => SetProperty(ref _openAiCodexModel, value);
     }
 
     public string AnthropicApiKey
@@ -150,6 +157,7 @@ public sealed class SettingsViewModel : ObservableObject
         LlmProvider = document.GetValue("LLM_PROVIDER", "openai-api");
         OpenAiApiKey = document.GetValue("OPENAI_API_KEY");
         OpenAiModel = document.GetValue("OPENAI_MODEL", "gpt-5.4-mini");
+        OpenAiCodexModel = document.GetValue("OPENAI_CODEX_MODEL");
         AnthropicApiKey = document.GetValue("ANTHROPIC_API_KEY");
         AnthropicModel = document.GetValue("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022");
         WhisperModel = document.GetValue("WHISPER_MODEL", "whisper-1");
@@ -172,6 +180,7 @@ public sealed class SettingsViewModel : ObservableObject
         document.SetValue("LLM_PROVIDER", LlmProvider);
         document.SetValue("OPENAI_API_KEY", OpenAiApiKey);
         document.SetValue("OPENAI_MODEL", OpenAiModel);
+        document.SetValue("OPENAI_CODEX_MODEL", OpenAiCodexModel);
         document.SetValue("ANTHROPIC_API_KEY", AnthropicApiKey);
         document.SetValue("ANTHROPIC_MODEL", AnthropicModel);
         document.SetValue("WHISPER_MODEL", WhisperModel);

@@ -9,46 +9,21 @@ namespace HeronWin.Brain;
 
 internal static class LlmFactory
 {
+    public static ILlmProvider ResolveProvider(AppConfig config)
+        => LlmProviderCatalog.Resolve(config);
+
     public static ILlmClient CreateLlmClient(AppConfig config, HttpClient httpClient)
-        => config.LlmProvider switch
-        {
-            LlmProviderId.OpenAiApi when string.IsNullOrWhiteSpace(config.OpenAiApiKey) =>
-                throw new InvalidOperationException(
-                    "OPENAI_API_KEY is not set. OpenAI API mode requires an API key."),
-            LlmProviderId.OpenAiApi => new OpenAiApiClient(
-                httpClient,
-                config.OpenAiApiKey,
-                config.OpenAiModel,
-                config.LlmTemperature),
-            LlmProviderId.ClaudeApi when string.IsNullOrWhiteSpace(config.AnthropicApiKey) =>
-                throw new InvalidOperationException(
-                    "ANTHROPIC_API_KEY is not set. Claude API mode requires an API key."),
-            LlmProviderId.ClaudeApi => new ClaudeApiClient(
-                httpClient,
-                config.AnthropicApiKey,
-                config.AnthropicModel,
-                config.LlmTemperature),
-            _ => throw new InvalidOperationException("Unsupported LLM provider.")
-        };
+    {
+        var provider = ResolveProvider(config);
+        provider.ValidateConfiguration(config);
+        return provider.CreateClient(config, httpClient);
+    }
 
     public static IAudioTranscriber? CreateAudioTranscriber(AppConfig config, HttpClient httpClient)
-        => string.IsNullOrWhiteSpace(config.OpenAiApiKey)
-            ? null
-            : new OpenAiWhisperTranscriber(
-                httpClient,
-                config.OpenAiApiKey,
-                config.WhisperModel,
-                config.VoiceLanguages);
+        => ResolveProvider(config).CreateAudioTranscriber(config, httpClient);
 
     public static ISpeechSynthesizer? CreateSpeechSynthesizer(AppConfig config, HttpClient httpClient)
-        => string.IsNullOrWhiteSpace(config.OpenAiApiKey)
-            ? null
-            : new OpenAiSpeechSynthesizer(
-                httpClient,
-                config.OpenAiApiKey,
-                config.TtsModel,
-                config.TtsVoice,
-                config.TtsInstructions);
+        => ResolveProvider(config).CreateSpeechSynthesizer(config, httpClient);
 }
 
 internal interface ISpeechSynthesizer

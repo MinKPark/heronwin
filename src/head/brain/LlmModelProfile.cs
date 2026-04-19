@@ -19,6 +19,7 @@ internal static class LlmModelProfiles
         return providerId switch
         {
             LlmProviderId.OpenAiApi => CreateOpenAiProfile(normalizedModel),
+            LlmProviderId.OpenAiCodex => CreateOpenAiCodexProfile(normalizedModel),
             LlmProviderId.ClaudeApi => CreateClaudeProfile(normalizedModel),
             _ => CreateFallbackProfile(providerId, normalizedModel)
         };
@@ -78,6 +79,15 @@ internal static class LlmModelProfiles
             FocusSnapshotCharBudget: 4_500,
             MaxThrottleRetries: 2);
     }
+
+    private static LlmModelProfile CreateOpenAiCodexProfile(string modelName)
+        => new(
+            LlmProviderId.OpenAiCodex,
+            modelName,
+            ContextCompressionTriggerRatio: 0.58,
+            WindowSnapshotCharBudget: 6_500,
+            FocusSnapshotCharBudget: 3_200,
+            MaxThrottleRetries: 0);
 
     private static LlmModelProfile CreateFallbackProfile(LlmProviderId providerId, string modelName)
         => new(

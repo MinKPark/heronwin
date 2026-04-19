@@ -12,8 +12,8 @@ internal sealed record McpServerConfig(
 internal enum LlmProviderId
 {
     OpenAiApi,
+    OpenAiCodex,
     ClaudeApi,
-    ChatGptWeb
 }
 
 internal sealed record AppConfig(
@@ -27,6 +27,8 @@ internal sealed record AppConfig(
     bool EnableDebugTrace,
     string OpenAiApiKey,
     string OpenAiModel,
+    string OpenAiCodexCommand,
+    string OpenAiCodexModel,
     double LlmTemperature,
     string TtsModel,
     string TtsVoice,
@@ -46,11 +48,12 @@ internal sealed record AppConfig(
     {
         DotEnvLoader.Load();
 
-        var provider = NormalizeProvider(Environment.GetEnvironmentVariable("LLM_PROVIDER") ?? "openai-api");
-        if (provider == LlmProviderId.ChatGptWeb)
+        var rawProvider = Environment.GetEnvironmentVariable("LLM_PROVIDER") ?? "openai-api";
+        var provider = NormalizeProvider(rawProvider);
+        if (LooksLikeDeprecatedCodexAlias(rawProvider))
         {
-            throw new InvalidOperationException(
-                "LLM_PROVIDER=chatgpt-web is not supported in brain. Use openai-api or claude-api.");
+            Console.WriteLine(
+                "Warning: LLM_PROVIDER aliases \"chatgpt\" and \"chatgpt-web\" now map to the experimental \"openai-codex\" provider.");
         }
 
         var agentPrompts = AgentPromptLoader.Load();
@@ -65,6 +68,8 @@ internal sealed record AppConfig(
             ParseBoolean(Environment.GetEnvironmentVariable("DEBUG_TRACE"), fallback: false),
             Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? string.Empty,
             Environment.GetEnvironmentVariable("OPENAI_MODEL") ?? "gpt-5.4-mini",
+            Environment.GetEnvironmentVariable("OPENAI_CODEX_COMMAND") ?? "codex",
+            Environment.GetEnvironmentVariable("OPENAI_CODEX_MODEL") ?? string.Empty,
             ParseDouble(Environment.GetEnvironmentVariable("LLM_TEMPERATURE"), 0),
             Environment.GetEnvironmentVariable("TTS_MODEL") ?? "gpt-4o-mini-tts",
             Environment.GetEnvironmentVariable("TTS_VOICE") ?? "marin",
@@ -112,15 +117,18 @@ internal sealed record AppConfig(
         }
     }
 
-    private static LlmProviderId NormalizeProvider(string value)
+    internal static LlmProviderId NormalizeProvider(string value)
         => value.Trim().ToLowerInvariant() switch
         {
             "openai" or "openai-api" => LlmProviderId.OpenAiApi,
+            "openai-codex" or "chatgpt-subscription" or "gpt" or "chatgpt" or "chatgpt-web" => LlmProviderId.OpenAiCodex,
             "claude" or "claude-api" => LlmProviderId.ClaudeApi,
-            "gpt" or "chatgpt" or "chatgpt-web" => LlmProviderId.ChatGptWeb,
             _ => throw new InvalidOperationException(
-                $"Invalid LLM_PROVIDER \"{value}\". Must be \"openai-api\" or \"claude-api\".")
+                $"Invalid LLM_PROVIDER \"{value}\". Must be \"openai-api\", \"openai-codex\", or \"claude-api\".")
         };
+
+    private static bool LooksLikeDeprecatedCodexAlias(string value)
+        => value.Trim().ToLowerInvariant() is "gpt" or "chatgpt" or "chatgpt-web";
 
     private static bool ParseBoolean(string? value, bool fallback)
     {

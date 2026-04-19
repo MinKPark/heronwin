@@ -55,6 +55,8 @@
                         <TextBox Margin="0,6,0,0" Text="{Binding LlmProvider, UpdateSourceTrigger=PropertyChanged}" />
                         <TextBlock Margin="0,14,0,0" Text="OpenAI model" />
                         <TextBox Margin="0,6,0,0" Text="{Binding OpenAiModel, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Margin="0,14,0,0" Text="OpenAI Codex model" />
+                        <TextBox Margin="0,6,0,0" Text="{Binding OpenAiCodexModel, UpdateSourceTrigger=PropertyChanged}" />
                         <TextBlock Margin="0,14,0,0" Text="Claude model" />
                         <TextBox Margin="0,6,0,0" Text="{Binding AnthropicModel, UpdateSourceTrigger=PropertyChanged}" />
                         <TextBlock Margin="0,14,0,0" Text="Whisper model" />

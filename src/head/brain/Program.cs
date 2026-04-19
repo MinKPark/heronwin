@@ -1,5 +1,4 @@
-﻿using HeronWin.Brain;
-using System.Threading.Channels;
+using HeronWin.Brain;
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 
@@ -29,6 +28,9 @@ Console.CancelKeyPress += (_, eventArgs) =>
 };
 
 var config = AppConfig.Load();
+var provider = LlmProviderCatalog.Resolve(config);
+var initialInteractiveMode = provider.Capabilities.DefaultInteractiveMode;
+
 FaceBridge.Initialize(config);
 ArtifactCleanup.CleanupPreviousRunArtifacts(AppContext.BaseDirectory, Environment.ProcessPath);
 DebugTrace.Configure(config.EnableDebugTrace || config.DebugAudioPlayback || consoleOptions.RequiresDebugTrace);
@@ -46,12 +48,13 @@ DebugTrace.WriteStructuredEvent(
         ["cwd"] = Directory.GetCurrentDirectory(),
         ["baseDir"] = AppContext.BaseDirectory,
         ["sessionId"] = DebugTrace.SessionId,
-        ["launchMode"] = consoleOptions.IsScripted ? "scripted" : "voice",
+        ["launchMode"] = consoleOptions.IsScripted ? "scripted" : initialInteractiveMode.ToString().ToLowerInvariant(),
         ["scriptedScenarioPath"] = consoleOptions.ScenarioFilePath,
         ["scriptedCommands"] = consoleOptions.Commands.ToArray(),
         ["debugTraceEnabled"] = DebugTrace.IsEnabled,
         ["llmProvider"] = config.LlmProvider.ToString(),
         ["openAiModel"] = config.OpenAiModel,
+        ["openAiCodexModel"] = config.OpenAiCodexModel,
         ["anthropicModel"] = config.AnthropicModel,
         ["whisperModel"] = config.WhisperModel,
         ["voiceLanguages"] = config.VoiceLanguages.Select(static language => new Dictionary<string, object?>
@@ -65,6 +68,17 @@ DebugTrace.WriteStructuredEvent(
         ["maxContextTokens"] = config.MaxContextTokens,
         ["debugAudioPlayback"] = config.DebugAudioPlayback,
         ["logsDirectory"] = DebugTrace.BuildLogsDirectory(AppContext.BaseDirectory),
+        ["providerCapabilities"] = new Dictionary<string, object?>
+        {
+            ["supportedInteractiveModes"] = provider.Capabilities.SupportedInteractiveModes
+                .Select(static mode => mode.ToString())
+                .ToArray(),
+            ["defaultInteractiveMode"] = provider.Capabilities.DefaultInteractiveMode.ToString(),
+            ["supportsScriptedMode"] = provider.Capabilities.SupportsScriptedMode,
+            ["supportsRuntimeModeSwitch"] = provider.Capabilities.SupportsRuntimeModeSwitch,
+            ["supportsVisionInputs"] = provider.Capabilities.SupportsVisionInputs,
+            ["supportsToolCalls"] = provider.Capabilities.SupportsToolCalls,
+        },
         ["mcpServers"] = config.McpServers.Select(server => new Dictionary<string, object?>
         {
             ["name"] = server.Name,
@@ -79,50 +93,37 @@ DebugTrace.WriteStructuredEvent(
 
 DebugTrace.WriteEvent(
     "config.loaded",
-    $"mode={(consoleOptions.IsScripted ? "scripted" : "voice")}, llmProvider={config.LlmProvider}, openAiModel={config.OpenAiModel}, anthropicModel={config.AnthropicModel}, whisperModel={config.WhisperModel}, voiceLanguages={DebugTrace.SerializeObject(config.VoiceLanguages.Select(static language => language.DisplayName).ToArray())}, wakeWord={DebugTrace.SerializeObject(config.WakeWord)}, agentDefinitionPath={config.AgentDefinitionPath}, agentCoreDefinitionPath={config.AgentPrompts.CoreDefinitionPath ?? "(none)"}, agentSkills={config.AgentPrompts.Skills.Count}, mcpServers={config.McpServers.Count}, debugTrace={DebugTrace.IsEnabled}, debugAudioPlayback={config.DebugAudioPlayback}");
+    $"mode={(consoleOptions.IsScripted ? "scripted" : initialInteractiveMode.ToString().ToLowerInvariant())}, llmProvider={config.LlmProvider}, openAiModel={config.OpenAiModel}, openAiCodexModel={config.OpenAiCodexModel}, anthropicModel={config.AnthropicModel}, whisperModel={config.WhisperModel}, voiceLanguages={DebugTrace.SerializeObject(config.VoiceLanguages.Select(static language => language.DisplayName).ToArray())}, wakeWord={DebugTrace.SerializeObject(config.WakeWord)}, agentDefinitionPath={config.AgentDefinitionPath}, agentCoreDefinitionPath={config.AgentPrompts.CoreDefinitionPath ?? "(none)"}, agentSkills={config.AgentPrompts.Skills.Count}, mcpServers={config.McpServers.Count}, debugTrace={DebugTrace.IsEnabled}, debugAudioPlayback={config.DebugAudioPlayback}");
 
 if (consoleOptions.IsScripted)
 {
     var scriptedExitCode = await RunScriptedModeAsync(cancellationSource.Token);
-    Display.Info("Shutting down...");
-    await FaceBridge.ShutdownAsync();
-    DebugTrace.WriteEvent("session.shutdown", "Application shutdown completed.");
-    if (!DebugTrace.IsEnabled)
-    {
-        ArtifactCleanup.CleanupCurrentRunArtifacts(DebugTrace.LogFilePath, DebugTrace.JsonLogFilePath, AppContext.BaseDirectory);
-    }
-
-    PrintDebugLogPathIfEnabled();
+    await ShutdownAsync();
     Environment.ExitCode = scriptedExitCode;
     return;
 }
 
 ILlmClient llmClient;
-IAudioTranscriber? audioTranscriber;
-ISpeechSynthesizer? speechSynthesizer;
 try
 {
-    llmClient = LlmFactory.CreateLlmClient(config, httpClient);
-    audioTranscriber = LlmFactory.CreateAudioTranscriber(config, httpClient);
-    speechSynthesizer = LlmFactory.CreateSpeechSynthesizer(config, httpClient);
+    provider.ValidateConfiguration(config);
+    llmClient = provider.CreateClient(config, httpClient);
 }
 catch (Exception ex)
 {
     Display.Error(ex.Message);
-    PrintDebugLogPathIfEnabled();
+    await ShutdownAsync();
+    Environment.ExitCode = 1;
     return;
 }
 
 Display.Info($"LLM: {llmClient.DisplayName}");
+Display.Info($"Interactive mode: {initialInteractiveMode}");
 if (httpClientSetup.BypassedBrokenLoopbackProxy)
 {
     Display.Warn(
         $"Ignoring broken loopback proxy setting for outbound API calls: {httpClientSetup.BypassedProxyValue}");
 }
-Display.Info($"Microphone: {AudioDevices.DescribeDefaultMicrophone()}");
-Display.Info($"Speaker: {AudioDevices.DescribeDefaultSpeaker()}");
-Display.Info($"Mic capture: {AudioRecorder.DescribeRecordingFormat()}");
-Display.Info($"Voice languages: {string.Join(", ", config.VoiceLanguages.Select(static language => language.DisplayName))}");
 if (DebugTrace.IsEnabled && !string.IsNullOrWhiteSpace(DebugTrace.LogFilePath))
 {
     Display.Info($"Debug trace: {DebugTrace.LogFilePath}");
@@ -133,269 +134,84 @@ if (DebugTrace.IsEnabled && !string.IsNullOrWhiteSpace(DebugTrace.LogFilePath))
 
     Display.Info($"Debug artifacts: {DebugTrace.BuildLogsDirectory(AppContext.BaseDirectory)}");
 }
-if (speechSynthesizer is not null)
-{
-    Display.Info($"Voice output: {speechSynthesizer.DisplayName}");
-}
-Display.Info($"Voice input: {audioTranscriber?.DisplayName ?? "(unavailable)"}");
-if (config.DebugAudioPlayback)
-{
-    Display.Info("Debug audio playback is enabled; each captured recording will replay during transcription.");
-}
-if (audioTranscriber is null)
-{
-    Display.Error("Voice mode requires OPENAI_API_KEY for Whisper transcription.");
-    PrintDebugLogPathIfEnabled();
-    return;
-}
 
-if (config.McpServers.Count > 0)
-{
-    Display.Info($"Connecting to {config.McpServers.Count} MCP server(s)...");
-    try
-    {
-        await mcpManager.ConnectAsync(config.McpServers, cancellationSource.Token);
-        var tools = await mcpManager.ListAllToolsAsync(cancellationSource.Token);
-        Display.Info($"MCP tools available: {string.Join(", ", tools.Select(tool => tool.Name).DefaultIfEmpty("(none)"))}");
-    }
-    catch (Exception ex)
-    {
-        Display.Warn($"MCP connection failed: {ex.Message}");
-    }
-}
-else
-{
-    Display.Info("No MCP servers configured. Running without tool support.");
-}
-
-Display.Separator();
-Display.Info($"Standby mode is listening for \"{config.WakeWord}\".");
-Display.Info("After the wake phrase is heard, just speak naturally. Say \"bye\" or \"bye-bye\" to exit.");
-Display.Info("If you go quiet for a minute, I will drift back to standby.");
-Display.Separator();
-FaceBridge.PublishStatus("standby", "Standby", $"Listening for \"{config.WakeWord}\".");
+await ConnectMcpServersAsync(cancellationSource.Token);
 
 var history = new List<AgentMessage>();
 var desktopSession = new DesktopSessionContext();
-var isActive = false;
-var audioOutputActive = 0;
-var agentWorkActive = 0;
-var queuedTurnCount = 0;
+var currentConfig = config;
+var currentProvider = provider;
+var activeMode = initialInteractiveMode;
 long nextTurnId = 0;
-var userQueue = Channel.CreateUnbounded<(long TurnId, string Text)>(new UnboundedChannelOptions
+
+if (activeMode == BrainInteractiveMode.Voice &&
+    !TryCreateVoiceServices(currentProvider, currentConfig, out var startupAudioTranscriber, out var startupSpeechSynthesizer, out var startupVoiceError))
 {
-    SingleReader = true,
-    SingleWriter = true
-});
-
-var agentTask = Task.Run(async () =>
-{
-    await foreach (var queuedTurn in userQueue.Reader.ReadAllAsync(cancellationSource.Token))
-    {
-        Interlocked.Decrement(ref queuedTurnCount);
-        Interlocked.Increment(ref agentWorkActive);
-        try
-        {
-            DebugTrace.WriteEvent(
-                "agent.turn.dequeue",
-                $"turn={queuedTurn.TurnId}, historyMessages={history.Count}, queuedText={DebugTrace.Preview(queuedTurn.Text, 500)}");
-
-            var processedTurn = await BrainTurnProcessor.ProcessAsync(
-                queuedTurn.TurnId,
-                queuedTurn.Text,
-                history,
-                desktopSession,
-                config,
-                llmClient,
-                mcpManager,
-                cancellationSource.Token,
-                turnSource: "voice",
-                intermediateStepNarrator: speechSynthesizer is null
-                    ? null
-                    : async (stepText, innerCancellationToken) =>
-                    {
-                        await PlayAudioOutputAsync(() => SpeakAsync(speechSynthesizer, stepText, innerCancellationToken));
-                    });
-            if (processedTurn.UpdatedConfig is not null)
-            {
-                config = processedTurn.UpdatedConfig;
-            }
-
-            if (!string.IsNullOrWhiteSpace(processedTurn.Reply.SpokenText))
-            {
-                try
-                {
-                    await PlayAudioOutputAsync(
-                        () => SpeakAsync(speechSynthesizer, processedTurn.Reply.SpokenText, cancellationSource.Token));
-                }
-                catch (Exception ex)
-                {
-                    Display.Warn($"Reply speech failed: {ex.Message}");
-                }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            break;
-        }
-        catch (Exception ex)
-        {
-            Display.Error($"Agent error: {ex.Message}");
-        }
-        finally
-        {
-            Interlocked.Decrement(ref agentWorkActive);
-        }
-    }
-}, cancellationSource.Token);
+    Display.Error(startupVoiceError);
+    await ShutdownAsync();
+    Environment.ExitCode = 1;
+    return;
+}
 
 while (!cancellationSource.IsCancellationRequested)
 {
-    var userText = string.Empty;
-    RecordingResult? recording = null;
-    int? maxWaitForSpeechMs = isActive ? config.ActiveIdleTimeoutMs : null;
-
-    try
+    switch (activeMode)
     {
-        await WaitForTurnOutputToFinishAsync(cancellationSource.Token);
-        Display.Info(isActive ? "Listening..." : $"Waiting for {config.WakeWord}...");
-        if (isActive)
+        case BrainInteractiveMode.Text:
         {
-            await PlayAudioOutputAsync(AudioPlayback.PlayRecordingStartCueAsync);
-        }
-
-        recording = await AudioRecorder.RecordAsync(config.MaxRecordMs, maxWaitForSpeechMs, cancellationSource.Token);
-
-        if (recording is null)
-        {
-            if (isActive)
+            var loopResult = await RunTextModeAsync(cancellationSource.Token);
+            if (loopResult.ExitRequested)
             {
-                await PlayAudioOutputAsync(AudioPlayback.PlayWindDownCueAsync);
-                isActive = false;
-                Display.Info($"Back to standby. Say \"{config.WakeWord}\" when you want me again.");
+                cancellationSource.Cancel();
+            }
+            else if (loopResult.NextMode is { } nextMode)
+            {
+                activeMode = nextMode;
             }
 
-            continue;
+            break;
         }
 
-        if (isActive)
+        case BrainInteractiveMode.Voice:
         {
-            await PlayAudioOutputAsync(AudioPlayback.PlayRecordingStopCueAsync);
+            if (!TryCreateVoiceServices(currentProvider, currentConfig, out var audioTranscriber, out var speechSynthesizer, out var voiceError))
+            {
+                Display.Error(voiceError);
+                cancellationSource.Cancel();
+                break;
+            }
+
+            var loopResult = await RunVoiceModeAsync(audioTranscriber, speechSynthesizer, cancellationSource.Token);
+            if (loopResult.ExitRequested)
+            {
+                cancellationSource.Cancel();
+            }
+            else if (loopResult.NextMode is { } nextMode)
+            {
+                activeMode = nextMode;
+            }
+
+            break;
         }
-
-        if (config.DebugAudioPlayback)
-        {
-            Display.Info(
-                $"Debug recording window: {recording.StartedAt.LocalDateTime:HH:mm:ss.fff} -> {recording.EndedAt.LocalDateTime:HH:mm:ss.fff} ({recording.WallClockDurationMs:F0} ms wall-clock)");
-            var deltaLabel = $"{(recording.DurationDeltaMs >= 0 ? "+" : string.Empty)}{recording.DurationDeltaMs:F0} ms";
-            var comparison = Math.Abs(recording.DurationDeltaMs) <= 150 ? "matches closely" : "does not match closely";
-            Display.Info(
-                $"Debug WAV span: {recording.WaveDurationMs:F0} ms from {recording.PcmDataBytes} PCM bytes; delta vs wall-clock: {deltaLabel} ({comparison})");
-        }
-
-        PersistDebugRecordingIfEnabled(recording);
-        userText = await TranscribeRecordingAsync(
-            audioTranscriber,
-            recording,
-            config,
-            cancellationSource.Token);
-    }
-    catch (OperationCanceledException)
-    {
-        CleanupRecording(recording);
-        break;
-    }
-    catch (Exception ex)
-    {
-        Display.Error($"Recording/transcription failed: {ex.Message}");
-        DebugTrace.WriteEvent("audio.error", $"stage=record-or-transcribe, error={DebugTrace.Preview(ex.ToString(), 800)}");
-        CleanupRecording(recording);
-        continue;
-    }
-
-    CleanupRecording(recording);
-
-    if (string.IsNullOrWhiteSpace(userText))
-    {
-        continue;
-    }
-
-    Display.Transcript(userText);
-    DebugTrace.WriteEvent("user.transcript", $"text={DebugTrace.Preview(userText, 500)}");
-
-    if (SpeechGate.ShouldExitApp(userText))
-    {
-        DebugTrace.WriteEvent("session.exit_phrase_detected", $"text={DebugTrace.Preview(userText, 300)}");
-        cancellationSource.Cancel();
-        break;
-    }
-
-    if (!isActive)
-    {
-        if (!SpeechGate.ContainsWakeWord(userText, config.WakeWord))
-        {
-            DebugTrace.WriteEvent(
-                "session.standby_ignored",
-                $"reason=no-wake-word, text={DebugTrace.Preview(userText, 300)}");
-            continue;
-        }
-
-        isActive = true;
-        DebugTrace.WriteEvent("session.wake_activated", $"text={DebugTrace.Preview(userText, 300)}");
-        const string wakeResponse = "what's up?";
-        Display.AssistantReply(wakeResponse, string.Empty);
-        try
-        {
-            await PlayAudioOutputAsync(() => SpeakAsync(speechSynthesizer, wakeResponse, cancellationSource.Token));
-        }
-        catch (Exception ex)
-        {
-            Display.Warn($"Wake response speech failed: {ex.Message}");
-        }
-        continue;
-    }
-
-    try
-    {
-        var turnId = Interlocked.Increment(ref nextTurnId);
-        Interlocked.Increment(ref queuedTurnCount);
-        DebugTrace.WriteEvent("agent.turn.queued", $"turn={turnId}, text={DebugTrace.Preview(userText, 500)}");
-        await userQueue.Writer.WriteAsync((turnId, userText), cancellationSource.Token);
-    }
-    catch (Exception ex)
-    {
-        Interlocked.Decrement(ref queuedTurnCount);
-        Display.Error($"Queue error: {ex.Message}");
-        DebugTrace.WriteEvent("agent.queue_error", $"error={DebugTrace.Preview(ex.ToString(), 800)}");
     }
 }
 
-userQueue.Writer.TryComplete();
-try
-{
-    await agentTask;
-}
-catch (OperationCanceledException)
-{
-    // Normal shutdown.
-}
-
-Display.Info("Shutting down...");
-await FaceBridge.ShutdownAsync();
-DebugTrace.WriteEvent("session.shutdown", "Application shutdown completed.");
-if (!DebugTrace.IsEnabled)
-{
-    ArtifactCleanup.CleanupCurrentRunArtifacts(DebugTrace.LogFilePath, DebugTrace.JsonLogFilePath, AppContext.BaseDirectory);
-}
-PrintDebugLogPathIfEnabled();
+await ShutdownAsync();
 return;
 
 async Task<int> RunScriptedModeAsync(CancellationToken cancellationToken)
 {
+    if (!provider.Capabilities.SupportsScriptedMode)
+    {
+        Display.Error($"{provider.DisplayName} does not support scripted mode.");
+        return 1;
+    }
+
     ILlmClient scriptedLlmClient;
     try
     {
-        scriptedLlmClient = LlmFactory.CreateLlmClient(config, httpClient);
+        provider.ValidateConfiguration(config);
+        scriptedLlmClient = provider.CreateClient(config, httpClient);
     }
     catch (Exception ex)
     {
@@ -418,6 +234,17 @@ async Task<int> RunScriptedModeAsync(CancellationToken cancellationToken)
         }
     }
 
+    await ConnectMcpServersAsync(cancellationToken);
+    return await ScriptedConversationRunner.RunAsync(
+        consoleOptions,
+        config,
+        scriptedLlmClient,
+        mcpManager,
+        cancellationToken);
+}
+
+async Task ConnectMcpServersAsync(CancellationToken cancellationToken)
+{
     if (config.McpServers.Count > 0)
     {
         Display.Info($"Connecting to {config.McpServers.Count} MCP server(s)...");
@@ -436,13 +263,339 @@ async Task<int> RunScriptedModeAsync(CancellationToken cancellationToken)
     {
         Display.Info("No MCP servers configured. Running without tool support.");
     }
+}
 
-    return await ScriptedConversationRunner.RunAsync(
-        consoleOptions,
-        config,
-        scriptedLlmClient,
-        mcpManager,
-        cancellationToken);
+bool TryCreateVoiceServices(
+    ILlmProvider activeProvider,
+    AppConfig activeConfig,
+    out IAudioTranscriber audioTranscriber,
+    out ISpeechSynthesizer? speechSynthesizer,
+    out string errorText)
+{
+    audioTranscriber = null!;
+    speechSynthesizer = null;
+    errorText = string.Empty;
+
+    if (!activeProvider.Capabilities.SupportedInteractiveModes.Contains(BrainInteractiveMode.Voice))
+    {
+        errorText = $"{activeProvider.DisplayName} does not support voice mode.";
+        return false;
+    }
+
+    audioTranscriber = activeProvider.CreateAudioTranscriber(activeConfig, httpClient)!;
+    speechSynthesizer = activeProvider.CreateSpeechSynthesizer(activeConfig, httpClient);
+    if (audioTranscriber is null)
+    {
+        errorText =
+            $"Voice mode requires speech credentials. Set OPENAI_API_KEY so Whisper transcription can run for {activeProvider.DisplayName}.";
+        return false;
+    }
+
+    return true;
+}
+
+bool TryHandleModeSwitch(
+    BrainInteractiveMode currentMode,
+    BrainInteractiveMode requestedMode,
+    out InteractiveLoopResult loopResult)
+{
+    loopResult = new InteractiveLoopResult(false, null);
+
+    if (requestedMode == currentMode)
+    {
+        Display.Info($"Already in {currentMode.ToString().ToLowerInvariant()} mode.");
+        return true;
+    }
+
+    if (!currentProvider.Capabilities.SupportedInteractiveModes.Contains(requestedMode))
+    {
+        Display.Error($"{currentProvider.DisplayName} does not support {requestedMode.ToString().ToLowerInvariant()} mode.");
+        return true;
+    }
+
+    if (!currentProvider.Capabilities.SupportsRuntimeModeSwitch)
+    {
+        Display.Error($"{currentProvider.DisplayName} does not support interactive mode switching at runtime.");
+        return true;
+    }
+
+    if (requestedMode == BrainInteractiveMode.Voice &&
+        !TryCreateVoiceServices(currentProvider, currentConfig, out _, out _, out var voiceError))
+    {
+        Display.Error(voiceError);
+        return true;
+    }
+
+    Display.Info($"Switching to {requestedMode.ToString().ToLowerInvariant()} mode.");
+    loopResult = new InteractiveLoopResult(false, requestedMode);
+    return true;
+}
+
+async Task<InteractiveLoopResult> RunTextModeAsync(CancellationToken cancellationToken)
+{
+    Display.Separator();
+    Display.Info("Text mode is ready. Type /exit to quit, /reset to clear history, or /mode:voice if your provider supports voice.");
+    FaceBridge.PublishStatus("listening", "Text mode", "Waiting for a typed request.");
+
+    while (!cancellationToken.IsCancellationRequested)
+    {
+        Display.Prompt("\n[text] ");
+        var userText = Console.ReadLine();
+        if (userText is null)
+        {
+            return new InteractiveLoopResult(true, null);
+        }
+
+        if (string.IsNullOrWhiteSpace(userText))
+        {
+            continue;
+        }
+
+        if (BrainInteractiveCommands.IsExitCommand(userText))
+        {
+            return new InteractiveLoopResult(true, null);
+        }
+
+        if (BrainInteractiveCommands.IsResetCommand(userText))
+        {
+            history.Clear();
+            desktopSession = new DesktopSessionContext();
+            Display.Info("Conversation history cleared.");
+            FaceBridge.PublishStatus("listening", "Text mode", "Waiting for a typed request.");
+            continue;
+        }
+
+        if (BrainInteractiveCommands.TryParseModeSwitch(userText, out var requestedMode) &&
+            TryHandleModeSwitch(BrainInteractiveMode.Text, requestedMode, out var loopResult))
+        {
+            if (loopResult.NextMode is not null)
+            {
+                return loopResult;
+            }
+
+            continue;
+        }
+
+        var turnResult = await ProcessInteractiveTurnAsync(userText, "text", speakReplies: false, null, cancellationToken);
+        if (turnResult.ExitRequested)
+        {
+            return turnResult;
+        }
+    }
+
+    return new InteractiveLoopResult(true, null);
+}
+
+async Task<InteractiveLoopResult> RunVoiceModeAsync(
+    IAudioTranscriber audioTranscriber,
+    ISpeechSynthesizer? speechSynthesizer,
+    CancellationToken cancellationToken)
+{
+    Display.Info($"Microphone: {AudioDevices.DescribeDefaultMicrophone()}");
+    Display.Info($"Speaker: {AudioDevices.DescribeDefaultSpeaker()}");
+    Display.Info($"Mic capture: {AudioRecorder.DescribeRecordingFormat()}");
+    Display.Info($"Voice languages: {string.Join(", ", currentConfig.VoiceLanguages.Select(static language => language.DisplayName))}");
+    if (speechSynthesizer is not null)
+    {
+        Display.Info($"Voice output: {speechSynthesizer.DisplayName}");
+    }
+
+    Display.Info($"Voice input: {audioTranscriber.DisplayName}");
+    if (currentConfig.DebugAudioPlayback)
+    {
+        Display.Info("Debug audio playback is enabled; each captured recording will replay during transcription.");
+    }
+
+    Display.Separator();
+    Display.Info($"Standby mode is listening for \"{currentConfig.WakeWord}\".");
+    Display.Info("After the wake phrase is heard, just speak naturally. Say \"bye\" or \"bye-bye\" to exit.");
+    Display.Info("If you go quiet for a minute, I will drift back to standby.");
+    Display.Separator();
+    FaceBridge.PublishStatus("standby", "Standby", $"Listening for \"{currentConfig.WakeWord}\".");
+
+    var isActive = false;
+
+    while (!cancellationToken.IsCancellationRequested)
+    {
+        var userText = string.Empty;
+        RecordingResult? recording = null;
+        int? maxWaitForSpeechMs = isActive ? currentConfig.ActiveIdleTimeoutMs : null;
+
+        try
+        {
+            Display.Info(isActive ? "Listening..." : $"Waiting for {currentConfig.WakeWord}...");
+            if (isActive)
+            {
+                await PlayAudioOutputAsync(AudioPlayback.PlayRecordingStartCueAsync);
+            }
+
+            recording = await AudioRecorder.RecordAsync(currentConfig.MaxRecordMs, maxWaitForSpeechMs, cancellationToken);
+
+            if (recording is null)
+            {
+                if (isActive)
+                {
+                    await PlayAudioOutputAsync(AudioPlayback.PlayWindDownCueAsync);
+                    isActive = false;
+                    Display.Info($"Back to standby. Say \"{currentConfig.WakeWord}\" when you want me again.");
+                }
+
+                continue;
+            }
+
+            if (isActive)
+            {
+                await PlayAudioOutputAsync(AudioPlayback.PlayRecordingStopCueAsync);
+            }
+
+            if (currentConfig.DebugAudioPlayback)
+            {
+                Display.Info(
+                    $"Debug recording window: {recording.StartedAt.LocalDateTime:HH:mm:ss.fff} -> {recording.EndedAt.LocalDateTime:HH:mm:ss.fff} ({recording.WallClockDurationMs:F0} ms wall-clock)");
+                var deltaLabel = $"{(recording.DurationDeltaMs >= 0 ? "+" : string.Empty)}{recording.DurationDeltaMs:F0} ms";
+                var comparison = Math.Abs(recording.DurationDeltaMs) <= 150 ? "matches closely" : "does not match closely";
+                Display.Info(
+                    $"Debug WAV span: {recording.WaveDurationMs:F0} ms from {recording.PcmDataBytes} PCM bytes; delta vs wall-clock: {deltaLabel} ({comparison})");
+            }
+
+            PersistDebugRecordingIfEnabled(recording);
+            userText = await TranscribeRecordingAsync(
+                audioTranscriber,
+                recording,
+                currentConfig,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            CleanupRecording(recording);
+            return new InteractiveLoopResult(true, null);
+        }
+        catch (Exception ex)
+        {
+            Display.Error($"Recording/transcription failed: {ex.Message}");
+            DebugTrace.WriteEvent("audio.error", $"stage=record-or-transcribe, error={DebugTrace.Preview(ex.ToString(), 800)}");
+            CleanupRecording(recording);
+            continue;
+        }
+
+        CleanupRecording(recording);
+
+        if (string.IsNullOrWhiteSpace(userText))
+        {
+            continue;
+        }
+
+        Display.Transcript(userText);
+        DebugTrace.WriteEvent("user.transcript", $"text={DebugTrace.Preview(userText, 500)}");
+
+        if (SpeechGate.ShouldExitApp(userText))
+        {
+            DebugTrace.WriteEvent("session.exit_phrase_detected", $"text={DebugTrace.Preview(userText, 300)}");
+            return new InteractiveLoopResult(true, null);
+        }
+
+        if (BrainInteractiveCommands.TryParseModeSwitch(userText, out var requestedMode) &&
+            TryHandleModeSwitch(BrainInteractiveMode.Voice, requestedMode, out var switchResult))
+        {
+            if (switchResult.NextMode is not null)
+            {
+                return switchResult;
+            }
+
+            continue;
+        }
+
+        if (!isActive)
+        {
+            if (!SpeechGate.ContainsWakeWord(userText, currentConfig.WakeWord))
+            {
+                DebugTrace.WriteEvent(
+                    "session.standby_ignored",
+                    $"reason=no-wake-word, text={DebugTrace.Preview(userText, 300)}");
+                continue;
+            }
+
+            isActive = true;
+            DebugTrace.WriteEvent("session.wake_activated", $"text={DebugTrace.Preview(userText, 300)}");
+            const string wakeResponse = "what's up?";
+            Display.AssistantReply(wakeResponse, string.Empty);
+            try
+            {
+                await PlayAudioOutputAsync(() => SpeakAsync(speechSynthesizer, wakeResponse, cancellationToken));
+            }
+            catch (Exception ex)
+            {
+                Display.Warn($"Wake response speech failed: {ex.Message}");
+            }
+            continue;
+        }
+
+        var turnResult = await ProcessInteractiveTurnAsync(userText, "voice", speakReplies: true, speechSynthesizer, cancellationToken);
+        if (turnResult.ExitRequested || turnResult.NextMode is not null)
+        {
+            return turnResult;
+        }
+    }
+
+    return new InteractiveLoopResult(true, null);
+}
+
+async Task<InteractiveLoopResult> ProcessInteractiveTurnAsync(
+    string userText,
+    string turnSource,
+    bool speakReplies,
+    ISpeechSynthesizer? speechSynthesizer,
+    CancellationToken cancellationToken)
+{
+    try
+    {
+        var turnId = Interlocked.Increment(ref nextTurnId);
+        var processedTurn = await BrainTurnProcessor.ProcessAsync(
+            turnId,
+            userText,
+            history,
+            desktopSession,
+            currentConfig,
+            llmClient,
+            mcpManager,
+            cancellationToken,
+            turnSource,
+            intermediateStepNarrator: speakReplies && speechSynthesizer is not null
+                ? async (stepText, innerCancellationToken) =>
+                {
+                    await PlayAudioOutputAsync(() => SpeakAsync(speechSynthesizer, stepText, innerCancellationToken));
+                }
+                : null);
+
+        if (processedTurn.UpdatedConfig is not null)
+        {
+            currentConfig = processedTurn.UpdatedConfig;
+            currentProvider = LlmProviderCatalog.Resolve(currentConfig);
+        }
+
+        if (speakReplies && speechSynthesizer is not null && !string.IsNullOrWhiteSpace(processedTurn.Reply.SpokenText))
+        {
+            try
+            {
+                await PlayAudioOutputAsync(
+                    () => SpeakAsync(speechSynthesizer, processedTurn.Reply.SpokenText, cancellationToken));
+            }
+            catch (Exception ex)
+            {
+                Display.Warn($"Reply speech failed: {ex.Message}");
+            }
+        }
+    }
+    catch (OperationCanceledException)
+    {
+        return new InteractiveLoopResult(true, null);
+    }
+    catch (Exception ex)
+    {
+        Display.Error($"Agent error: {ex.Message}");
+    }
+
+    return new InteractiveLoopResult(false, null);
 }
 
 static void CleanupRecording(RecordingResult? recording)
@@ -541,32 +694,18 @@ static void PersistDebugRecordingIfEnabled(RecordingResult recording)
     }
 }
 
-async Task PlayAudioOutputAsync(Func<Task> playback)
-{
-    Interlocked.Increment(ref audioOutputActive);
-    try
-    {
-        await playback();
-    }
-    finally
-    {
-        Interlocked.Decrement(ref audioOutputActive);
-    }
-}
+static Task PlayAudioOutputAsync(Func<Task> playback) => playback();
 
-async Task WaitForTurnOutputToFinishAsync(CancellationToken cancellationToken)
+async Task ShutdownAsync()
 {
-    while ((Volatile.Read(ref audioOutputActive) > 0
-            || Volatile.Read(ref agentWorkActive) > 0
-            || Volatile.Read(ref queuedTurnCount) > 0)
-           && !cancellationToken.IsCancellationRequested)
+    Display.Info("Shutting down...");
+    await FaceBridge.ShutdownAsync();
+    DebugTrace.WriteEvent("session.shutdown", "Application shutdown completed.");
+    if (!DebugTrace.IsEnabled)
     {
-        await Task.Delay(100, cancellationToken);
+        ArtifactCleanup.CleanupCurrentRunArtifacts(DebugTrace.LogFilePath, DebugTrace.JsonLogFilePath, AppContext.BaseDirectory);
     }
-}
 
-static void PrintDebugLogPathIfEnabled()
-{
     if (DebugTrace.IsEnabled && !string.IsNullOrWhiteSpace(DebugTrace.LogFilePath))
     {
         Display.Info($"Debug log saved to: {DebugTrace.LogFilePath}");
@@ -578,3 +717,5 @@ static void PrintDebugLogPathIfEnabled()
         Display.Info($"Debug artifacts saved under: {DebugTrace.BuildLogsDirectory(AppContext.BaseDirectory)}");
     }
 }
+
+internal sealed record InteractiveLoopResult(bool ExitRequested, BrainInteractiveMode? NextMode);

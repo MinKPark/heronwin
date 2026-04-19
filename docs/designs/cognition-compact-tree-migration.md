@@ -60,6 +60,173 @@ follow-ups are done:
   remains rooted at the actual window, which makes `uiPath` the safer
   model-facing identifier for later execution.
 
+## Current Runtime Decision Flow
+
+The compact-vs-raw decision is currently made inside `brain`, not inside
+`cognition`.
+
+Today the normal post-action path is still raw-first:
+
+```text
+Desktop action tool runs
+    |
+    v
+Take raw post-action snapshot
+    brain -> describe_window
+    |
+    v
+RefreshCompactWindowContextAsync(rawSnapshot)
+    |
+    +--> immediately seed currentUiElementContext with rawSnapshot
+    |
+    +--> compact tool available?
+         |
+         +--> no
+         |     -> keep raw full tree as model-facing context
+         |
+         +--> yes
+               -> call describe_window_compact
+                    |
+                    +--> success
+                    |     -> RememberCompactWindowContext(compactJson)
+                    |     -> extract llmTree
+                    |     -> overwrite currentUiElementContext with compact
+                    |        model-facing context
+                    |
+                    +--> failure
+                          -> leave raw full tree in currentUiElementContext
+```
+
+The focus path follows the same pattern:
+
+```text
+Take raw post-action focus snapshot
+    brain -> describe_window_focus
+    |
+    v
+RefreshCompactFocusContextAsync(rawFocusSnapshot)
+    |
+    +--> seed currentFocusElementContext with raw focus snapshot
+    +--> try describe_window_focus_compact
+         |
+         +--> success -> store llmTree-derived compact focus context
+         +--> failure -> keep raw focus snapshot
+```
+
+This means the current runtime behavior is:
+
+- raw first
+- compact second
+- compact only wins if the compact tool succeeds
+
+## Current Decision Points
+
+The important runtime decisions currently look like this:
+
+1. Tool availability
+   - `brain` checks whether compact tools are present before trying to use
+     them.
+   - This is a runtime capability check, not a `cognition`-owned routing
+     decision.
+
+2. Current-window targeting
+   - `brain` decides whether a tool should inherit the current selected window.
+   - `describe_window_compact` and `describe_window_focus_compact` are treated
+     as current-window tools, so `brain` injects `windowHandle` from the active
+     desktop session when needed.
+
+3. Stored model-facing context
+   - `brain` keeps `currentUiElementContext` and `currentFocusElementContext`
+     as the reusable model-facing UI context.
+   - Those slots may hold either:
+     - raw full-tree context, or
+     - compact `llmTree`-derived context
+   - The stored value depends on whether the compact refresh succeeded.
+
+4. Tool-result routing back to the model
+   - For compact tools, `brain` extracts and returns `llmTree`.
+   - For many desktop-action and raw-window tool results, `brain` prefers the
+     stored UI context instead of the tool's raw text.
+   - Because the stored UI context is seeded with raw data before compact
+     refresh succeeds, later turns can still receive the raw full tree.
+
+## Why The Raw Full Tree Can Still Reach The Model
+
+The key gap is that `RefreshCompactWindowContextAsync(...)` and
+`RefreshCompactFocusContextAsync(...)` currently seed the stored model-facing
+context with the raw fallback snapshot before they attempt the compact tool.
+
+So the effective behavior is:
+
+```text
+raw snapshot arrives
+    -> store raw snapshot as current model context
+    -> try compact tool
+         -> success: overwrite with llmTree-based context
+         -> failure: raw snapshot remains active
+```
+
+That is why a failed compact call can still leave a huge `describe_window`
+payload as the model-facing context for the next LLM turn.
+
+## Target Runtime Decision Flow
+
+The intended migration end state is compact-first, not raw-first:
+
+```text
+Desktop action tool runs
+    |
+    v
+Take compact post-action snapshot first
+    brain -> describe_window_compact
+    |
+    +--> success
+    |     -> RememberCompactWindowContext(compactJson)
+    |     -> extract llmTree
+    |     -> currentUiElementContext = compact model-facing context
+    |
+    +--> failure
+          -> optionally take raw describe_window
+          -> use raw output only as fallback/debug context
+```
+
+And for focused-element follow-up:
+
+```text
+Take compact focus snapshot first
+    brain -> describe_window_focus_compact
+    |
+    +--> success
+    |     -> currentFocusElementContext = llmTree-based compact context
+    |
+    +--> failure
+          -> optionally fall back to raw describe_window_focus
+```
+
+The target behavior should therefore be:
+
+- compact first
+- raw only when compact is unavailable or fails
+- `llmTree` as the default model-facing UI context
+- raw trees reserved for debugging, parity checks, and explicit fallback
+
+## Current Gap Versus Design Intent
+
+The design intent of this migration is that `brain` should switch ordinary
+model-facing UI context to compact tools and pass `llmTree` to the model.
+
+That intent is not fully realized yet because the runtime still does all of
+the following in the normal post-action path:
+
+- calls raw `describe_window`
+- stores that raw full-tree snapshot in the reusable UI context slot
+- only then tries `describe_window_compact`
+- leaves the raw tree in place if the compact call fails
+
+So the migration is partially landed in code and tool surface, but the
+post-action routing order in `brain` is still backwards for the compact-first
+goal.
+
 ## Decisions
 
 ### Tool surface

@@ -266,6 +266,8 @@ public sealed class TurnProcessorSkillGenerationTests
             EnableDebugTrace: false,
             OpenAiApiKey: string.Empty,
             OpenAiModel: "gpt-5.4-mini",
+            OpenAiCodexCommand: "codex",
+            OpenAiCodexModel: string.Empty,
             LlmTemperature: 0,
             TtsModel: "tts",
             TtsVoice: "voice",

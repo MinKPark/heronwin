@@ -71,7 +71,7 @@ internal static class BrainConsoleMode
     {
         Console.WriteLine("brain");
         Console.WriteLine("Usage:");
-        Console.WriteLine("  brain.exe                              Start normal voice mode");
+        Console.WriteLine("  brain.exe                              Start the provider's default interactive mode");
         Console.WriteLine("  brain.exe --command \"open netflix\"     Run one scripted command");
         Console.WriteLine("  brain.exe --command \"...\" --command \"...\"");
         Console.WriteLine("                                           Run multiple scripted commands");
@@ -86,6 +86,10 @@ internal static class BrainConsoleMode
         Console.WriteLine("  Scripted mode bypasses microphone capture and voice playback.");
         Console.WriteLine("  It still routes commands through the normal brain agent/tool pipeline.");
         Console.WriteLine("  It enables debug trace logging automatically so each turn can be judged from the JSONL log.");
+        Console.WriteLine();
+        Console.WriteLine("Interactive mode notes:");
+        Console.WriteLine("  openai-api starts in voice mode and supports /mode:text and /mode:voice.");
+        Console.WriteLine("  openai-codex starts in text mode and uses your local Codex / ChatGPT sign-in.");
         Console.WriteLine();
         Console.WriteLine("Tip:");
         Console.WriteLine("  Set DEBUG_TRACE=1 if you also want persistent debug logs in normal voice mode.");
