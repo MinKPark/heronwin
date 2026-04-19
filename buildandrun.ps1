@@ -17,9 +17,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$brainProjectPath = Join-Path $PSScriptRoot "src\herhead\brain\Brain.csproj"
-$faceProjectPath = Join-Path $PSScriptRoot "src\herhead\face\Face.csproj"
-$faceExecutablePath = Join-Path $PSScriptRoot "src\herhead\face\bin\$Configuration\$TargetFramework\Face.exe"
+$brainProjectPath = Join-Path $PSScriptRoot "src\head\brain\Brain.csproj"
+$faceProjectPath = Join-Path $PSScriptRoot "src\head\face\Face.csproj"
+$faceExecutablePath = Join-Path $PSScriptRoot "src\head\face\bin\$Configuration\$TargetFramework\Face.exe"
 $resolvedFaceProjectPath = [System.IO.Path]::GetFullPath($faceProjectPath)
 $resolvedBrainProjectPath = [System.IO.Path]::GetFullPath($brainProjectPath)
 $resolvedCognitionProjectPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "src\body\cognition\cognition.csproj"))
@@ -176,7 +176,7 @@ if (-not $NoBuild) {
 
     if ($runBrain) {
         Stop-RunningRepoRuntimeProcesses `
-            -CommandLineNeedles @($resolvedBrainProjectPath, $resolvedCognitionProjectPath, $resolvedExecutionProjectPath, "src\\herhead\\brain", "src\\body\\cognition", "src\\body\\execution") `
+            -CommandLineNeedles @($resolvedBrainProjectPath, $resolvedCognitionProjectPath, $resolvedExecutionProjectPath, "src\\head\\brain", "src\\body\\cognition", "src\\body\\execution") `
             -ProcessNames @("cognition.exe", "execution.exe")
     }
 

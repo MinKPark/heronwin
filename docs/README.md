@@ -29,7 +29,7 @@ Last updated: 2026-04-18
 - Latest verified work in the current refactor pass:
   - `dotnet build src\heronwin.sln` passed with 0 warnings and 0 errors.
   - `dotnet test src\heronwin.sln` passed with 295 total tests.
-  - `dotnet test src\herhead\brain.tests\HeronWin.Brain.Tests.csproj` passed
+  - `dotnet test src\head\brain.tests\HeronWin.Brain.Tests.csproj` passed
     with 214 total tests after adding browser-request guardrails, app-first
     website-fallback confirmation, screenshot-gating checks, and Netflix
     profile-selection, PIN follow-through, and named-target disambiguation
@@ -78,16 +78,16 @@ npm run build
 Run `brain` directly:
 
 ```powershell
-dotnet run --project src\herhead\brain
+dotnet run --project src\head\brain
 ```
 
-Keep a local `src\herhead\brain\.env` next to the project and start from
-`src\herhead\brain\.env.example` when you need to recreate it.
+Keep a local `src\head\brain\.env` next to the project and start from
+`src\head\brain\.env.example` when you need to recreate it.
 
 Run `face` directly:
 
 ```powershell
-dotnet run --project src\herhead\face
+dotnet run --project src\head\face
 ```
 
 Run both through the repo launcher:
@@ -107,8 +107,8 @@ Useful launcher variants:
 
 ## Component Docs
 
-- [brain README](../src/herhead/brain/README.md)
-- [face README](../src/herhead/face/README.md)
+- [brain README](../src/head/brain/README.md)
+- [face README](../src/head/face/README.md)
 - [body README](../src/body/README.md)
 - [process-manager README](../src/body/process-manager/README.md)
 - [desktop-automation README](../src/body/desktop-automation/README.md)

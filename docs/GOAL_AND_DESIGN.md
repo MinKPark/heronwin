@@ -21,7 +21,7 @@ The current design has three main runtime pieces plus supporting assets.
 
 ### `brain`
 
-`brain` is the .NET 10 agent runtime under `src/herhead/brain`.
+`brain` is the .NET 10 agent runtime under `src/head/brain`.
 
 It handles:
 
@@ -34,7 +34,7 @@ It handles:
 
 ### `face`
 
-`face` is the WPF companion app under `src/herhead/face`.
+`face` is the WPF companion app under `src/head/face`.
 
 It is responsible for:
 

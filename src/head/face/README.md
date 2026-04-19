@@ -35,7 +35,7 @@ The settings window writes `FACE_PIPE_ENABLED=true` and `FACE_PIPE_NAME=...` int
 ## Run
 
 ```powershell
-dotnet run --project .\src\herhead\face\Face.csproj
+dotnet run --project .\src\head\face\Face.csproj
 ```
 
 If `brain` is not running yet, `face` stays online and can cycle a demo state flow from the main window.

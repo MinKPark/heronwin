@@ -188,14 +188,14 @@ Verified on 2026-04-18:
 ```powershell
 dotnet build src\heronwin.sln
 dotnet test src\heronwin.sln
-dotnet test src\herhead\brain.tests\HeronWin.Brain.Tests.csproj
+dotnet test src\head\brain.tests\HeronWin.Brain.Tests.csproj
 cd src\body\process-manager
 npm run build
 ```
 
 - `dotnet build src\heronwin.sln` passed with 0 warnings and 0 errors.
 - `dotnet test src\heronwin.sln` passed with 295 total tests.
-- `dotnet test src\herhead\brain.tests\HeronWin.Brain.Tests.csproj` passed
+- `dotnet test src\head\brain.tests\HeronWin.Brain.Tests.csproj` passed
   with 214 total tests.
 - `npm run build` passed in `src\body\process-manager`.
 

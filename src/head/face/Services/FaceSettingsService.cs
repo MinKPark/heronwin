@@ -52,13 +52,13 @@ public sealed class FaceSettingsService
         var current = new DirectoryInfo(AppContext.BaseDirectory);
         while (current is not null)
         {
-            var candidate = Path.Combine(current.FullName, "src", "herhead", "brain", ".env");
+            var candidate = Path.Combine(current.FullName, "src", "head", "brain", ".env");
             if (File.Exists(candidate) || Directory.Exists(Path.GetDirectoryName(candidate)!))
             {
                 return candidate;
             }
 
-            var directCandidate = Path.Combine(current.FullName, "herhead", "brain", ".env");
+            var directCandidate = Path.Combine(current.FullName, "head", "brain", ".env");
             if (File.Exists(directCandidate) || Directory.Exists(Path.GetDirectoryName(directCandidate)!))
             {
                 return directCandidate;
