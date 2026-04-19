@@ -276,7 +276,6 @@ internal static class AgentRunner
                     "describe_window_compact",
                     new Dictionary<string, object?>
                     {
-                        ["budgetHintChars"] = llmClient.ModelProfile.WindowSnapshotCharBudget,
                     });
                 if (!compactResult.IsError &&
                     !string.IsNullOrWhiteSpace(compactResult.Text))
@@ -312,7 +311,6 @@ internal static class AgentRunner
                     "describe_window_focus_compact",
                     new Dictionary<string, object?>
                     {
-                        ["budgetHintChars"] = llmClient.ModelProfile.FocusSnapshotCharBudget,
                     });
                 if (!compactResult.IsError &&
                     !string.IsNullOrWhiteSpace(compactResult.Text))
@@ -2696,7 +2694,7 @@ internal static class AgentRunner
                     "describe_window_compact",
                     PrepareToolArgumentsForDesktopSession(
                         "describe_window_compact",
-                        new Dictionary<string, object?> { ["budgetHintChars"] = modelProfile.WindowSnapshotCharBudget },
+                        new Dictionary<string, object?>(),
                         desktopSession),
                     cancellationToken);
                 if (!compactResult.IsError &&

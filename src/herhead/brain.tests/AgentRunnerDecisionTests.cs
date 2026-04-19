@@ -1604,7 +1604,7 @@ public sealed class AgentRunnerDecisionTests
     {
         var profile = LlmModelProfiles.Create(LlmProviderId.OpenAiApi, "gpt-5.4-mini");
         const string compactToolText = """
-        {"window":{"handle":"0x0033061A","title":"Netflix"},"sourceStats":{"sourceNodeCount":12,"keptNodeCount":4,"omittedNodeCount":8,"algorithmVersion":"compact-tree-v1","budgetHintChars":4800},"compactTree":{"path":"root","uiPath":"root","controlType":"Window","name":"Netflix"}}
+        {"window":{"handle":"0x0033061A","title":"Netflix"},"sourceStats":{"sourceNodeCount":12,"keptNodeCount":4,"omittedNodeCount":8,"algorithmVersion":"compact-tree-v1"},"compactTree":{"path":"root","uiPath":"root","controlType":"Window","name":"Netflix"}}
         """;
 
         var actual = AgentRunner.ResolveToolResultContextForModel(

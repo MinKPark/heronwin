@@ -39,8 +39,6 @@ internal sealed class CompactSourceStats
     public required int OmittedNodeCount { get; init; }
 
     public required string AlgorithmVersion { get; init; }
-
-    public required int BudgetHintChars { get; init; }
 }
 
 internal sealed class CompactRenderedImage
@@ -85,16 +83,10 @@ internal static class CompactUiSnapshotBuilder
 {
     internal const string AlgorithmVersion = "compact-tree-v1";
 
-    private const int DefaultWindowBudgetHintChars = 7_200;
-    private const int DefaultFocusBudgetHintChars = 3_600;
-    private const int MinimumBudgetHintChars = 900;
-    private const int BudgetReserveChars = 260;
     private const int MaxSiblingContextPerParent = 2;
     private const int MaxRenderDimension = 1600;
     private const int MinRenderWidth = 480;
     private const int MinRenderHeight = 320;
-    private const int FallbackLaneWidth = 280;
-    private const int MaxFallbackLaneItems = 18;
     private const int MaxLabelLength = 60;
 
     private static readonly HashSet<string> HighValueControlTypes = new(StringComparer.OrdinalIgnoreCase)
@@ -119,42 +111,27 @@ internal static class CompactUiSnapshotBuilder
         "Document",
     };
 
-    internal static int NormalizeBudgetHintChars(int? budgetHintChars, bool focusMode)
-    {
-        var fallback = focusMode ? DefaultFocusBudgetHintChars : DefaultWindowBudgetHintChars;
-        if (!budgetHintChars.HasValue)
-        {
-            return fallback;
-        }
-
-        return Math.Max(MinimumBudgetHintChars, budgetHintChars.Value);
-    }
-
     internal static CompactSnapshotResponse BuildWindowResponse(
         WindowDescriptor window,
         UiElementSnapshot sourceTree,
-        int? budgetHintChars,
         bool includeImage,
         string? debugArtifactDirectory = null)
         => BuildResponse(
             window,
             sourceTree,
             focusMode: false,
-            NormalizeBudgetHintChars(budgetHintChars, focusMode: false),
             includeImage,
             debugArtifactDirectory);
 
     internal static CompactSnapshotResponse BuildFocusResponse(
         WindowDescriptor window,
         UiElementSnapshot sourceTree,
-        int? budgetHintChars,
         bool includeImage,
         string? debugArtifactDirectory = null)
         => BuildResponse(
             window,
             sourceTree,
             focusMode: true,
-            NormalizeBudgetHintChars(budgetHintChars, focusMode: true),
             includeImage,
             debugArtifactDirectory);
 
@@ -162,14 +139,12 @@ internal static class CompactUiSnapshotBuilder
         WindowDescriptor window,
         UiElementSnapshot sourceTree,
         bool focusMode,
-        int budgetHintChars,
         bool includeImage,
         string? debugArtifactDirectory)
     {
         var nodes = new List<NodeInfo>();
         var root = BuildNodeInfo(sourceTree, parent: null, depth: 0, ordinal: 0, nodes);
-        var budgetForTree = Math.Max(MinimumBudgetHintChars / 2, budgetHintChars - BudgetReserveChars);
-        var keep = SelectNodes(root, nodes, budgetForTree, focusMode);
+        var keep = SelectNodes(root, nodes, focusMode);
         var compactTree = BuildCompactNode(root, keep)
                           ?? throw new InvalidOperationException("The compact tree root could not be built.");
         var keptNodeCount = CountCompactNodes(compactTree);
@@ -188,7 +163,6 @@ internal static class CompactUiSnapshotBuilder
                 KeptNodeCount = keptNodeCount,
                 OmittedNodeCount = Math.Max(0, nodes.Count - keptNodeCount),
                 AlgorithmVersion = AlgorithmVersion,
-                BudgetHintChars = budgetHintChars,
             },
             CompactTree = compactTree,
             RenderedImage = renderedImage,
@@ -217,26 +191,24 @@ internal static class CompactUiSnapshotBuilder
         node.MaxOrdinalInSubtree = nextOrdinal;
         node.Priority = GetTraversalPriority(node, focusMode: false);
         node.FocusModePriority = GetTraversalPriority(node, focusMode: true);
-        node.EstimatedSelfChars = EstimateSelfChars(node);
         return node;
     }
 
     private static HashSet<NodeInfo> SelectNodes(
         NodeInfo root,
         IReadOnlyList<NodeInfo> nodes,
-        int budgetForTree,
         bool focusMode)
     {
         var keep = new HashSet<NodeInfo>();
-        var usedChars = 0;
-        AddChain(root, force: true);
+        AddChain(root);
 
         foreach (var candidate in nodes
                      .Where(node => node != root && (node.HasKeyboardFocus || node.IsSelected))
                      .OrderByDescending(node => GetPriority(node, focusMode))
                      .ThenBy(node => node.Ordinal))
         {
-            AddChain(candidate, force: true);
+            AddChain(candidate);
+            AddFocusedSiblingContext(candidate, focusMode);
         }
 
         foreach (var candidate in nodes
@@ -250,7 +222,7 @@ internal static class CompactUiSnapshotBuilder
                 continue;
             }
 
-            AddChain(candidate, force: false);
+            AddChain(candidate);
         }
 
         foreach (var parent in keep.ToArray())
@@ -276,7 +248,7 @@ internal static class CompactUiSnapshotBuilder
                     break;
                 }
 
-                if (AddChain(sibling, force: false))
+                if (AddChain(sibling))
                 {
                     addedForParent++;
                 }
@@ -285,7 +257,7 @@ internal static class CompactUiSnapshotBuilder
 
         return keep;
 
-        bool AddChain(NodeInfo candidate, bool force)
+        bool AddChain(NodeInfo candidate)
         {
             var missing = new Stack<NodeInfo>();
             for (var current = candidate; current is not null && !keep.Contains(current); current = current.Parent)
@@ -298,24 +270,36 @@ internal static class CompactUiSnapshotBuilder
                 return false;
             }
 
-            var extraChars = missing.Sum(node => node.EstimatedSelfChars);
-            if (!force &&
-                keep.Count > 0 &&
-                usedChars + extraChars > budgetForTree)
-            {
-                return false;
-            }
-
             while (missing.Count > 0)
             {
                 var node = missing.Pop();
-                if (keep.Add(node))
-                {
-                    usedChars += node.EstimatedSelfChars;
-                }
+                keep.Add(node);
             }
 
             return true;
+        }
+
+        void AddFocusedSiblingContext(NodeInfo anchor, bool focusMode)
+        {
+            if (anchor.Parent is null ||
+                anchor.Parent.Children.Count < 2 ||
+                !LooksLikeFocusedContextParent(anchor.Parent))
+            {
+                return;
+            }
+
+            foreach (var sibling in anchor.Parent.Children
+                         .Where(child => child != anchor && !keep.Contains(child))
+                         .OrderByDescending(child => GetPriority(child, focusMode))
+                         .ThenBy(child => child.Ordinal))
+            {
+                if (!ShouldForceKeepFocusedContextSibling(sibling, focusMode))
+                {
+                    continue;
+                }
+
+                AddChain(sibling);
+            }
         }
     }
 
@@ -378,57 +362,6 @@ internal static class CompactUiSnapshotBuilder
         }
 
         return count;
-    }
-
-    private static int EstimateSelfChars(NodeInfo node)
-    {
-        var total = 48 + node.Path.Length + node.UiPath.Length + node.ControlType.Length;
-        if (!string.IsNullOrWhiteSpace(node.Name))
-        {
-            total += node.Name.Length + 10;
-        }
-
-        if (!string.IsNullOrWhiteSpace(node.AutomationId))
-        {
-            total += node.AutomationId.Length + 18;
-        }
-
-        if (!string.IsNullOrWhiteSpace(node.ClassName))
-        {
-            total += node.ClassName.Length + 14;
-        }
-
-        if (node.IsOffscreen)
-        {
-            total += 16;
-        }
-
-        if (node.HasKeyboardFocus)
-        {
-            total += 20;
-        }
-
-        if (node.IsKeyboardFocusable)
-        {
-            total += 24;
-        }
-
-        if (node.IsSelected)
-        {
-            total += 18;
-        }
-
-        if (node.AvailableActions.Count > 0)
-        {
-            total += node.AvailableActions.Sum(action => action.Length + 4) + 24;
-        }
-
-        if (node.Bounds is not null)
-        {
-            total += 80;
-        }
-
-        return total;
     }
 
     private static bool ShouldIncludeElement(NodeInfo node, bool focusMode)
@@ -569,24 +502,48 @@ internal static class CompactUiSnapshotBuilder
         return priority;
     }
 
+    private static bool LooksLikeFocusedContextParent(NodeInfo node)
+        => string.Equals(node.ControlType, "Window", StringComparison.OrdinalIgnoreCase)
+           || string.Equals(node.ControlType, "Dialog", StringComparison.OrdinalIgnoreCase);
+
+    private static bool ShouldForceKeepFocusedContextSibling(NodeInfo node, bool focusMode)
+    {
+        if (node.HasKeyboardFocus || node.IsSelected)
+        {
+            return true;
+        }
+
+        if (!node.IsLikelyVisible)
+        {
+            return false;
+        }
+
+        if (node.LooksLikeNamedActionablePageContent)
+        {
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(node.Name) && node.LooksLikeMeaningfulPageContent)
+        {
+            return true;
+        }
+
+        return GetPriority(node, focusMode) >= 280 &&
+               node.HasInterestingAction &&
+               node.IsKeyboardFocusable;
+    }
+
     private static CompactRenderedImage RenderCompactTree(
         WindowDescriptor window,
         CompactUiNode root,
         string? debugArtifactDirectory)
     {
-        var boundedNodes = Flatten(root)
-            .Where(node => HasRenderableBounds(node.Bounds))
-            .ToArray();
-        var laneNodes = Flatten(root)
-            .Where(node => !HasRenderableBounds(node.Bounds))
-            .Take(MaxFallbackLaneItems)
-            .ToArray();
+        var boundedNodes = GetRenderableImageNodes(root);
 
         var scale = ComputeRenderScale(window.Bounds.Width, window.Bounds.Height);
         var contentWidth = Math.Max(MinRenderWidth, (int)Math.Ceiling(window.Bounds.Width * scale));
         var contentHeight = Math.Max(MinRenderHeight, (int)Math.Ceiling(window.Bounds.Height * scale));
-        var laneWidth = laneNodes.Length > 0 ? FallbackLaneWidth : 0;
-        var imageWidth = contentWidth + laneWidth;
+        var imageWidth = contentWidth;
         var imageHeight = contentHeight;
         var imageDirectory = Path.Combine(WindowAutomation.GetScreenshotDirectory(debugArtifactDirectory), "compact-tree");
         Directory.CreateDirectory(imageDirectory);
@@ -608,11 +565,6 @@ internal static class CompactUiSnapshotBuilder
             DrawBoundedNode(graphics, node, window.Bounds, scale);
         }
 
-        if (laneNodes.Length > 0)
-        {
-            DrawFallbackLane(graphics, laneNodes, contentWidth, imageHeight);
-        }
-
         bitmap.Save(imagePath, ImageFormat.Png);
         return new CompactRenderedImage
         {
@@ -621,6 +573,12 @@ internal static class CompactUiSnapshotBuilder
             ImageSize = new ImageDimensions(bitmap.Width, bitmap.Height),
         };
     }
+
+    internal static CompactUiNode[] GetRenderableImageNodes(CompactUiNode root)
+        => Flatten(root)
+            .Where(node => HasRenderableBounds(node.Bounds))
+            .Where(node => !HasRenderableDescendantWithExactBounds(node, node.Bounds!))
+            .ToArray();
 
     private static void DrawBoundedNode(
         Graphics graphics,
@@ -672,50 +630,6 @@ internal static class CompactUiSnapshotBuilder
         graphics.DrawString(label, font, textBrush, textRect, labelFormat);
     }
 
-    private static void DrawFallbackLane(
-        Graphics graphics,
-        IReadOnlyList<CompactUiNode> laneNodes,
-        int laneLeft,
-        int imageHeight)
-    {
-        using var laneBrush = new SolidBrush(Color.FromArgb(232, 237, 242));
-        graphics.FillRectangle(laneBrush, laneLeft, 0, FallbackLaneWidth, imageHeight);
-        using var dividerPen = new Pen(Color.FromArgb(120, 45, 59, 86), 1f);
-        graphics.DrawLine(dividerPen, laneLeft, 0, laneLeft, imageHeight);
-
-        using var headingFont = new Font(SystemFonts.DialogFont.FontFamily, 9f, FontStyle.Bold, GraphicsUnit.Point);
-        using var bodyFont = new Font(SystemFonts.DialogFont.FontFamily, 8f, FontStyle.Regular, GraphicsUnit.Point);
-        using var textBrush = new SolidBrush(Color.FromArgb(235, 23, 31, 44));
-        graphics.DrawString("Unbounded retained nodes", headingFont, textBrush, laneLeft + 10, 10);
-
-        var y = 34f;
-        foreach (var node in laneNodes)
-        {
-            var box = new RectangleF(laneLeft + 10, y, FallbackLaneWidth - 20, 36);
-            using var fillBrush = new SolidBrush(GetDepthFillColor(GetNodeDepth(node)));
-            using var pen = new Pen(
-                node.HasKeyboardFocus == true
-                    ? Color.FromArgb(220, 196, 54, 50)
-                    : Color.FromArgb(160, 35, 53, 84),
-                node.HasKeyboardFocus == true ? 2.4f : 1.2f);
-            graphics.FillRectangle(fillBrush, box);
-            graphics.DrawRectangle(pen, box.X, box.Y, box.Width, box.Height);
-            graphics.DrawString(BuildNodeLabel(node), bodyFont, textBrush, box, new StringFormat
-            {
-                Alignment = StringAlignment.Near,
-                LineAlignment = StringAlignment.Center,
-                Trimming = StringTrimming.EllipsisCharacter,
-                FormatFlags = StringFormatFlags.NoWrap,
-            });
-
-            y += 42f;
-            if (y + 38f > imageHeight)
-            {
-                break;
-            }
-        }
-    }
-
     private static IEnumerable<CompactUiNode> Flatten(CompactUiNode root)
     {
         yield return root;
@@ -732,6 +646,36 @@ internal static class CompactUiSnapshotBuilder
             }
         }
     }
+
+    private static bool HasRenderableDescendantWithExactBounds(CompactUiNode node, ElementBounds ancestorBounds)
+    {
+        if (node.Children is null)
+        {
+            return false;
+        }
+
+        foreach (var child in node.Children)
+        {
+            if (HasRenderableBounds(child.Bounds) &&
+                HaveExactSameBounds(ancestorBounds, child.Bounds!))
+            {
+                return true;
+            }
+
+            if (HasRenderableDescendantWithExactBounds(child, ancestorBounds))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool HaveExactSameBounds(ElementBounds left, ElementBounds right)
+        => left.Left.Equals(right.Left)
+           && left.Top.Equals(right.Top)
+           && left.Width.Equals(right.Width)
+           && left.Height.Equals(right.Height);
 
     private static bool HasRenderableBounds(ElementBounds? bounds)
         => bounds is not null && bounds.Width > 1d && bounds.Height > 1d;
@@ -994,8 +938,6 @@ internal static class CompactUiSnapshotBuilder
         internal int Priority { get; set; }
 
         internal int FocusModePriority { get; set; }
-
-        internal int EstimatedSelfChars { get; set; }
     }
 
     private static string? NormalizeInlineText(string? value)

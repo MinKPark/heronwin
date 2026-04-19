@@ -199,6 +199,40 @@ internal sealed class McpClientManager : IAsyncDisposable
                         text);
                 }
 
+                if (DebugTrace.IsEnabled &&
+                    result.IsError != true &&
+                    TryBuildUiAutomationDebugShadowRequest(toolName, dictionaryArgs, out var debugShadowToolName, out var debugShadowArgs) &&
+                    toolNames.Contains(debugShadowToolName))
+                {
+                    DebugTrace.WriteStructuredEvent(
+                        "mcp.call.debug_shadow_requested",
+                        new Dictionary<string, object?>
+                        {
+                            ["server"] = serverName,
+                            ["tool"] = toolName,
+                            ["shadowTool"] = debugShadowToolName,
+                            ["arguments"] = debugShadowArgs,
+                        });
+
+                    try
+                    {
+                        _ = await CallToolAsync(debugShadowToolName, debugShadowArgs, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugTrace.WriteStructuredEvent(
+                            "mcp.call.debug_shadow_failed",
+                            new Dictionary<string, object?>
+                            {
+                                ["server"] = serverName,
+                                ["tool"] = toolName,
+                                ["shadowTool"] = debugShadowToolName,
+                                ["arguments"] = debugShadowArgs,
+                                ["error"] = DebugTrace.Preview(ex.ToString(), 700),
+                            });
+                    }
+                }
+
                 return new ToolCallOutcome(text, images, result.IsError == true);
             }
             catch (McpProtocolException ex)
@@ -340,6 +374,38 @@ internal sealed class McpClientManager : IAsyncDisposable
             or "describe_window_compact"
             or "describe_window_focus"
             or "describe_window_focus_compact";
+    }
+
+    internal static bool TryBuildUiAutomationDebugShadowRequest(
+        string toolName,
+        IReadOnlyDictionary<string, object?> arguments,
+        out string shadowToolName,
+        out Dictionary<string, object?> shadowArguments)
+    {
+        shadowToolName = string.Empty;
+        shadowArguments = CloneArguments(arguments);
+
+        switch (toolName)
+        {
+            case "describe_window_compact":
+                shadowToolName = "describe_window";
+                shadowArguments.Remove("budgetHintChars");
+                shadowArguments.Remove("includeImage");
+                shadowArguments.Remove("maxDepth");
+                shadowArguments["fullDepth"] = true;
+                return true;
+
+            case "describe_window_focus_compact":
+                shadowToolName = "describe_window_focus";
+                shadowArguments.Remove("budgetHintChars");
+                shadowArguments.Remove("includeImage");
+                shadowArguments["maxDepth"] = 4;
+                return true;
+
+            default:
+                shadowArguments.Clear();
+                return false;
+        }
     }
 
     internal static IReadOnlyList<string> ExtractImageFilePathsFromJsonText(string toolText)
@@ -536,6 +602,12 @@ internal sealed class McpClientManager : IAsyncDisposable
 
         return structuredContentPreview ?? string.Empty;
     }
+
+    private static Dictionary<string, object?> CloneArguments(IReadOnlyDictionary<string, object?> arguments)
+        => arguments.ToDictionary(
+            static kvp => kvp.Key,
+            static kvp => kvp.Value,
+            StringComparer.Ordinal);
 
     private static string? TrySerializeStructuredContent(object? structuredContent)
     {

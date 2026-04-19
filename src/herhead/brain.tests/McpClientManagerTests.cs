@@ -93,6 +93,54 @@ public sealed class McpClientManagerTests
                 cancellationSource.Token));
     }
 
+    [Fact]
+    public void TryBuildUiAutomationDebugShadowRequest_ForCompactWindow_RequestsFullDepthRawTree()
+    {
+        var args = new Dictionary<string, object?>
+        {
+            ["windowHandle"] = "0x00123456",
+            ["budgetHintChars"] = 7200,
+            ["includeImage"] = true,
+        };
+
+        var actual = McpClientManager.TryBuildUiAutomationDebugShadowRequest(
+            "describe_window_compact",
+            args,
+            out var shadowTool,
+            out var shadowArgs);
+
+        Assert.True(actual);
+        Assert.Equal("describe_window", shadowTool);
+        Assert.Equal("0x00123456", shadowArgs["windowHandle"]);
+        Assert.Equal(true, shadowArgs["fullDepth"]);
+        Assert.DoesNotContain("budgetHintChars", shadowArgs.Keys, StringComparer.Ordinal);
+        Assert.DoesNotContain("includeImage", shadowArgs.Keys, StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public void TryBuildUiAutomationDebugShadowRequest_ForCompactFocus_RequestsRawFocusTree()
+    {
+        var args = new Dictionary<string, object?>
+        {
+            ["windowHandle"] = "0x00123456",
+            ["budgetHintChars"] = 3600,
+            ["includeImage"] = false,
+        };
+
+        var actual = McpClientManager.TryBuildUiAutomationDebugShadowRequest(
+            "describe_window_focus_compact",
+            args,
+            out var shadowTool,
+            out var shadowArgs);
+
+        Assert.True(actual);
+        Assert.Equal("describe_window_focus", shadowTool);
+        Assert.Equal("0x00123456", shadowArgs["windowHandle"]);
+        Assert.Equal(4, shadowArgs["maxDepth"]);
+        Assert.DoesNotContain("budgetHintChars", shadowArgs.Keys, StringComparer.Ordinal);
+        Assert.DoesNotContain("includeImage", shadowArgs.Keys, StringComparer.Ordinal);
+    }
+
     private static ToolDefinition CreateToolDefinition(string name)
     {
         using var document = JsonDocument.Parse("""{"type":"object","properties":{}}""");

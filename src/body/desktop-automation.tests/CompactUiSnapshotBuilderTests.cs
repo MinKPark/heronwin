@@ -6,7 +6,7 @@ namespace HeronWin.Body.DesktopAutomation.Tests;
 public sealed class CompactUiSnapshotBuilderTests
 {
     [Fact]
-    public void BuildWindowResponse_PreservesMeaningfulNodesWithinBudget()
+    public void BuildWindowResponse_PreservesMeaningfulNodesWithoutBudgetLimit()
     {
         var filler = new string('x', 500);
         var response = CompactUiSnapshotBuilder.BuildWindowResponse(
@@ -59,15 +59,14 @@ public sealed class CompactUiSnapshotBuilderTests
                         "Button",
                         name: "Close")
                 ]),
-            budgetHintChars: 1_400,
             includeImage: false);
 
         var json = CompactUiSnapshotJson.Serialize(response);
 
         Assert.Contains("\"compactTree\"", json, StringComparison.Ordinal);
         Assert.Contains("Address and search bar", json, StringComparison.Ordinal);
+        Assert.Contains("watching?", json, StringComparison.Ordinal);
         Assert.Contains("Boyfriend on Demand", json, StringComparison.Ordinal);
-        Assert.DoesNotContain(filler, json, StringComparison.Ordinal);
         Assert.Contains("\"algorithmVersion\":\"compact-tree-v1\"", json, StringComparison.Ordinal);
     }
 
@@ -94,7 +93,6 @@ public sealed class CompactUiSnapshotBuilderTests
                         "Text",
                         name: "Boyfriend on Demand")
                 ]),
-            budgetHintChars: 900,
             includeImage: false);
 
         var json = CompactUiSnapshotJson.Serialize(response);
@@ -105,7 +103,7 @@ public sealed class CompactUiSnapshotBuilderTests
     }
 
     [Fact]
-    public void BuildWindowResponse_RendersImageWithFallbackLane()
+    public void BuildWindowResponse_RendersImageIgnoringNodesWithoutBounds()
     {
         var tempDirectory = Path.Combine(Path.GetTempPath(), "heronwin-compact-tests", Guid.NewGuid().ToString("N"));
         try
@@ -133,13 +131,12 @@ public sealed class CompactUiSnapshotBuilderTests
                             "Text",
                             name: "Continue Watching")
                     ]),
-                budgetHintChars: 1_400,
                 includeImage: true,
                 debugArtifactDirectory: tempDirectory);
 
             Assert.NotNull(response.RenderedImage);
             Assert.True(File.Exists(response.RenderedImage!.ImagePath));
-            Assert.Equal(1_080, response.RenderedImage.ImageSize.Width);
+            Assert.Equal(800, response.RenderedImage.ImageSize.Width);
             Assert.Equal(600, response.RenderedImage.ImageSize.Height);
 
             using var bitmap = new Bitmap(response.RenderedImage.ImagePath);
@@ -168,6 +165,196 @@ public sealed class CompactUiSnapshotBuilderTests
         }
     }
 
+    [Fact]
+    public void GetRenderableImageNodes_PrefersDeeperNode_WhenParentAndChildShareBounds()
+    {
+        var response = CompactUiSnapshotBuilder.BuildWindowResponse(
+            CreateWindowDescriptor(),
+            Snapshot(
+                "root",
+                "root",
+                "Window",
+                name: "Netflix - Microsoft Edge",
+                bounds: Bounds(0, 0, 800, 600),
+                children:
+                [
+                    Snapshot(
+                        "1",
+                        "1",
+                        "Pane",
+                        name: "Wrapper",
+                        bounds: Bounds(0, 0, 800, 600),
+                        children:
+                        [
+                            Snapshot(
+                                "1/0",
+                                "1/0",
+                                "Document",
+                                name: "Netflix",
+                                bounds: Bounds(0, 0, 800, 600),
+                                children:
+                                [
+                                    Snapshot(
+                                        "1/0/0",
+                                        "1/0/0",
+                                        "Text",
+                                        name: "Who's watching?",
+                                        bounds: Bounds(120, 80, 240, 32)),
+                                ]),
+                        ]),
+                ]),
+            includeImage: false);
+
+        var nodes = CompactUiSnapshotBuilder.GetRenderableImageNodes(response.CompactTree);
+
+        Assert.DoesNotContain(nodes, node => string.Equals(node.Path, "1", StringComparison.Ordinal));
+        Assert.Contains(nodes, node => string.Equals(node.Path, "1/0", StringComparison.Ordinal));
+        Assert.Contains(nodes, node => string.Equals(node.Path, "1/0/0", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void BuildWindowResponse_RetainsFocusedModalActions_WhenCloseButtonConsumesBudget()
+    {
+        var modal = Snapshot(
+            "1/0/0/0/0/0/0/0/0/0",
+            "1/0/0/0/0/0/0/0/0/0",
+            "Window",
+            name: "Confirm it's you",
+            className: "confirmation-modal",
+            actions: ["close"],
+            bounds: Bounds(120, 80, 520, 420),
+            children:
+            [
+                Snapshot(
+                    "1/0/0/0/0/0/0/0/0/0/0",
+                    "1/0/0/0/0/0/0/0/0/0/0",
+                    "Button",
+                    name: "Click to close modal",
+                    className: "close-button",
+                    hasKeyboardFocus: true,
+                    isKeyboardFocusable: true,
+                    actions: ["focus", "invoke"],
+                    bounds: Bounds(580, 100, 36, 36)),
+                Snapshot(
+                    "1/0/0/0/0/0/0/0/0/0/1",
+                    "1/0/0/0/0/0/0/0/0/0/1",
+                    "Text",
+                    name: "First, let's make sure it's you",
+                    bounds: Bounds(150, 150, 320, 40)),
+                Snapshot(
+                    "1/0/0/0/0/0/0/0/0/0/2",
+                    "1/0/0/0/0/0/0/0/0/0/2",
+                    "Text",
+                    name: "Before we make any changes, we'll just need a quick confirmation.",
+                    bounds: Bounds(150, 190, 420, 24)),
+                Snapshot(
+                    "1/0/0/0/0/0/0/0/0/0/3",
+                    "1/0/0/0/0/0/0/0/0/0/3",
+                    "Button",
+                    name: "Email a code",
+                    className: "verification-option",
+                    isKeyboardFocusable: true,
+                    actions: ["focus", "invoke"],
+                    bounds: Bounds(150, 220, 360, 64)),
+                Snapshot(
+                    "1/0/0/0/0/0/0/0/0/0/4",
+                    "1/0/0/0/0/0/0/0/0/0/4",
+                    "Button",
+                    name: "Text a code",
+                    className: "verification-option",
+                    isKeyboardFocusable: true,
+                    actions: ["focus", "invoke"],
+                    bounds: Bounds(150, 300, 360, 64)),
+                Snapshot(
+                    "1/0/0/0/0/0/0/0/0/0/5",
+                    "1/0/0/0/0/0/0/0/0/0/5",
+                    "Button",
+                    name: "Confirm password",
+                    className: "verification-option",
+                    isKeyboardFocusable: true,
+                    actions: ["focus", "invoke"],
+                    bounds: Bounds(150, 380, 360, 56)),
+                Snapshot(
+                    "1/0/0/0/0/0/0/0/0/0/6",
+                    "1/0/0/0/0/0/0/0/0/0/6",
+                    "Text",
+                    name: "Need help? ",
+                    bounds: Bounds(150, 455, 80, 24)),
+                Snapshot(
+                    "1/0/0/0/0/0/0/0/0/0/7",
+                    "1/0/0/0/0/0/0/0/0/0/7",
+                    "Hyperlink",
+                    name: "Visit the Help Center",
+                    isKeyboardFocusable: true,
+                    actions: ["focus", "invoke"],
+                    bounds: Bounds(150, 455, 180, 24)),
+            ]);
+        var tree = Snapshot(
+            "root",
+            "root",
+            "Window",
+            name: "Account Profile Lock - Netflix - Microsoft Edge",
+            className: "Chrome_WidgetWin_1",
+            actions: ["close", "maximize", "restore"],
+            bounds: Bounds(0, 0, 800, 600),
+            children:
+            [
+                Snapshot(
+                    "1",
+                    "1",
+                    "ToolBar",
+                    name: "App bar",
+                    className: "EdgeToolbarView",
+                    actions: ["scroll_into_view"],
+                    bounds: Bounds(0, 0, 800, 60),
+                    children:
+                    [
+                        Snapshot(
+                            "1/0",
+                            "1/0",
+                            "Button",
+                            name: "Back",
+                            className: "BackForwardButton",
+                            isKeyboardFocusable: true,
+                            actions: ["focus", "invoke"],
+                            bounds: Bounds(10, 10, 40, 40)),
+                        Snapshot(
+                            "1/1",
+                            "1/1",
+                            "Edit",
+                            name: "Address and search bar",
+                            className: "OmniboxViewViews",
+                            hasKeyboardFocus: false,
+                            isKeyboardFocusable: true,
+                            actions: ["focus", "set_value"],
+                            bounds: Bounds(60, 10, 620, 40)),
+                        Snapshot(
+                            "1/2",
+                            "1/2",
+                            "Button",
+                            name: "Personal Profile",
+                            className: "EdgeAvatarToolbarButton",
+                            isKeyboardFocusable: true,
+                            actions: ["focus", "invoke"],
+                            bounds: Bounds(700, 10, 40, 40)),
+                    ]),
+                NestModal(modal),
+            ]);
+
+        var response = CompactUiSnapshotBuilder.BuildWindowResponse(
+            CreateWindowDescriptor(),
+            tree,
+            includeImage: false);
+
+        var json = CompactUiSnapshotJson.Serialize(response);
+
+        Assert.Contains("Click to close modal", json, StringComparison.Ordinal);
+        Assert.Contains("Email a code", json, StringComparison.Ordinal);
+        Assert.Contains("Text a code", json, StringComparison.Ordinal);
+        Assert.Contains("Confirm password", json, StringComparison.Ordinal);
+        Assert.Contains("Visit the Help Center", json, StringComparison.Ordinal);
+    }
+
     private static WindowDescriptor CreateWindowDescriptor()
         => new(
             "0x00123456",
@@ -178,6 +365,87 @@ public sealed class CompactUiSnapshotBuilderTests
 
     private static ElementBounds Bounds(double left, double top, double width, double height)
         => new(left, top, width, height);
+
+    private static UiElementSnapshot NestModal(UiElementSnapshot modal)
+        => Snapshot(
+            "1/0",
+            "1/0",
+            "Document",
+            name: "Account Profile Lock - Netflix",
+            automationId: "RootWebArea",
+            actions: ["focus", "scroll"],
+            bounds: Bounds(0, 60, 800, 540),
+            children:
+            [
+                Snapshot(
+                    "1/0/0",
+                    "1/0/0",
+                    "Group",
+                    className: "appMountPoint",
+                    actions: ["invoke"],
+                    bounds: Bounds(0, 60, 800, 540),
+                    children:
+                    [
+                        Snapshot(
+                            "1/0/0/0",
+                            "1/0/0/0",
+                            "Pane",
+                            className: "overlay-layer",
+                            actions: ["scroll_into_view"],
+                            bounds: Bounds(0, 60, 800, 540),
+                            children:
+                            [
+                                Snapshot(
+                                    "1/0/0/0/0",
+                                    "1/0/0/0/0",
+                                    "Pane",
+                                    className: "overlay-root",
+                                    actions: ["scroll_into_view"],
+                                    bounds: Bounds(0, 60, 800, 540),
+                                    children:
+                                    [
+                                        Snapshot(
+                                            "1/0/0/0/0/0",
+                                            "1/0/0/0/0/0",
+                                            "Pane",
+                                            className: "overlay-centerer",
+                                            actions: ["scroll_into_view"],
+                                            bounds: Bounds(0, 60, 800, 540),
+                                            children:
+                                            [
+                                                Snapshot(
+                                                    "1/0/0/0/0/0/0",
+                                                    "1/0/0/0/0/0/0",
+                                                    "Group",
+                                                    className: "overlay-group",
+                                                    actions: ["scroll_into_view"],
+                                                    bounds: Bounds(0, 60, 800, 540),
+                                                    children:
+                                                    [
+                                                        Snapshot(
+                                                            "1/0/0/0/0/0/0/0",
+                                                            "1/0/0/0/0/0/0/0",
+                                                            "Group",
+                                                            className: "dialog-shell",
+                                                            actions: ["scroll_into_view"],
+                                                            bounds: Bounds(100, 70, 560, 460),
+                                                            children:
+                                                            [
+                                                                Snapshot(
+                                                                    "1/0/0/0/0/0/0/0/0",
+                                                                    "1/0/0/0/0/0/0/0/0",
+                                                                    "Pane",
+                                                                    className: "dialog-inner",
+                                                                    actions: ["scroll_into_view"],
+                                                                    bounds: Bounds(110, 75, 540, 440),
+                                                                    children: [modal]),
+                                                            ]),
+                                                    ]),
+                                            ]),
+                                    ]),
+                            ]),
+                    ]),
+            ]);
 
     private static UiElementSnapshot Snapshot(
         string path,

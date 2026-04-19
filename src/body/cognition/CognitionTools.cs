@@ -56,7 +56,7 @@ public static class CognitionTools
         UiAutomationExecutor executor,
         [Description("Window handle from list_windows, such as 0x00123456.")]
         string windowHandle,
-        [Description("Approximate character budget for the compact JSON response. When omitted, cognition uses its standard default.")]
+        [Description("Reserved for future response-size tuning. Currently ignored.")]
         int? budgetHintChars = null,
         [Description("When true, render the compact tree to a local PNG and include image metadata in the response.")]
         bool includeImage = false,
@@ -104,7 +104,7 @@ public static class CognitionTools
         UiAutomationExecutor executor,
         [Description("Window handle from list_windows, such as 0x00123456.")]
         string windowHandle,
-        [Description("Approximate character budget for the compact JSON response. When omitted, cognition uses its standard default.")]
+        [Description("Reserved for future response-size tuning. Currently ignored.")]
         int? budgetHintChars = null,
         [Description("When true, render the compact tree to a local PNG and include image metadata in the response.")]
         bool includeImage = false,

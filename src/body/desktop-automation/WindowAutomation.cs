@@ -344,12 +344,12 @@ internal static class WindowAutomation
         int? budgetHintChars,
         bool includeImage)
     {
+        _ = budgetHintChars;
         var handle = ResolveInteractionWindowHandle(selectionState);
         var windowElement = AutomationElement.FromHandle(handle);
         return CompactUiSnapshotBuilder.BuildWindowResponse(
             BuildWindowDescriptor(handle),
             CaptureElementTree(windowElement, remainingLevels: null, "root", "root"),
-            budgetHintChars,
             includeImage);
     }
 
@@ -673,6 +673,7 @@ internal static class WindowAutomation
         int? budgetHintChars,
         bool includeImage)
     {
+        _ = budgetHintChars;
         var handle = ResolveInteractionWindowHandle(selectionState);
 
         var windowElement = AutomationElement.FromHandle(handle);
@@ -692,7 +693,6 @@ internal static class WindowAutomation
         return CompactUiSnapshotBuilder.BuildFocusResponse(
             BuildWindowDescriptor(handle),
             CaptureElementTree(focusedElement, remainingLevels: null, "focused", focusedElementUiPath),
-            budgetHintChars,
             includeImage);
     }
 
