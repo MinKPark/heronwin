@@ -16,13 +16,10 @@ This file has two jobs:
 
 | Status | Priority | Item | Next move |
 |--------|----------|------|-----------|
-| `done` | `P0` | Make the debugging workflow an explicit standing guardrail. | Captured in [Development Guardrails](./DEVELOPMENT_GUARDRAILS.md). |
-| `done` | `n/a` | Create a top-level `docs/` folder and split the project docs into focused files. | Keep the index and cross-links current. |
-| `done` | `P0` | Finish the `body` / `cognition` / `execution` cutover. | `process-manager` builds again, `dotnet test src\heronwin.sln` passes with 295 tests, local `MCP_SERVERS` points at `process-manager`/`cognition`/`execution`, and the old empty `src\herbody` stub plus lingering live old-name test references are gone. |
 | `next` | `P1` | Make the live Netflix smoke deterministic across account-state branches. | The stricter brain checks now catch stale picker/PIN issues correctly, but reruns can still land on real Netflix confirmation and profile-lock surfaces that block the scripted search/playback path. |
 | `next` | `P1` | Tighten Netflix search/playback scripted validation. | Keep the stricter unresolved-outcome checks, but continue hardening in-site search and playback verification on top of the live account-state cleanup work. |
 | `next` | `P1` | Decide whether to add separate scripted coverage for app-first launch. | The current Netflix smoke is now explicitly website-navigation-based; add another smoke if we want deterministic coverage for the app-first fallback-confirmation path. |
-| `done` | `P1` | Clean up leftover historical `src\herbody` paths and stale local config. | The empty `src\herbody` directory is removed and local MCP wiring is pointed at `process-manager`/`cognition`/`execution`. |
+| `next` | `P1` | Finish the compact-tree rollout in `cognition`. | Add the opt-in screenshot-vs-compact evaluation harness, then run the documented parity checks, benchmarks, and manual evaluation passes in [Cognition Compact Tree Migration](./designs/cognition-compact-tree-migration.md). |
 | `next` | `P1` | Add dedicated coverage for the WPF `face` app. | Start with settings edits, status mapping, and view-model state transitions. |
 | `next` | `P1` | Broaden the prompt and skill intent vocabulary. | Add a small set of generic intents and cover them with activation tests. |
 | `soon` | `P2` | Add automated tests for `process-manager`. | Start with command validation and process-list parsing, then add integration tests later. |
@@ -33,53 +30,19 @@ This file has two jobs:
 These notes describe local work that exists in the working tree but is not yet
 part of committed repo history.
 
-- 2026-04-18: split the top-level project docs into `docs/README.md`,
-  `docs/GOAL_AND_DESIGN.md`, `docs/HISTORY_AND_TODOS.md`, and
-  `docs/DEVELOPMENT_GUARDRAILS.md`.
-- 2026-04-18: moved the standing debugging rule into a dedicated guardrail
-  document and updated the root README links.
-- 2026-04-18: landed most of the `src/body` / `cognition` / `execution`
-  refactor across solution references, `brain`, tests, `.github/agents`, and
-  repo docs.
-- 2026-04-18: repaired a local ACL problem on generated `obj` and `bin`
-  folders so `dotnet build src\heronwin.sln` and
-  `dotnet test src\heronwin.sln` pass again; the remaining follow-up is the
-  post-reboot `process-manager` build and end-to-end smoke test.
-- 2026-04-18: reran `npm run build` in `src/body/process-manager`, switched the
-  local untracked `brain/.env` MCP wiring from `eyesandhands` to `process-manager`,
-  `cognition`, and `execution`, and added a guardrail that blocks
-  `process-manager/start_process` from hijacking website-navigation requests
-  into Microsoft Store or other OS-process launches.
-- 2026-04-18: removed the empty historical `src\herbody` directory, retargeted
-  lingering live test references to the renamed tool surface, and reran
-  `dotnet test src\heronwin.sln` successfully with 295 passing tests.
-- 2026-04-18: stopped tracking the live `brain/.env`, added a sanitized
-  `brain/.env.example`, removed the obsolete Node.js runtime tree, and resynced
-  the docs with the current verification counts.
-- 2026-04-18: tightened browser and Netflix named-target repair so exact names
-  like `Min` beat generic shared-word matches such as `Add Profile` and
-  `Manage Profiles`, and Netflix site search prefers visible in-page search
-  controls over browser chrome or `Open in app`.
-- 2026-04-18: refreshed Netflix PIN continuation to fetch focus before
-  auto-completing remaining digits, and narrowed PIN-gate detection so the
-  `Manage Profile Lock` settings page is no longer treated as a valid PIN-entry
-  prompt.
-- 2026-04-18: kept ordinary app launch requests app-first, added a forced user
-  confirmation before website fallback when a likely web-backed app launch
-  stayed unconfirmed, and reduced automatic follow-up screenshot capture so the
-  refreshed UIAutomation tree stays the primary evidence source unless it is
-  missing or unchanged.
-- 2026-04-18: retargeted the scripted Netflix smoke to explicit root-URL
-  website navigation, but the live smoke still depends on real Netflix
-  account-state surfaces such as confirmation prompts and profile-lock flows.
+- None during this update pass. `git status --short` was clean on 2026-04-18.
 
 ## Daily Repo History
 
 Source shape: `git log --date=short --pretty=format:"%ad %h %s"`
 
-- `2026-04-18` (15 commits): landed the docs split, the `body` / `cognition` /
-  `execution` cutover, the compact-tree migration work, Netflix/browser
-  guardrails, stricter evidence handling, and supporting test coverage.
+- `2026-04-18` (18 commits): split the docs, added `process-manager`, finished
+  the `body` / `cognition` / `execution` cutover, normalized tool names and
+  renamed `src\herhead` to `src\head`, tightened Netflix/browser guardrails
+  and test coverage, moved compact-tree compaction into `cognition` with
+  rendered artifacts, `llmTree` projections, and omitted-children tracking,
+  removed the obsolete Node.js LLM runtime, added WPF `face` settings/status
+  work, and left the compact-tree evaluation rollout explicitly in progress.
 - `2026-04-05` (32 commits): added the WPF `face` companion UI, named-pipe
   state flow, build-and-run orchestration, settings and environment handling,
   FaceBridge tracing, audio improvements, scenario handling, logs cleanup,
