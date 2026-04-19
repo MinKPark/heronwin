@@ -298,18 +298,41 @@ internal static class AgentRunner
 
         async Task<bool> MaybeContinueNetflixPinEntryAsync(string assistantResponseText)
         {
-            if (attemptedNetflixPinAutoFollowThrough ||
-                !TryBuildRemainingNetflixPinDigits(
+            if (attemptedNetflixPinAutoFollowThrough)
+            {
+                return false;
+            }
+
+            var actionableUiTreeContext = ResolveActionableUiTreeContext();
+            var effectiveFocusContext = recentFocusContext;
+            if (ShouldRefreshNetflixPinFocusBeforeContinuation(actionableUiTreeContext, effectiveFocusContext))
+            {
+                var focusSnapshot = await CallToolWithDesktopSessionAsync(
+                    "describe_window_focus",
+                    new Dictionary<string, object?> { ["maxDepth"] = 3 });
+                Display.ToolResult("describe_window_focus", focusSnapshot.Text, focusSnapshot.Images.Count);
+                if (!focusSnapshot.IsError)
+                {
+                    recentFocusContext = focusSnapshot.Text;
+                    currentFocusElementContext = UiSnapshotCompactor.CompactToolTextForContext(
+                        "describe_window_focus",
+                        focusSnapshot.Text,
+                        llmClient.ModelProfile);
+                    effectiveFocusContext = recentFocusContext;
+                }
+            }
+
+            if (!TryBuildRemainingNetflixPinDigits(
                     userText,
-                    ResolveActionableUiTreeContext(),
-                    recentFocusContext,
+                    actionableUiTreeContext,
+                    effectiveFocusContext,
                     out var remainingDigits))
             {
                 return false;
             }
 
             attemptedNetflixPinAutoFollowThrough = true;
-            var preActionSnapshot = ResolveActionableUiTreeContext();
+            var preActionSnapshot = actionableUiTreeContext;
 
             Display.ToolCall("type_window_text", """{"text":"[remaining Netflix PIN digits redacted]"}""");
             var pinResult = await ExecuteStructuredNetflixPinEntryAsync(
@@ -2410,7 +2433,10 @@ internal static class AgentRunner
             return false;
         }
 
-        var combined = text.ToLowerInvariant();
+        var combined = text
+            .ToLowerInvariant()
+            .Replace('’', '\'')
+            .Replace('‘', '\'');
         if (LooksLikeConditionalNoOpOutcome(combined))
         {
             return false;
@@ -2424,12 +2450,28 @@ internal static class AgentRunner
             || combined.Contains("failed", StringComparison.Ordinal)
             || combined.Contains("unable", StringComparison.Ordinal)
             || combined.Contains("could not", StringComparison.Ordinal)
+            || combined.Contains("can't open", StringComparison.Ordinal)
+            || combined.Contains("cannot open", StringComparison.Ordinal)
+            || combined.Contains("can't play", StringComparison.Ordinal)
+            || combined.Contains("cannot play", StringComparison.Ordinal)
+            || combined.Contains("can't find", StringComparison.Ordinal)
+            || combined.Contains("cannot find", StringComparison.Ordinal)
             || combined.Contains("not open", StringComparison.Ordinal)
             || combined.Contains("not opened", StringComparison.Ordinal)
             || combined.Contains("not loaded", StringComparison.Ordinal)
             || combined.Contains("not yet", StringComparison.Ordinal)
+            || combined.Contains("not visible yet", StringComparison.Ordinal)
+            || combined.Contains("isn't visible yet", StringComparison.Ordinal)
+            || combined.Contains("isnt visible yet", StringComparison.Ordinal)
+            || combined.Contains("not on screen yet", StringComparison.Ordinal)
+            || combined.Contains("has not been brought onto screen", StringComparison.Ordinal)
+            || combined.Contains("no search results", StringComparison.Ordinal)
+            || combined.Contains("search action didn't take", StringComparison.Ordinal)
+            || combined.Contains("search action did not take", StringComparison.Ordinal)
             || combined.Contains("still showing", StringComparison.Ordinal)
             || combined.Contains("still on", StringComparison.Ordinal)
+            || combined.Contains("remains uncompleted", StringComparison.Ordinal)
+            || combined.Contains("remains incomplete", StringComparison.Ordinal)
             || combined.Contains("next step should be", StringComparison.Ordinal)
             || combined.Contains("next step remains", StringComparison.Ordinal);
     }
@@ -3089,14 +3131,16 @@ internal static class AgentRunner
         }
 
         var elementPath = TryGetStringArgument(args, "elementPath") ?? TryGetStringArgument(args, "uiPath");
-        if (string.IsNullOrWhiteSpace(elementPath) ||
-            TryFindElementByPath(recentWindowContext, elementPath, out _))
+        var requiredAction = toolName == "focus_window_element" ? "focus" : "invoke";
+        if (!string.IsNullOrWhiteSpace(elementPath) &&
+            TryFindElementByPath(recentWindowContext, elementPath, out var currentElement) &&
+            ElementLooksLikeBrowserSiteSearchControl(currentElement, requiredAction))
         {
             return false;
         }
 
-        var requiredAction = toolName == "focus_window_element" ? "focus" : "invoke";
-        if (!TryFindUniqueElementPathByNameAndAction(recentWindowContext, "Search", requiredAction, out var repairedPath))
+        if (!TryFindPreferredBrowserSearchControlPath(recentWindowContext, requiredAction, out var repairedPath) ||
+            string.Equals(repairedPath, elementPath, StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
@@ -3682,6 +3726,14 @@ internal static class AgentRunner
         return remainingDigits.Length > 0;
     }
 
+    internal static bool ShouldRefreshNetflixPinFocusBeforeContinuation(
+        string? recentWindowContext,
+        string? recentFocusContext)
+    {
+        return SnapshotLooksLikeNetflixPinWindow(recentWindowContext) &&
+               !TryExtractNetflixPinInputOrdinal(recentFocusContext, out _);
+    }
+
     internal static bool ShouldBlockProcessLaunchForBrowserRequest(
         string userText,
         string toolName,
@@ -4187,6 +4239,102 @@ internal static class AgentRunner
         }
     }
 
+    private static bool TryFindPreferredBrowserSearchControlPath(
+        string? snapshotText,
+        string requiredAction,
+        out string elementPath)
+    {
+        elementPath = string.Empty;
+        if (string.IsNullOrWhiteSpace(snapshotText) ||
+            string.IsNullOrWhiteSpace(requiredAction))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(snapshotText);
+            if (!TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree) ||
+                elementTree.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            var candidates = new List<(string Path, int Score)>();
+            if (TryFindFirstMatchingElement(elementTree, ElementLooksLikeBrowserWebDocument, out var webDocument))
+            {
+                CollectBrowserSearchControlCandidates(webDocument, requiredAction, candidates);
+                if (TryChoosePreferredBrowserSearchControlCandidate(candidates, out elementPath))
+                {
+                    return true;
+                }
+
+                candidates.Clear();
+            }
+
+            CollectBrowserSearchControlCandidates(elementTree, requiredAction, candidates);
+            return TryChoosePreferredBrowserSearchControlCandidate(candidates, out elementPath);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void CollectBrowserSearchControlCandidates(
+        JsonElement element,
+        string requiredAction,
+        List<(string Path, int Score)> candidates)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        var path = TryGetJsonStringProperty(element, "uiPath") ?? TryGetJsonStringProperty(element, "path");
+        if (!string.IsNullOrWhiteSpace(path) &&
+            ElementLooksLikeBrowserSiteSearchControl(element, requiredAction))
+        {
+            candidates.Add((path, ScoreBrowserSearchControlCandidate(element)));
+        }
+
+        if (!TryGetJsonProperty(element, "children", out var children) ||
+            children.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (var child in children.EnumerateArray())
+        {
+            CollectBrowserSearchControlCandidates(child, requiredAction, candidates);
+        }
+    }
+
+    private static bool TryChoosePreferredBrowserSearchControlCandidate(
+        IReadOnlyList<(string Path, int Score)> candidates,
+        out string elementPath)
+    {
+        elementPath = string.Empty;
+        if (candidates.Count == 0)
+        {
+            return false;
+        }
+
+        var bestScore = candidates.Max(candidate => candidate.Score);
+        var bestCandidates = candidates
+            .Where(candidate => candidate.Score == bestScore)
+            .Select(candidate => candidate.Path)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (bestCandidates.Length != 1)
+        {
+            return false;
+        }
+
+        elementPath = bestCandidates[0];
+        return true;
+    }
+
     private static void CollectElementPathsByNameAndAction(
         JsonElement element,
         string elementName,
@@ -4232,6 +4380,40 @@ internal static class AgentRunner
         {
             if (actionElement.ValueKind == JsonValueKind.String &&
                 string.Equals(actionElement.GetString(), requiredAction, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryFindFirstMatchingElement(
+        JsonElement element,
+        Func<JsonElement, bool> predicate,
+        out JsonElement match)
+    {
+        match = default;
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        if (predicate(element))
+        {
+            match = element.Clone();
+            return true;
+        }
+
+        if (!TryGetJsonProperty(element, "children", out var children) ||
+            children.ValueKind != JsonValueKind.Array)
+        {
+            return false;
+        }
+
+        foreach (var child in children.EnumerateArray())
+        {
+            if (TryFindFirstMatchingElement(child, predicate, out match))
             {
                 return true;
             }
@@ -4295,6 +4477,77 @@ internal static class AgentRunner
                automationId.Contains("search", StringComparison.OrdinalIgnoreCase);
     }
 
+    private static bool ElementLooksLikeBrowserSiteSearchControl(JsonElement element, string requiredAction)
+    {
+        if (string.IsNullOrWhiteSpace(requiredAction) ||
+            ElementLooksLikeBrowserAddressBar(element) ||
+            !ElementHasAction(element, requiredAction))
+        {
+            return false;
+        }
+
+        if (ElementLooksLikeBrowserSiteSearchField(element))
+        {
+            return true;
+        }
+
+        var controlType = TryGetJsonStringProperty(element, "controlType");
+        if (controlType is not ("Button" or "Hyperlink" or "MenuItem" or "Edit"))
+        {
+            return false;
+        }
+
+        var name = TryGetJsonStringProperty(element, "name");
+        if (!string.IsNullOrWhiteSpace(name) &&
+            name.Contains("search", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var automationId = TryGetJsonStringProperty(element, "automationId");
+        return !string.IsNullOrWhiteSpace(automationId) &&
+               automationId.Contains("search", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int ScoreBrowserSearchControlCandidate(JsonElement element)
+    {
+        var score = 0;
+        if (ElementLooksLikeBrowserSiteSearchField(element))
+        {
+            score += 4;
+        }
+
+        var name = TryGetJsonStringProperty(element, "name");
+        if (string.Equals(name, "Search", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 3;
+        }
+        else if (!string.IsNullOrWhiteSpace(name) &&
+                 name.Contains("search", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 2;
+        }
+
+        var controlType = TryGetJsonStringProperty(element, "controlType");
+        if (string.Equals(controlType, "Edit", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 2;
+        }
+        else if (string.Equals(controlType, "Button", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 1;
+        }
+
+        var automationId = TryGetJsonStringProperty(element, "automationId");
+        if (!string.IsNullOrWhiteSpace(automationId) &&
+            automationId.Contains("search", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 1;
+        }
+
+        return score;
+    }
+
     private static bool ElementLooksLikeBrowserWebDocument(JsonElement element)
     {
         var automationId = TryGetJsonStringProperty(element, "automationId");
@@ -4337,7 +4590,8 @@ internal static class AgentRunner
 
         return name.Contains("Enter your PIN", StringComparison.OrdinalIgnoreCase)
                || name.Contains("Forgot PIN", StringComparison.OrdinalIgnoreCase)
-               || name.Contains("Profile Lock", StringComparison.OrdinalIgnoreCase);
+               || name.Contains("Whoops, wrong PIN", StringComparison.OrdinalIgnoreCase)
+               || name.Contains("Profile Lock is currently on", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool ElementLooksLikeGenericContainerTarget(JsonElement element)
@@ -4504,6 +4758,7 @@ internal static class AgentRunner
                 new NamedActionTargetCandidate(
                     path,
                     ElementHasInterestingAction(element),
+                    GetNamedActionTargetNameMatchScore(userText, name),
                     GetNamedActionTargetSpecificity(element),
                     GetPathDepth(path)));
         }
@@ -4540,6 +4795,16 @@ internal static class AgentRunner
         if (TryFilterNamedActionTargetCandidates(
                 remaining,
                 candidate => candidate.HasInterestingAction,
+                out remaining,
+                out matchedPath))
+        {
+            return true;
+        }
+
+        var highestNameMatchScore = remaining.Max(candidate => candidate.NameMatchScore);
+        if (TryFilterNamedActionTargetCandidates(
+                remaining,
+                candidate => candidate.NameMatchScore == highestNameMatchScore,
                 out remaining,
                 out matchedPath))
         {
@@ -4634,6 +4899,47 @@ internal static class AgentRunner
             "ListItem" => 3,
             _ => 1
         };
+    }
+
+    private static int GetNamedActionTargetNameMatchScore(string userText, string elementName)
+    {
+        if (string.IsNullOrWhiteSpace(userText) ||
+            string.IsNullOrWhiteSpace(elementName))
+        {
+            return 0;
+        }
+
+        if (TextContainsNormalizedName(userText, elementName))
+        {
+            return 100;
+        }
+
+        var userTokens = GetNormalizedTokens(userText);
+        var elementNameTokens = GetNormalizedTokens(elementName)
+            .Where(token => token.Length >= 3)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (userTokens.Length == 0 || elementNameTokens.Length == 0)
+        {
+            return 0;
+        }
+
+        var score = 0;
+        foreach (var elementNameToken in elementNameTokens)
+        {
+            if (userTokens.Contains(elementNameToken, StringComparer.Ordinal))
+            {
+                score += 10;
+                continue;
+            }
+
+            if (userTokens.Any(userToken => LooksLikeObviousAsrVariant(userToken, elementNameToken)))
+            {
+                score += 4;
+            }
+        }
+
+        return score;
     }
 
     private static int GetPathDepth(string path)
@@ -5194,6 +5500,7 @@ internal static class AgentRunner
     private sealed record NamedActionTargetCandidate(
         string Path,
         bool HasInterestingAction,
+        int NameMatchScore,
         int Specificity,
         int PathDepth);
 

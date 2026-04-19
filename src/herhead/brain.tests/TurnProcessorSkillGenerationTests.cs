@@ -81,9 +81,9 @@ public sealed class TurnProcessorSkillGenerationTests
                 _ => Task.FromResult<IReadOnlyList<ToolDefinition>>(
                 [
                     CreateToolDefinition("list_windows"),
-                    CreateToolDefinition("launch_app_via_taskbar_search"),
-                    CreateToolDefinition("describe_selected_window"),
-                    CreateToolDefinition("send_input_to_window")
+                    CreateToolDefinition("launch_application"),
+                    CreateToolDefinition("describe_window"),
+                    CreateToolDefinition("press_window_key")
                 ]),
                 null);
 
@@ -193,8 +193,8 @@ public sealed class TurnProcessorSkillGenerationTests
                 _ => Task.FromResult<IReadOnlyList<ToolDefinition>>(
                 [
                     CreateToolDefinition("list_windows"),
-                    CreateToolDefinition("launch_app_via_taskbar_search"),
-                    CreateToolDefinition("describe_selected_window")
+                    CreateToolDefinition("launch_application"),
+                    CreateToolDefinition("describe_window")
                 ]),
                 null);
 

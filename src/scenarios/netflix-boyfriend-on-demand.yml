@@ -1,8 +1,8 @@
 name: Netflix Boyfriend On Demand Smoke
 commands:
-  - "Go to the Netflix website."
-  - "If Netflix is showing the profile selection screen, select the profile named Min."
-  - "If Netflix asks for a profile passcode, type ${NETFLIX_PROFILE_PIN} one digit at a time."
+  - "Navigate the active browser tab directly to https://www.netflix.com/ and wait until either the Netflix profile selection screen or Netflix home is visible."
+  - "If Netflix is showing the profile selection screen, select the profile named Min and continue until either Min opens or Min's profile PIN prompt is visible."
+  - "If Netflix asks for a profile passcode, type ${NETFLIX_PROFILE_PIN} one digit at a time and continue until the profile lock is gone and Netflix browse or home is visible."
   - "Search for Boyfriend on Demand within Netflix using the visible Search control, and wait until visible search results for that title are on screen."
   - "Open Boyfriend on Demand from the visible Netflix search results, then play the first episode."
 assertions:

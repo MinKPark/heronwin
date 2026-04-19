@@ -24,19 +24,22 @@ Last updated: 2026-04-18
     server and tool names.
   - the local `brain/.env` MCP server wiring now points at `process-manager`,
     `cognition`, and `execution`.
+  - the empty historical `src\herbody` directory is gone.
 - `obsolete/herface-nodejs` is historical reference code and is not part of the
   current runtime path.
 - Latest verified work in the current refactor pass:
   - `dotnet build src\heronwin.sln` passed with 0 warnings and 0 errors.
-  - `dotnet test src\heronwin.sln` passed with 281 total tests.
+  - `dotnet test src\heronwin.sln` passed with 289 total tests.
   - `dotnet test src\herhead\brain.tests\HeronWin.Brain.Tests.csproj` passed
-    with 209 total tests after adding browser-request guardrails, app-first
+    with 217 total tests after adding browser-request guardrails, app-first
     website-fallback confirmation, screenshot-gating checks, and Netflix
-    profile-selection and PIN follow-through coverage.
+    profile-selection, PIN follow-through, and named-target disambiguation
+    coverage.
   - `npm run build` passed in `src\body\process-manager`.
   - `.\buildandrun.ps1 -BrainOnly -Scenario src\scenarios\netflix-boyfriend-on-demand.yml`
-    passed the current scripted scenario log checks with the refactored
-    `MCP_SERVERS` stack.
+    now exposes live Netflix account-state problems more honestly instead of
+    silently passing stale picker/PIN issues, but the smoke is still blocked by
+    real confirmation/profile-lock branches before the search/playback turns.
   - ordinary app launch requests now stay app-first, and the brain asks before
     falling back to a website when a likely web-backed app launch remains
     unconfirmed.
@@ -45,13 +48,12 @@ Last updated: 2026-04-18
   - the build break from the previous session turned out to be a repo-local ACL
     issue on generated `obj` and `bin` output folders, not low disk space.
 - Current follow-up:
-  - remove any empty historical `src\herbody` leftovers if they are still
-    present,
-  - tighten Netflix in-site search targeting and the scripted unresolved-outcome
-    checks, because the latest scripted pass still exposed a search-control
-    mis-target before the final turn,
-  - retarget the scripted Netflix smoke entry step if that scenario should now
-    exercise app-first launch instead of the current explicit website path.
+  - make the live Netflix smoke deterministic across real account-state
+    branches like stale tabs, confirmation prompts, and `Manage Profile Lock`,
+  - keep tightening Netflix search/playback scripted validation on top of the
+    stricter unresolved-outcome checks,
+  - add a separate scripted smoke if we want explicit app-first launch coverage;
+    the current Netflix smoke is now an explicit website-navigation scenario.
 - Local tool versions used for the snapshot:
   - .NET SDK `10.0.201`
   - Node.js `v24.14.1`

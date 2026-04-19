@@ -62,6 +62,24 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void HasExplicitlyUnresolvedOutcome_ReturnsTrue_ForCurlyApostropheAndPendingSearchLanguage()
+    {
+        var actual = AgentRunner.HasExplicitlyUnresolvedOutcome(
+            "The search action didn’t take, so Boyfriend on Demand isn’t visible yet and the requested in-site search remains uncompleted.");
+
+        Assert.True(actual);
+    }
+
+    [Fact]
+    public void HasExplicitlyUnresolvedOutcome_ReturnsTrue_ForCannotOpenUntilVisibleLanguage()
+    {
+        var actual = AgentRunner.HasExplicitlyUnresolvedOutcome(
+            "We’re on Netflix home, but Boyfriend on Demand isn’t visible yet, so I can’t open it from search results or play episode one yet.");
+
+        Assert.True(actual);
+    }
+
+    [Fact]
     public void HasExplicitlyUnresolvedOutcome_ReturnsFalse_ForConditionalNoOp()
     {
         var actual = AgentRunner.HasExplicitlyUnresolvedOutcome(
@@ -760,6 +778,90 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void TryFindNetflixProfileSelectionTargetPath_PrefersExactProfileNameOverGenericProfileControls()
+    {
+        var snapshot =
+            """
+            {
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "1/0/0/1/1/0/0/0/0/0/0",
+                    "UiPath": "1/0/0/1/1/0/0/0/0/0/0",
+                    "Name": "Netflix",
+                    "ControlType": "Document",
+                    "Children": [
+                      {
+                        "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/1",
+                        "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/1",
+                        "Name": "Who's watching?",
+                        "ControlType": "Text",
+                        "ClassName": "profile-gate-label"
+                      },
+                      {
+                        "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0",
+                        "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0",
+                        "Name": "Min",
+                        "ControlType": "ListItem",
+                        "ClassName": "profile",
+                        "AvailableActions": [ "scroll_into_view" ],
+                        "Children": [
+                          {
+                            "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0/0",
+                            "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0/0",
+                            "Name": "Min",
+                            "ControlType": "Hyperlink",
+                            "ClassName": "profile-link",
+                            "AvailableActions": [ "focus", "invoke", "scroll_into_view" ]
+                          }
+                        ]
+                      },
+                      {
+                        "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/4",
+                        "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/4",
+                        "Name": "Add Profile",
+                        "ControlType": "ListItem",
+                        "ClassName": "profile",
+                        "AvailableActions": [ "scroll_into_view" ],
+                        "Children": [
+                          {
+                            "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/4/0",
+                            "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/4/0",
+                            "Name": "Add Profile",
+                            "ControlType": "Hyperlink",
+                            "ClassName": "profile-link",
+                            "AvailableActions": [ "focus", "invoke", "scroll_into_view" ]
+                          }
+                        ]
+                      },
+                      {
+                        "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/3",
+                        "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/3",
+                        "Name": "Manage Profiles",
+                        "ControlType": "Hyperlink",
+                        "ClassName": "profile-button",
+                        "AvailableActions": [ "focus", "invoke", "scroll_into_view" ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+            """;
+
+        var actual = AgentRunner.TryFindNetflixProfileSelectionTargetPath(
+            "If Netflix is showing the profile selection screen, select the profile named Min.",
+            snapshot,
+            out var matchedPath);
+
+        Assert.True(actual);
+        Assert.Equal("1/0/0/1/1/0/0/0/0/0/0/0/0/2/0/0", matchedPath);
+    }
+
+    [Fact]
     public void TryFindNetflixProfileSelectionTargetPath_ReturnsFalse_WhenProfilePickerIsAbsent()
     {
         var snapshot =
@@ -844,12 +946,149 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void ShouldRefreshNetflixPinFocusBeforeContinuation_ReturnsTrue_WhenPinWindowHasNoFocusedOrdinal()
+    {
+        var actual = AgentRunner.ShouldRefreshNetflixPinFocusBeforeContinuation(
+            """
+            {
+              "Window": {
+                "Title": "Netflix",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "1/0",
+                    "UiPath": "1/0",
+                    "Name": "Enter your PIN",
+                    "ControlType": "Text"
+                  },
+                  {
+                    "Path": "1/1",
+                    "UiPath": "1/1",
+                    "Name": "Forgot PIN",
+                    "ControlType": "Hyperlink"
+                  }
+                ]
+              }
+            }
+            """,
+            null);
+
+        Assert.True(actual);
+    }
+
+    [Fact]
+    public void ShouldRefreshNetflixPinFocusBeforeContinuation_ReturnsFalse_WhenFocusedOrdinalIsKnown()
+    {
+        var actual = AgentRunner.ShouldRefreshNetflixPinFocusBeforeContinuation(
+            """
+            {
+              "Window": {
+                "Title": "Netflix",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "1/0",
+                    "UiPath": "1/0",
+                    "Name": "Enter your PIN",
+                    "ControlType": "Text"
+                  }
+                ]
+              }
+            }
+            """,
+            """
+            {
+              "Window": {
+                "Title": "Netflix",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "FocusedElement": {
+                "Path": "focused",
+                "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/7",
+                "Name": "PIN Entry Input 4.",
+                "ControlType": "Edit",
+                "ClassName": "pin-number-input focus-visible"
+              }
+            }
+            """);
+
+        Assert.False(actual);
+    }
+
+    [Fact]
     public void TryBuildRemainingNetflixPinDigits_ReturnsFalse_WhenPinDigitsAreAbsent()
     {
         var actual = AgentRunner.TryBuildRemainingNetflixPinDigits(
             "If Netflix asks for a profile passcode, type it one digit at a time.",
             """{"Window":{"Title":"Netflix"}}""",
             """{"Window":{"Title":"Netflix"}}""",
+            out _);
+
+        Assert.False(actual);
+    }
+
+    [Fact]
+    public void TryBuildRemainingNetflixPinDigits_ReturnsFalse_ForManageProfileLockSettingsPage()
+    {
+        var actual = AgentRunner.TryBuildRemainingNetflixPinDigits(
+            "If Netflix asks for a profile passcode, type 3579 one digit at a time.",
+            """
+            {
+              "Window": {
+                "Title": "Account Profile Lock - Netflix",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "1/0",
+                    "UiPath": "1/0",
+                    "Name": "Manage Profile Lock",
+                    "ControlType": "Text"
+                  },
+                  {
+                    "Path": "1/1",
+                    "UiPath": "1/1",
+                    "Name": "Edit PIN",
+                    "ControlType": "Button"
+                  },
+                  {
+                    "Path": "1/2",
+                    "UiPath": "1/2",
+                    "Name": "Delete Profile Lock",
+                    "ControlType": "Button"
+                  }
+                ]
+              }
+            }
+            """,
+            """
+            {
+              "Window": {
+                "Title": "Account Profile Lock - Netflix",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "FocusedElement": {
+                "Path": "focused",
+                "UiPath": "1/1",
+                "Name": "Edit PIN",
+                "ControlType": "Button"
+              }
+            }
+            """,
             out _);
 
         Assert.False(actual);
@@ -1744,6 +1983,84 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void TryRewriteGenericContainerActionToNamedTarget_PrefersExactProfileNameOverGenericProfileLinks()
+    {
+        var snapshot =
+            """
+            {
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/1",
+                    "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/1",
+                    "Name": "Who's watching?",
+                    "ControlType": "Text",
+                    "ClassName": "profile-gate-label"
+                  },
+                  {
+                    "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0",
+                    "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0",
+                    "Name": "Min",
+                    "ControlType": "ListItem",
+                    "ClassName": "profile",
+                    "AvailableActions": [ "scroll_into_view" ],
+                    "Children": [
+                      {
+                        "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0/0",
+                        "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0/0",
+                        "Name": "Min",
+                        "ControlType": "Hyperlink",
+                        "ClassName": "profile-link",
+                        "AvailableActions": [ "focus", "invoke", "scroll_into_view" ]
+                      }
+                    ]
+                  },
+                  {
+                    "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/4",
+                    "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/4",
+                    "Name": "Add Profile",
+                    "ControlType": "ListItem",
+                    "ClassName": "profile",
+                    "AvailableActions": [ "scroll_into_view" ],
+                    "Children": [
+                      {
+                        "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/4/0",
+                        "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/4/0",
+                        "Name": "Add Profile",
+                        "ControlType": "Hyperlink",
+                        "ClassName": "profile-link",
+                        "AvailableActions": [ "focus", "invoke", "scroll_into_view" ]
+                      }
+                    ]
+                  },
+                  {
+                    "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/3",
+                    "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/3",
+                    "Name": "Manage Profiles",
+                    "ControlType": "Hyperlink",
+                    "ClassName": "profile-button",
+                    "AvailableActions": [ "focus", "invoke", "scroll_into_view" ]
+                  }
+                ]
+              }
+            }
+            """;
+
+        var rewritten = AgentRunner.TryRewriteGenericContainerActionToNamedTarget(
+            "If Netflix is showing the profile selection screen, select the profile named Min and continue until either Min opens or Min's profile PIN prompt is visible.",
+            "invoke_window_element",
+            new Dictionary<string, object?> { ["elementPath"] = "1/0/0/1/1/0/0/0/0/0/0/2/0/0" },
+            snapshot,
+            out var rewrittenArgs);
+
+        Assert.True(rewritten);
+        Assert.Equal("1/0/0/1/1/0/0/0/0/0/0/0/0/2/0/0", rewrittenArgs["elementPath"]);
+    }
+
+    [Fact]
     public void TryRewriteGenericContainerActionToNamedTarget_DoesNotRewriteExplicitRootCloseInvocation()
     {
         var snapshot =
@@ -2237,6 +2554,64 @@ public sealed class AgentRunnerDecisionTests
         Assert.True(actual);
         Assert.Equal("Boyfriend on Demand", rewrittenArgs["text"]);
         Assert.Equal("1/0/0/1/1/0/0/0/0/0/0/0/0/0/3", browserSearchFieldPath);
+    }
+
+    [Fact]
+    public void TryRewriteBrowserSearchControlAction_RewritesWrongValidPathToWebDocumentSearchControl()
+    {
+        var snapshot =
+            """
+            {
+              "Window": {
+                "Handle": "0x00060A88",
+                "Title": "Netflix",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "0",
+                    "UiPath": "0",
+                    "Name": "Open in app",
+                    "ControlType": "Button",
+                    "AutomationId": "openInApp",
+                    "AvailableActions": [ "invoke", "focus" ]
+                  },
+                  {
+                    "Path": "1",
+                    "UiPath": "1",
+                    "Name": "Netflix",
+                    "ControlType": "Document",
+                    "AutomationId": "RootWebArea",
+                    "ClassName": "RootWebArea",
+                    "Children": [
+                      {
+                        "Path": "1/0",
+                        "UiPath": "1/0",
+                        "Name": "Search",
+                        "ControlType": "Button",
+                        "AutomationId": "searchButton",
+                        "AvailableActions": [ "invoke", "focus" ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+            """;
+
+        var actual = AgentRunner.TryRewriteBrowserSearchControlAction(
+            "Search for Boyfriend on Demand within Netflix using the visible Search control.",
+            "invoke_window_element",
+            new Dictionary<string, object?> { ["elementPath"] = "0" },
+            snapshot,
+            out var rewrittenArgs);
+
+        Assert.True(actual);
+        Assert.Equal("1/0", rewrittenArgs["elementPath"]);
     }
 
     [Fact]

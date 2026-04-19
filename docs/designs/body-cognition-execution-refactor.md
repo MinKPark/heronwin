@@ -27,6 +27,8 @@ As of 2026-04-18, the structural cutover is complete for the main runtime path:
   retargeted to the new tool and server names.
 - `.github/agents`, repo docs, and code-facing references have been updated to
   use `cognition/...` and `execution/...`.
+- The empty historical `src\herbody` directory has been removed, and lingering
+  live test references to the old tool names have been retargeted.
 - `dotnet build src\heronwin.sln` and `dotnet test src\heronwin.sln` both pass.
 - `npm run build` in `src\body\process-manager` passes again.
 - Local `brain/.env` MCP wiring now points at `process-manager`, `cognition`,
@@ -40,6 +42,13 @@ As of 2026-04-18, the structural cutover is complete for the main runtime path:
 - Post-action evidence now stays UIAutomation-first by default. Follow-up
   screenshots are captured mainly when the refreshed UI tree is unavailable or
   unchanged after an action that should have changed visible state.
+- Exact named-target repair is tighter for noisy browser and Netflix surfaces:
+  explicit names like `Min` now beat shared generic matches such as `Add
+  Profile` or `Manage Profiles`, and visible Netflix site-search controls are
+  preferred over browser chrome or `Open in app` distractions.
+- Netflix PIN continuation now refreshes focus before auto-completing remaining
+  digits, and the PIN-gate detector no longer confuses the `Manage Profile
+  Lock` settings page with the real PIN-entry prompt.
 
 The previous build failure was not caused by low disk space. It came from a
 repo-local ACL issue on generated `obj` and `bin` folders, which has been
@@ -48,12 +57,11 @@ lingering file handles.
 
 Remaining follow-up after the cutover:
 
-- remove any empty historical `src\herbody` leftovers after the cleanup pass,
-- tighten Netflix in-site search targeting plus the scripted unresolved-outcome
-  checks so the scenario fails more strictly when search or playback has not
-  really happened. The current scripted Netflix scenario still explicitly says
-  `Go to the Netflix website.`, so its opening step should be retargeted if the
-  smoke flow is meant to exercise the new app-first launch policy,
+- keep tightening the live Netflix smoke so it stays deterministic across real
+  account-state branches such as stale tabs, profile-lock settings, and
+  confirmation prompts. The opening step now explicitly navigates to
+  `https://www.netflix.com/`, but the live site can still land on account
+  surfaces that block the scripted picker/search/playback flow,
 - keep the rename map below as the historical record of the migration.
 
 ## Decisions
@@ -186,9 +194,9 @@ npm run build
 ```
 
 - `dotnet build src\heronwin.sln` passed with 0 warnings and 0 errors.
-- `dotnet test src\heronwin.sln` passed with 281 total tests.
+- `dotnet test src\heronwin.sln` passed with 289 total tests.
 - `dotnet test src\herhead\brain.tests\HeronWin.Brain.Tests.csproj` passed
-  with 209 total tests.
+  with 217 total tests.
 - `npm run build` passed in `src\body\process-manager`.
 
 Smoke-test status:
@@ -199,12 +207,14 @@ Smoke-test status:
 
 - The refactored MCP stack now connects successfully with `process-manager`,
   `cognition`, and `execution` exposed through `MCP_SERVERS`.
-- With the local Netflix PIN configured, the scripted Netflix flow now clears
-  the real profile picker and profile-lock gate against the refactored stack.
-- The current scripted scenario now passes its existing log-based checks, but
-  the latest run still exposed a Netflix search-control mis-target that the
-  current scenario assertions did not fail. Tightening that validation is a
-  follow-up quality task, not a cutover blocker.
+- The stricter brain checks now correctly surface live Netflix problems instead
+  of waving them through: exact profile selection is repaired more reliably,
+  stale or repeated PIN entry no longer silently passes, and the `Manage
+  Profile Lock` settings page is no longer treated as a valid PIN gate.
+- The current website-based smoke is still not deterministic end to end because
+  real Netflix account-state prompts can interrupt the scripted path before the
+  search/playback steps. That remains a live-smoke follow-up, not a cutover
+  compile/test blocker.
 
 ## Assumptions
 

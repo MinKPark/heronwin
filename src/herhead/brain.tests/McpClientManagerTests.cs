@@ -14,8 +14,8 @@ public sealed class McpClientManagerTests
             callCount++;
             return Task.FromResult<IReadOnlyList<ToolDefinition>>(
             [
-                CreateToolDefinition("describe_selected_window"),
-                CreateToolDefinition("click_selected_window_element")
+                CreateToolDefinition("describe_window"),
+                CreateToolDefinition("click_window_element")
             ]);
         }, null);
 
@@ -26,8 +26,8 @@ public sealed class McpClientManagerTests
         Assert.Same(first, second);
         Assert.Collection(
             second,
-            tool => Assert.Equal("describe_selected_window", tool.Name),
-            tool => Assert.Equal("click_selected_window_element", tool.Name));
+            tool => Assert.Equal("describe_window", tool.Name),
+            tool => Assert.Equal("click_window_element", tool.Name));
     }
 
     [Fact]
