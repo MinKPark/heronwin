@@ -1600,7 +1600,7 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
-    public void ResolveToolResultContextForModel_ReturnsLlmProjection_ForCompactDescribeTool()
+    public void ResolveToolResultContextForModel_ReturnsLlmProjection_ForDescribeWindowTool()
     {
         var profile = LlmModelProfiles.Create(LlmProviderId.OpenAiApi, "gpt-5.4-mini");
         const string compactToolText = """
@@ -1608,10 +1608,10 @@ public sealed class AgentRunnerDecisionTests
         """;
 
         var actual = AgentRunner.ResolveToolResultContextForModel(
-            "describe_window_compact",
+            "describe_window",
             compactToolText,
             toolIsError: false,
-            currentUiElementContext: "older context",
+            currentUiElementContext: null,
             currentFocusElementContext: null,
             profile);
 
@@ -2299,30 +2299,6 @@ public sealed class AgentRunnerDecisionTests
       Assert.Null(actual);
     }
 
-    [Fact]
-    public void TryRewriteDescribeSelectedWindowToFullDepth_RewritesMaxDepthToFullDepth()
-    {
-        var rewritten = AgentRunner.TryRewriteDescribeSelectedWindowToFullDepth(
-            new Dictionary<string, object?> { ["maxDepth"] = 3 },
-            out var rewrittenArgs);
-
-        Assert.True(rewritten);
-        Assert.True(rewrittenArgs.TryGetValue("fullDepth", out var fullDepthValue));
-        Assert.Equal(true, fullDepthValue);
-        Assert.False(rewrittenArgs.ContainsKey("maxDepth"));
-    }
-
-    [Fact]
-    public void TryRewriteDescribeSelectedWindowToFullDepth_DoesNotRewriteWhenAlreadyFullDepth()
-    {
-        var rewritten = AgentRunner.TryRewriteDescribeSelectedWindowToFullDepth(
-            new Dictionary<string, object?> { ["fullDepth"] = true },
-            out var rewrittenArgs);
-
-        Assert.False(rewritten);
-        Assert.Empty(rewrittenArgs);
-    }
-
     [Theory]
     [InlineData("click_window_element")]
     [InlineData("set_window_element_text")]
@@ -2331,50 +2307,6 @@ public sealed class AgentRunnerDecisionTests
         var actual = AgentRunner.IsDesktopActionTool(toolName);
 
         Assert.True(actual);
-    }
-
-    [Fact]
-    public void ShouldCapturePostActionDebugScreenshot_ReturnsTrue_WhenDebugTraceIsEnabledAndScreenshotToolExists()
-    {
-        var actual = AgentRunner.ShouldCapturePostActionDebugScreenshot(
-            "click_window_element",
-            debugTraceEnabled: true,
-            new HashSet<string>(StringComparer.Ordinal) { "capture_window_screenshot" });
-
-        Assert.True(actual);
-    }
-
-    [Fact]
-    public void ShouldCapturePostActionDebugScreenshot_ReturnsFalse_WhenDebugTraceIsDisabled()
-    {
-        var actual = AgentRunner.ShouldCapturePostActionDebugScreenshot(
-            "click_window_element",
-            debugTraceEnabled: false,
-            new HashSet<string>(StringComparer.Ordinal) { "capture_window_screenshot" });
-
-        Assert.False(actual);
-    }
-
-    [Fact]
-    public void ShouldCapturePostActionDebugScreenshot_ReturnsFalse_WhenToolIsNotDesktopAction()
-    {
-        var actual = AgentRunner.ShouldCapturePostActionDebugScreenshot(
-            "describe_window",
-            debugTraceEnabled: true,
-            new HashSet<string>(StringComparer.Ordinal) { "capture_window_screenshot" });
-
-        Assert.False(actual);
-    }
-
-    [Fact]
-    public void ShouldCapturePostActionDebugScreenshot_ReturnsFalse_WhenScreenshotToolIsUnavailable()
-    {
-        var actual = AgentRunner.ShouldCapturePostActionDebugScreenshot(
-            "click_window_element",
-            debugTraceEnabled: true,
-            new HashSet<string>(StringComparer.Ordinal));
-
-        Assert.False(actual);
     }
 
     [Fact]

@@ -1,6 +1,6 @@
 # Cognition Compact Tree Migration
 
-Last updated: 2026-04-18
+Last updated: 2026-04-19
 Status: in progress
 
 ## Summary
@@ -11,12 +11,13 @@ instead of parsing serialized JSON, and adds an opt-in evaluation flow that
 checks whether a rendered compact-tree image still matches the real visible
 screen.
 
-The plan keeps the existing raw inspection tools for debugging and manual
-inspection, then adds new compact inspection tools that are intended to become
-the model-facing path used by `brain`. The compact response now carries two
-tree-shaped views over the same retained nodes: a richer `compactTree` for
-runtime/debugging and a slim `llmTree` projection that `brain` can pass to the
-LLM.
+The runtime migration is now landed: `describe_window` and
+`describe_window_focus` are the compact model-facing tools, the old raw full
+tree MCP tools have been removed, and debug-only raw evidence now rides inside
+the standard compact response when `debugMode` is enabled. The compact response
+continues to carry two tree-shaped views over the same retained nodes: a richer
+`compactTree` for runtime/debugging and a slim `llmTree` projection that
+`brain` can pass to the LLM.
 
 ## Remaining Work
 
@@ -33,23 +34,23 @@ follow-ups are done:
   summarize large `describe_window*` JSON payloads locally.
 - Improve compaction accuracy by validating compacted output against the real
   window screenshot with a vision-capable LLM in an opt-in evaluation flow.
-- Keep the raw inspection path available for debugging, parity checks, and
+- Keep raw full-tree evidence available behind debug mode for parity checks and
   manual investigation.
 
 ## Non-Goals
 
-- Replace the raw `describe_window` or `describe_window_focus` tools.
+- Expose raw full-tree MCP tools as part of the normal runtime surface.
 - Run screenshot-vs-compact evaluation on every normal tool call.
 - Build a pixel-faithful screenshot recreation from the compacted tree.
 - Move LLM inference into `cognition`.
 
 ## Current State
 
-- `brain` currently uses `UiSnapshotCompactor` to turn large
-  `describe_window` and `describe_window_focus` payloads into prose summaries
-  before sending them back to the model.
-- `cognition` currently returns the raw structured UIA tree produced by
-  `desktop-automation`.
+- `brain` now treats `describe_window` and `describe_window_focus` as the
+  standard compact snapshot tools and uses their `llmTree` projection as the
+  default model-facing UI context.
+- `cognition` now returns compact snapshots by default and only includes raw
+  full-tree evidence and real screenshot artifacts when `debugMode` is enabled.
 - `desktop-automation` snapshots already include useful fields for compaction
   and rendering, including `uiPath`, `name`, `controlType`, `className`,
   `availableActions`, and `bounds`.

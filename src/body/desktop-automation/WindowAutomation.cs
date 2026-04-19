@@ -323,32 +323,43 @@ internal static class WindowAutomation
         return result;
     }
 
-    internal static WindowTreeResult DescribeSelectedWindow(
+    internal static CompactSnapshotResponse DescribeSelectedWindow(
         WindowSelectionState selectionState,
-        int maxDepth,
-        bool fullDepth)
-    {
-        int? normalizedDepth = fullDepth ? null : NormalizeDepth(maxDepth);
-        var handle = ResolveInteractionWindowHandle(selectionState);
-
-        var windowElement = AutomationElement.FromHandle(handle);
-        return new WindowTreeResult(
-            BuildWindowDescriptor(handle),
-            normalizedDepth,
-            fullDepth,
-            CaptureElementTree(windowElement, normalizedDepth, "root", "root"));
-    }
-
-    internal static CompactSnapshotResponse DescribeSelectedWindowCompact(
-        WindowSelectionState selectionState,
-        bool includeImage)
+        bool includeImage,
+        bool debugMode)
     {
         var handle = ResolveInteractionWindowHandle(selectionState);
+        var window = BuildWindowDescriptor(handle);
         var windowElement = AutomationElement.FromHandle(handle);
-        return CompactUiSnapshotBuilder.BuildWindowResponse(
-            BuildWindowDescriptor(handle),
-            CaptureElementTree(windowElement, remainingLevels: null, "root", "root"),
+        var sourceTree = CaptureElementTree(windowElement, remainingLevels: null, "root", "root");
+        var response = CompactUiSnapshotBuilder.BuildWindowResponse(
+            window,
+            sourceTree,
             includeImage);
+
+        if (!debugMode)
+        {
+            return response;
+        }
+
+        var screenshot = CaptureSelectedWindowScreenshot(selectionState);
+        return new CompactSnapshotResponse
+        {
+            Window = response.Window,
+            SourceStats = response.SourceStats,
+            CompactTree = response.CompactTree,
+            LlmTree = response.LlmTree,
+            RenderedImage = response.RenderedImage,
+            DebugEvidence = new CompactDebugEvidence
+            {
+                FullTree = new WindowTreeResult(
+                    window,
+                    MaxDepth: null,
+                    FullDepth: true,
+                    sourceTree),
+                Screenshot = ToDebugScreenshotArtifact(screenshot),
+            },
+        };
     }
 
     internal static WindowScreenshotResult CaptureSelectedWindowScreenshot(WindowSelectionState selectionState)
@@ -389,6 +400,14 @@ internal static class WindowAutomation
             "png",
             new ImageDimensions(width, height));
     }
+
+    private static DebugScreenshotArtifact ToDebugScreenshotArtifact(WindowScreenshotResult screenshot)
+        => new()
+        {
+            FilePath = screenshot.ImagePath,
+            ImageFormat = screenshot.ImageFormat,
+            ImageSize = screenshot.ImageSize,
+        };
 
     internal static FocusedElementResult FocusSelectedWindowElement(
         WindowSelectionState selectionState,
@@ -639,13 +658,13 @@ internal static class WindowAutomation
             settledUi);
     }
 
-    internal static FocusedElementTreeResult DescribeSelectedWindowFocus(
+    internal static CompactSnapshotResponse DescribeSelectedWindowFocus(
         WindowSelectionState selectionState,
-        int maxDepth)
+        bool includeImage,
+        bool debugMode)
     {
-        var normalizedDepth = NormalizeDepth(maxDepth);
         var handle = ResolveInteractionWindowHandle(selectionState);
-
+        var window = BuildWindowDescriptor(handle);
         var windowElement = AutomationElement.FromHandle(handle);
         var focusedElement = AutomationElement.FocusedElement
             ?? throw new InvalidOperationException("No focused UI element is currently available.");
@@ -659,37 +678,35 @@ internal static class WindowAutomation
         var focusedElementUiPath = TryFindElementPath(windowElement, focusedElement, "root")
             ?? throw new InvalidOperationException(
                 "Could not resolve the focused UI element's path within the selected window.");
-
-        return new FocusedElementTreeResult(
-            BuildWindowDescriptor(handle),
-            normalizedDepth,
-            CaptureElementTree(focusedElement, normalizedDepth, "focused", focusedElementUiPath));
-    }
-
-    internal static CompactSnapshotResponse DescribeSelectedWindowFocusCompact(
-        WindowSelectionState selectionState,
-        bool includeImage)
-    {
-        var handle = ResolveInteractionWindowHandle(selectionState);
-
-        var windowElement = AutomationElement.FromHandle(handle);
-        var focusedElement = AutomationElement.FocusedElement
-            ?? throw new InvalidOperationException("No focused UI element is currently available.");
-
-        if (!IsSameOrDescendantOf(focusedElement, windowElement))
-        {
-            throw new InvalidOperationException(
-                "The currently focused UI element does not belong to the selected window.");
-        }
-
-        var focusedElementUiPath = TryFindElementPath(windowElement, focusedElement, "root")
-            ?? throw new InvalidOperationException(
-                "Could not resolve the focused UI element's path within the selected window.");
-
-        return CompactUiSnapshotBuilder.BuildFocusResponse(
-            BuildWindowDescriptor(handle),
-            CaptureElementTree(focusedElement, remainingLevels: null, "focused", focusedElementUiPath),
+        var sourceTree = CaptureElementTree(focusedElement, remainingLevels: null, "focused", focusedElementUiPath);
+        var response = CompactUiSnapshotBuilder.BuildFocusResponse(
+            window,
+            sourceTree,
             includeImage);
+
+        if (!debugMode)
+        {
+            return response;
+        }
+
+        var screenshot = CaptureSelectedWindowScreenshot(selectionState);
+        return new CompactSnapshotResponse
+        {
+            Window = response.Window,
+            SourceStats = response.SourceStats,
+            CompactTree = response.CompactTree,
+            LlmTree = response.LlmTree,
+            RenderedImage = response.RenderedImage,
+            DebugEvidence = new CompactDebugEvidence
+            {
+                FocusTree = new DebugFocusTreeArtifact
+                {
+                    FullDepth = true,
+                    FocusedElement = sourceTree,
+                },
+                Screenshot = ToDebugScreenshotArtifact(screenshot),
+            },
+        };
     }
 
     internal static MainMenuListResult ListMainMenuItems(

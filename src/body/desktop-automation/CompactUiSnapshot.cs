@@ -30,6 +30,8 @@ internal sealed class CompactSnapshotResponse
     public required LlmUiNode LlmTree { get; init; }
 
     public CompactRenderedImage? RenderedImage { get; init; }
+
+    public CompactDebugEvidence? DebugEvidence { get; init; }
 }
 
 internal sealed class CompactSourceStats
@@ -46,6 +48,31 @@ internal sealed class CompactSourceStats
 internal sealed class CompactRenderedImage
 {
     public required string ImagePath { get; init; }
+
+    public required string ImageFormat { get; init; }
+
+    public required ImageDimensions ImageSize { get; init; }
+}
+
+internal sealed class CompactDebugEvidence
+{
+    public WindowTreeResult? FullTree { get; init; }
+
+    public DebugFocusTreeArtifact? FocusTree { get; init; }
+
+    public DebugScreenshotArtifact? Screenshot { get; init; }
+}
+
+internal sealed class DebugFocusTreeArtifact
+{
+    public required bool FullDepth { get; init; }
+
+    public required UiElementSnapshot FocusedElement { get; init; }
+}
+
+internal sealed class DebugScreenshotArtifact
+{
+    public required string FilePath { get; init; }
 
     public required string ImageFormat { get; init; }
 

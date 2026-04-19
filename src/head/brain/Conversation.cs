@@ -170,7 +170,7 @@ internal static class AgentRunner
 
                 if (string.Equals(snapshotToolName, "describe_window", StringComparison.Ordinal))
                 {
-                    currentUiElementContext = snapshotText;
+                    currentUiElementContext = GetCompactSnapshotModelContext(snapshotText);
                 }
             }
 
@@ -213,37 +213,7 @@ internal static class AgentRunner
             return currentFocusElementContext;
         }
 
-        bool HasCompactWindowContextTool()
-            => availableToolNames.Contains("describe_window_compact");
-
-        bool HasCompactFocusContextTool()
-            => availableToolNames.Contains("describe_window_focus_compact");
-
-        void RememberCompactWindowContext(string snapshotText)
-        {
-            if (string.IsNullOrWhiteSpace(snapshotText))
-            {
-                return;
-            }
-
-            if (string.IsNullOrWhiteSpace(recentWindowContext) ||
-                !SnapshotContainsElementTree(recentWindowContext))
-            {
-                recentWindowContext = snapshotText;
-            }
-
-            if (TryGetPrimaryWindowReference(snapshotText, out var windowHandle, out var windowTitle))
-            {
-                desktopSession.CurrentWindowHandle = windowHandle;
-                desktopSession.CurrentWindowTitle = windowTitle;
-            }
-
-            currentUiElementContext = GetCompactSnapshotModelContext(snapshotText);
-            currentFocusElementContext = null;
-            SyncDesktopSession();
-        }
-
-        void RememberCompactFocusContext(string snapshotText)
+        void RememberRecentFocusSnapshot(string snapshotText)
         {
             if (string.IsNullOrWhiteSpace(snapshotText))
             {
@@ -256,81 +226,16 @@ internal static class AgentRunner
                 desktopSession.CurrentWindowTitle = windowTitle;
             }
 
+            recentFocusContext = snapshotText;
             currentFocusElementContext = GetCompactSnapshotModelContext(snapshotText);
             SyncDesktopSession();
         }
 
-        async Task RefreshCompactWindowContextAsync(string fallbackSnapshotText)
-        {
-            currentUiElementContext = fallbackSnapshotText;
-            SyncDesktopSession();
+        static Dictionary<string, object?> BuildWindowSnapshotArguments(bool debugMode)
+            => CreateWindowSnapshotArguments(debugMode);
 
-            if (!HasCompactWindowContextTool())
-            {
-                return;
-            }
-
-            try
-            {
-                var compactResult = await CallToolWithDesktopSessionAsync(
-                    "describe_window_compact",
-                    new Dictionary<string, object?>
-                    {
-                        ["includeImage"] = DebugTrace.IsEnabled,
-                    });
-                if (!compactResult.IsError &&
-                    !string.IsNullOrWhiteSpace(compactResult.Text))
-                {
-                    RememberCompactWindowContext(compactResult.Text);
-                }
-            }
-            catch (Exception ex)
-            {
-                DebugTrace.WriteStructuredEvent(
-                    "agent.compact_window_context_fallback",
-                    new Dictionary<string, object?>
-                    {
-                        ["turn"] = turnId,
-                        ["error"] = DebugTrace.Preview(ex.ToString(), 700),
-                    });
-            }
-        }
-
-        async Task RefreshCompactFocusContextAsync(string fallbackSnapshotText)
-        {
-            currentFocusElementContext = fallbackSnapshotText;
-            SyncDesktopSession();
-
-            if (!HasCompactFocusContextTool())
-            {
-                return;
-            }
-
-            try
-            {
-                var compactResult = await CallToolWithDesktopSessionAsync(
-                    "describe_window_focus_compact",
-                    new Dictionary<string, object?>
-                    {
-                        ["includeImage"] = DebugTrace.IsEnabled,
-                    });
-                if (!compactResult.IsError &&
-                    !string.IsNullOrWhiteSpace(compactResult.Text))
-                {
-                    RememberCompactFocusContext(compactResult.Text);
-                }
-            }
-            catch (Exception ex)
-            {
-                DebugTrace.WriteStructuredEvent(
-                    "agent.compact_focus_context_fallback",
-                    new Dictionary<string, object?>
-                    {
-                        ["turn"] = turnId,
-                        ["error"] = DebugTrace.Preview(ex.ToString(), 700),
-                    });
-            }
-        }
+        static Dictionary<string, object?> BuildFocusSnapshotArguments(bool debugMode)
+            => CreateFocusSnapshotArguments(debugMode);
 
         Dictionary<string, object?> PrepareDesktopToolArguments(
             string toolName,
@@ -345,51 +250,6 @@ internal static class AgentRunner
             return await mcpManager.CallToolAsync(toolName, preparedArgs, cancellationToken);
         }
 
-        async Task CaptureDebugWindowScreenshotAsync(
-            string eventName,
-            string toolName,
-            string? preActionSnapshotText,
-            string? postActionSnapshotText)
-        {
-            if (!ShouldCapturePostActionDebugScreenshot(toolName, DebugTrace.IsEnabled, availableToolNames))
-            {
-                return;
-            }
-
-            try
-            {
-                var debugScreenshotStopwatch = Stopwatch.StartNew();
-                var debugScreenshot = await CallToolWithDesktopSessionAsync(
-                    "capture_window_screenshot",
-                    new Dictionary<string, object?>());
-                DebugTrace.WriteStructuredEvent(
-                    eventName,
-                    new Dictionary<string, object?>
-                    {
-                        ["turn"] = turnId,
-                        ["tool"] = toolName,
-                        ["elapsedMs"] = (int)Math.Round(debugScreenshotStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
-                        ["isError"] = debugScreenshot.IsError,
-                        ["screenshotWindow"] = DescribePrimaryWindowFromToolOutput(debugScreenshot.Text),
-                        ["images"] = debugScreenshot.Images.Count,
-                        ["sharedWithModel"] = false,
-                        ["treeUnchangedOrSparse"] = ShouldCaptureScreenshotAfterAction(preActionSnapshotText, postActionSnapshotText),
-                        ["resultPreview"] = DebugTrace.Preview(debugScreenshot.Text, 700),
-                    });
-            }
-            catch (Exception ex)
-            {
-                DebugTrace.WriteStructuredEvent(
-                    eventName + "_failed",
-                    new Dictionary<string, object?>
-                    {
-                        ["turn"] = turnId,
-                        ["tool"] = toolName,
-                        ["error"] = DebugTrace.Preview(ex.ToString(), 700),
-                    });
-            }
-        }
-
         async Task<bool> MaybeContinueNetflixProfileSelectionAsync(string assistantResponseText)
         {
             if (attemptedNetflixProfileSelectionAutoFollowThrough ||
@@ -399,7 +259,6 @@ internal static class AgentRunner
             }
 
             attemptedNetflixProfileSelectionAutoFollowThrough = true;
-            var preActionSnapshot = ResolveActionableUiTreeContext();
 
             var invokeArgs = new Dictionary<string, object?> { ["elementPath"] = profileTargetPath };
             var invokeArgsText = JsonSerializer.Serialize(invokeArgs, JsonSerializerOptionsCache.Default);
@@ -420,22 +279,16 @@ internal static class AgentRunner
 
             var postActionSnapshot = await CallToolWithDesktopSessionAsync(
                 "describe_window",
-                new Dictionary<string, object?> { ["fullDepth"] = true });
+                BuildWindowSnapshotArguments(debugMode: DebugTrace.IsEnabled));
             Display.ToolResult("describe_window", postActionSnapshot.Text, postActionSnapshot.Images.Count);
             RememberRecentWindowSnapshot(postActionSnapshot.Text, "describe_window");
-            await RefreshCompactWindowContextAsync(postActionSnapshot.Text);
             if (!string.IsNullOrWhiteSpace(currentUiElementContext))
             {
                 messages.Add(new AgentMessage.User(
                     $"Fresh post-action UI snapshot after internally invoking the requested Netflix profile:\n{currentUiElementContext}"));
             }
-            await CaptureDebugWindowScreenshotAsync(
-                "agent.netflix_profile_followup_debug_screenshot",
-                "invoke_window_element",
-                preActionSnapshot,
-                postActionSnapshot.Text);
             messages.Add(new AgentMessage.User(
-                "Use the newest compact UI snapshot as the source of truth for the current screen. Any screenshot captured during this internal follow-through is retained only for debugging."));
+                "Use the newest compact UI snapshot as the source of truth for the current screen. Any debug-only evidence attached to that snapshot is for inspection, not for the model's answer."));
 
             return true;
         }
@@ -453,12 +306,11 @@ internal static class AgentRunner
             {
                 var focusSnapshot = await CallToolWithDesktopSessionAsync(
                     "describe_window_focus",
-                    new Dictionary<string, object?> { ["maxDepth"] = 3 });
+                    BuildFocusSnapshotArguments(debugMode: DebugTrace.IsEnabled));
                 Display.ToolResult("describe_window_focus", focusSnapshot.Text, focusSnapshot.Images.Count);
                 if (!focusSnapshot.IsError)
                 {
-                    recentFocusContext = focusSnapshot.Text;
-                    await RefreshCompactFocusContextAsync(focusSnapshot.Text);
+                    RememberRecentFocusSnapshot(focusSnapshot.Text);
                     effectiveFocusContext = recentFocusContext;
                 }
             }
@@ -473,8 +325,6 @@ internal static class AgentRunner
             }
 
             attemptedNetflixPinAutoFollowThrough = true;
-            var preActionSnapshot = actionableUiTreeContext;
-
             Display.ToolCall("type_window_text", """{"text":"[remaining Netflix PIN digits redacted]"}""");
             var pinResult = await ExecuteStructuredNetflixPinEntryAsync(
                 turnId,
@@ -494,22 +344,16 @@ internal static class AgentRunner
 
             var postActionSnapshot = await CallToolWithDesktopSessionAsync(
                 "describe_window",
-                new Dictionary<string, object?> { ["fullDepth"] = true });
+                BuildWindowSnapshotArguments(debugMode: DebugTrace.IsEnabled));
             Display.ToolResult("describe_window", postActionSnapshot.Text, postActionSnapshot.Images.Count);
             RememberRecentWindowSnapshot(postActionSnapshot.Text, "describe_window");
-            await RefreshCompactWindowContextAsync(postActionSnapshot.Text);
             if (!string.IsNullOrWhiteSpace(currentUiElementContext))
             {
                 messages.Add(new AgentMessage.User(
                     $"Fresh post-action UI snapshot after internally entering the remaining Netflix PIN digits:\n{currentUiElementContext}"));
             }
-            await CaptureDebugWindowScreenshotAsync(
-                "agent.netflix_pin_followup_debug_screenshot",
-                "type_window_text",
-                preActionSnapshot,
-                postActionSnapshot.Text);
             messages.Add(new AgentMessage.User(
-                "Use the newest compact UI snapshot as the source of truth for the current screen. Any screenshot captured during this internal follow-through is retained only for debugging."));
+                "Use the newest compact UI snapshot as the source of truth for the current screen. Any debug-only evidence attached to that snapshot is for inspection, not for the model's answer."));
 
             return true;
         }
@@ -619,8 +463,6 @@ internal static class AgentRunner
                         turnId,
                         mcpManager,
                         desktopSession,
-                        ResolveActionableUiTreeContext(),
-                        llmClient.ModelProfile,
                         cancellationToken));
                     continue;
                 }
@@ -683,9 +525,6 @@ internal static class AgentRunner
                 var attemptedBrowserFullscreenExit = false;
                 var attemptedBrowserWindowPreflight = false;
                 var attemptedBrowserSearchFieldTypingPrime = false;
-                var preActionUiTreeSnapshot = IsDesktopActionTool(executableToolName)
-                    ? ResolveActionableUiTreeContext()
-                    : null;
                 var requestedLaunchAppName = string.Equals(executableToolName, "launch_application", StringComparison.Ordinal)
                     ? TryGetStringArgument(executableArgs, "appName")
                     : null;
@@ -1145,25 +984,6 @@ internal static class AgentRunner
                         });
                 }
 
-                if (executableToolName == "describe_window" &&
-                    TryRewriteDescribeSelectedWindowToFullDepth(executableArgs, out var rewrittenDescribeArgs))
-                {
-                    executableArgs = rewrittenDescribeArgs;
-                    effectiveArgumentsText = JsonSerializer.Serialize(executableArgs, JsonSerializerOptionsCache.Default);
-                    DebugTrace.WriteStructuredEvent(
-                        "agent.tool_call_arguments_rewritten",
-                        new Dictionary<string, object?>
-                        {
-                            ["turn"] = turnId,
-                            ["toolCallId"] = toolCall.Id,
-                            ["tool"] = toolCall.Name,
-                            ["executedTool"] = executableToolName,
-                            ["reason"] = "full_depth_ui_tree_preferred",
-                            ["originalArgumentsPreview"] = DebugTrace.Preview(toolCall.Arguments, 600),
-                            ["rewrittenArgumentsPreview"] = DebugTrace.Preview(effectiveArgumentsText, 600),
-                        });
-                }
-
                 var actionableUiTreeContext = ResolveActionableUiTreeContext();
 
                 if (TryRewriteBrowserSearchControlAction(
@@ -1570,29 +1390,23 @@ internal static class AgentRunner
                         recentListWindowsOutput = toolOutput.Text;
                     }
 
-                    if (string.Equals(executableToolName, "describe_window_compact", StringComparison.Ordinal))
+                    if (string.Equals(executableToolName, "describe_window", StringComparison.Ordinal))
                     {
-                        RememberCompactWindowContext(toolOutput.Text);
+                        RememberRecentWindowSnapshot(toolOutput.Text, executableToolName);
                         freshToolUiElementContext = currentUiElementContext;
                     }
-                    else if (string.Equals(executableToolName, "describe_window_focus_compact", StringComparison.Ordinal))
+                    else if (string.Equals(executableToolName, "describe_window_focus", StringComparison.Ordinal))
                     {
-                        RememberCompactFocusContext(toolOutput.Text);
+                        RememberRecentFocusSnapshot(toolOutput.Text);
                         freshToolFocusElementContext = currentFocusElementContext;
                     }
                     else
                     {
                         RememberRecentWindowSnapshot(toolOutput.Text, executableToolName);
-                        if (string.Equals(executableToolName, "describe_window", StringComparison.Ordinal))
-                        {
-                            await RefreshCompactWindowContextAsync(toolOutput.Text);
-                            freshToolUiElementContext = currentUiElementContext;
-                        }
-
-                        if (toolCall.Name is "focus_window_element" or "describe_window_focus")
+                        if (toolCall.Name == "focus_window_element")
                         {
                             recentFocusContext = toolOutput.Text;
-                            await RefreshCompactFocusContextAsync(toolOutput.Text);
+                            currentFocusElementContext = GetCompactSnapshotModelContext(toolOutput.Text);
                             freshToolFocusElementContext = currentFocusElementContext;
                         }
                     }
@@ -1692,10 +1506,9 @@ internal static class AgentRunner
                         var postActionSnapshotStopwatch = Stopwatch.StartNew();
                         var postActionSnapshot = await CallToolWithDesktopSessionAsync(
                             "describe_window",
-                            new Dictionary<string, object?> { ["fullDepth"] = true });
+                            BuildWindowSnapshotArguments(debugMode: DebugTrace.IsEnabled));
                         Display.ToolResult("describe_window", postActionSnapshot.Text, postActionSnapshot.Images.Count);
                         RememberRecentWindowSnapshot(postActionSnapshot.Text, "describe_window");
-                        await RefreshCompactWindowContextAsync(postActionSnapshot.Text);
                         freshToolUiElementContext = currentUiElementContext;
                         if (!string.IsNullOrWhiteSpace(currentUiElementContext))
                         {
@@ -1745,25 +1558,14 @@ internal static class AgentRunner
                         }
 
                         if (forcedReply is null &&
-                            ShouldCapturePostActionDebugScreenshot(executableToolName, DebugTrace.IsEnabled, availableToolNames))
-                        {
-                            await CaptureDebugWindowScreenshotAsync(
-                                "agent.desktop_followup_debug_screenshot",
-                                executableToolName,
-                                preActionUiTreeSnapshot,
-                                postActionSnapshot.Text);
-                        }
-
-                        if (forcedReply is null &&
                             ShouldCollectFocusSnapshotAfterAction(executableToolName, executableArgs))
                         {
                             var focusSnapshotStopwatch = Stopwatch.StartNew();
                             var focusSnapshot = await CallToolWithDesktopSessionAsync(
                                 "describe_window_focus",
-                                new Dictionary<string, object?> { ["maxDepth"] = 3 });
+                                BuildFocusSnapshotArguments(debugMode: DebugTrace.IsEnabled));
                             Display.ToolResult("describe_window_focus", focusSnapshot.Text, focusSnapshot.Images.Count);
-                            recentFocusContext = focusSnapshot.Text;
-                            await RefreshCompactFocusContextAsync(focusSnapshot.Text);
+                            RememberRecentFocusSnapshot(focusSnapshot.Text);
                             freshToolFocusElementContext = currentFocusElementContext;
                             var compactFocusSnapshot = ResolveCurrentFocusElementContext() ?? focusSnapshot.Text;
                             followUpEvidence.Add(new AgentMessage.User(
@@ -1854,14 +1656,6 @@ internal static class AgentRunner
             or "type_window_text"
             or "set_window_element_text";
 
-    internal static bool ShouldCapturePostActionDebugScreenshot(
-        string toolName,
-        bool debugTraceEnabled,
-        IReadOnlySet<string> availableToolNames)
-        => debugTraceEnabled
-            && IsDesktopActionTool(toolName)
-            && availableToolNames.Contains("capture_window_screenshot");
-
     internal static bool ShouldCaptureScreenshotAfterAction(
         string? preActionSnapshotText,
         string? postActionSnapshotText)
@@ -1877,23 +1671,6 @@ internal static class AgentRunner
         }
 
         return SnapshotsShareSameWindowAndElementTree(preActionSnapshotText!, postActionSnapshotText!);
-    }
-
-    internal static bool TryRewriteDescribeSelectedWindowToFullDepth(
-        IReadOnlyDictionary<string, object?> args,
-        out Dictionary<string, object?> rewrittenArgs)
-    {
-        rewrittenArgs = new Dictionary<string, object?>(StringComparer.Ordinal);
-
-        if (TryGetBooleanArgument(args, "fullDepth") == true)
-        {
-            return false;
-        }
-
-        rewrittenArgs = CloneArguments(args);
-        rewrittenArgs["fullDepth"] = true;
-        rewrittenArgs.Remove("maxDepth");
-        return true;
     }
 
     internal static string? BuildOrdinalActionReferenceSummary(
@@ -2059,9 +1836,7 @@ internal static class AgentRunner
     private static bool IsSilentInspectionTool(string toolName)
         => toolName is "list_windows"
             or "describe_window"
-            or "describe_window_compact"
             or "describe_window_focus"
-            or "describe_window_focus_compact"
             or "capture_window_screenshot"
             or "list_taskbar_items"
             or "list_window_main_menu_items"
@@ -2069,7 +1844,6 @@ internal static class AgentRunner
 
     private static bool IsWindowEvidenceTool(string? toolName)
         => toolName is "describe_window"
-            or "describe_window_compact"
             or "capture_window_screenshot";
 
     internal static string? BuildToolSpecificGuidance(
@@ -2143,7 +1917,7 @@ internal static class AgentRunner
         try
         {
             using var document = JsonDocument.Parse(focusSnapshotText);
-            if (!TryGetJsonProperty(document.RootElement, "focusedElement", out var focusedElement) ||
+            if (!TryGetFocusedSnapshotElement(document.RootElement, out var focusedElement) ||
                 !ElementLooksLikePreciseActionTarget(focusedElement))
             {
                 return null;
@@ -2640,8 +2414,6 @@ internal static class AgentRunner
         long turnId,
         McpClientManager mcpManager,
         DesktopSessionContext desktopSession,
-        string? priorUiTreeSnapshot,
-        LlmModelProfile modelProfile,
         CancellationToken cancellationToken)
     {
         var evidenceStopwatch = Stopwatch.StartNew();
@@ -2669,35 +2441,12 @@ internal static class AgentRunner
                 "describe_window",
                 PrepareToolArgumentsForDesktopSession(
                     "describe_window",
-                    new Dictionary<string, object?> { ["fullDepth"] = true },
+                    CreateWindowSnapshotArguments(debugMode: DebugTrace.IsEnabled),
                     desktopSession),
                 cancellationToken);
             Display.ToolResult("describe_window", retrySnapshot.Text, retrySnapshot.Images.Count);
-            var compactRetrySnapshot = retrySnapshot.Text;
-            try
-            {
-                var compactResult = await mcpManager.CallToolAsync(
-                    "describe_window_compact",
-                    PrepareToolArgumentsForDesktopSession(
-                        "describe_window_compact",
-                        new Dictionary<string, object?>
-                        {
-                            ["includeImage"] = DebugTrace.IsEnabled,
-                        },
-                        desktopSession),
-                    cancellationToken);
-                if (!compactResult.IsError &&
-                    !string.IsNullOrWhiteSpace(compactResult.Text))
-                {
-                    compactRetrySnapshot = compactResult.Text;
-                }
-            }
-            catch
-            {
-                // Keep the raw fallback when the compact tool is unavailable.
-            }
             extraEvidence.Add(new AgentMessage.User(
-                $"Second-pass visible UI snapshot after waiting 1 more second:\n{compactRetrySnapshot}"));
+                $"Second-pass visible UI snapshot after waiting 1 more second:\n{retrySnapshot.Text}"));
             DebugTrace.WriteStructuredEvent(
                 "agent.additional_desktop_evidence_snapshot",
                 new Dictionary<string, object?>
@@ -2708,43 +2457,6 @@ internal static class AgentRunner
                     ["images"] = retrySnapshot.Images.Count,
                     ["resultPreview"] = DebugTrace.Preview(retrySnapshot.Text, 700),
                 });
-            if (DebugTrace.IsEnabled &&
-                ShouldCaptureScreenshotAfterAction(priorUiTreeSnapshot, retrySnapshot.Text))
-            {
-                try
-                {
-                    var screenshotStopwatch = Stopwatch.StartNew();
-                    var screenshot = await mcpManager.CallToolAsync(
-                        "capture_window_screenshot",
-                        PrepareToolArgumentsForDesktopSession(
-                            "capture_window_screenshot",
-                            new Dictionary<string, object?>(),
-                            desktopSession),
-                        cancellationToken);
-                    Display.ToolResult("capture_window_screenshot", screenshot.Text, screenshot.Images.Count);
-                    DebugTrace.WriteStructuredEvent(
-                        "agent.additional_desktop_evidence_screenshot",
-                        new Dictionary<string, object?>
-                        {
-                            ["turn"] = turnId,
-                            ["elapsedMs"] = (int)Math.Round(screenshotStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
-                            ["window"] = DescribePrimaryWindowFromToolOutput(screenshot.Text),
-                            ["images"] = screenshot.Images.Count,
-                            ["sharedWithModel"] = false,
-                            ["resultPreview"] = DebugTrace.Preview(screenshot.Text, 700),
-                        });
-                }
-                catch (Exception ex)
-                {
-                    DebugTrace.WriteStructuredEvent(
-                        "agent.additional_desktop_evidence_screenshot_failed",
-                        new Dictionary<string, object?>
-                        {
-                            ["turn"] = turnId,
-                            ["error"] = DebugTrace.Preview(ex.ToString(), 700),
-                        });
-                }
-            }
         }
         catch (Exception ex)
         {
@@ -2773,8 +2485,20 @@ internal static class AgentRunner
 
     private static string BuildRepairInstruction(bool performedDesktopAction)
         => performedDesktopAction
-            ? "Rewrite your previous answer as strict JSON only: {\"say\":\"...\",\"log\":\"...\"}. Use the post-action UI Automation tree first. If the current evidence is too sparse or ambiguous to describe the visible screen confidently, do not guess. `say` and `log` must not contradict each other. If the evidence shows the request is incomplete or failed, `say` must also say that clearly. In say, include the action outcome, the current visible screen state if it is supported by evidence, and 2 or 3 likely next actions. In log, include the fuller evidence-based description and briefly note any uncertainty."
+            ? "Rewrite your previous answer as strict JSON only: {\"say\":\"...\",\"log\":\"...\"}. Use the post-action UI snapshot first. If the current evidence is too sparse or ambiguous to describe the visible screen confidently, do not guess. `say` and `log` must not contradict each other. If the evidence shows the request is incomplete or failed, `say` must also say that clearly. In say, include the action outcome, the current visible screen state if it is supported by evidence, and 2 or 3 likely next actions. In log, include the fuller evidence-based description and briefly note any uncertainty."
             : "Rewrite your previous answer as strict JSON only: {\"say\":\"...\",\"log\":\"...\"}. Keep say short and spoken-friendly. Put fuller detail in log. Do not promise a UI action unless this turn already performed it. If no desktop action happened yet, describe the current visible state truthfully and, if needed, the next step that is still required instead of saying you are doing it now.";
+
+    private static Dictionary<string, object?> CreateWindowSnapshotArguments(bool debugMode)
+        => new()
+        {
+            ["debugMode"] = debugMode,
+        };
+
+    private static Dictionary<string, object?> CreateFocusSnapshotArguments(bool debugMode)
+        => new()
+        {
+            ["debugMode"] = debugMode,
+        };
 
     internal static IReadOnlyDictionary<string, object?>? TryBuildLaunchFollowUpSelectionArguments(string toolOutputText)
     {
@@ -2877,10 +2601,8 @@ internal static class AgentRunner
     internal static bool ToolUsesCurrentWindow(string toolName)
         => toolName is "activate_window"
             or "describe_window"
-            or "describe_window_compact"
             or "capture_window_screenshot"
             or "describe_window_focus"
-            or "describe_window_focus_compact"
             or "list_window_main_menu_items"
             or "list_window_context_menu_items"
             or "focus_window_element"
@@ -2977,15 +2699,24 @@ internal static class AgentRunner
 
         if (!toolIsError)
         {
-            if (toolName is "describe_window_focus" or "describe_window_focus_compact" &&
+            if (toolName == "describe_window_focus" &&
                 !string.IsNullOrWhiteSpace(currentFocusElementContext))
             {
                 return currentFocusElementContext;
             }
 
-            if (toolName is "describe_window_compact" or "describe_window_focus_compact")
+            if (toolName == "describe_window")
             {
-                return GetCompactSnapshotModelContext(toolText);
+                return !string.IsNullOrWhiteSpace(currentUiElementContext)
+                    ? currentUiElementContext
+                    : GetCompactSnapshotModelContext(toolText);
+            }
+
+            if (toolName == "describe_window_focus")
+            {
+                return !string.IsNullOrWhiteSpace(currentFocusElementContext)
+                    ? currentFocusElementContext
+                    : GetCompactSnapshotModelContext(toolText);
             }
 
             if (ShouldUseStoredUiElementContextForToolResult(toolName) &&
@@ -3651,7 +3382,7 @@ internal static class AgentRunner
                 "describe_window_focus",
                 PrepareToolArgumentsForDesktopSession(
                     "describe_window_focus",
-                    new Dictionary<string, object?> { ["maxDepth"] = 3 },
+                    CreateFocusSnapshotArguments(debugMode: DebugTrace.IsEnabled),
                     desktopSession),
                 cancellationToken);
             var focusSummary = DescribeFocusedElementFromToolOutput(focusResult.Text);
@@ -3708,8 +3439,7 @@ internal static class AgentRunner
         try
         {
             using var document = JsonDocument.Parse(recentWindowContext);
-            if (!TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree) ||
-                elementTree.ValueKind != JsonValueKind.Object ||
+            if (!TryGetSnapshotTree(document.RootElement, out var elementTree) ||
                 !SnapshotContainsVisibleProfilePicker(elementTree) ||
                 !TryFindElementByPath(elementTree, elementPath, out var requestedElement))
             {
@@ -3749,7 +3479,7 @@ internal static class AgentRunner
         try
         {
             using var document = JsonDocument.Parse(recentWindowContext);
-            return TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree) &&
+            return TryGetSnapshotTree(document.RootElement, out var elementTree) &&
                    ContainsMatchingElement(elementTree, ElementLooksLikeFullscreenBrowserContent);
         }
         catch
@@ -3979,8 +3709,7 @@ internal static class AgentRunner
         try
         {
             using var document = JsonDocument.Parse(recentWindowContext);
-            if (!TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree) ||
-                elementTree.ValueKind != JsonValueKind.Object ||
+            if (!TryGetSnapshotTree(document.RootElement, out var elementTree) ||
                 !SnapshotContainsVisibleProfilePicker(elementTree))
             {
                 return false;
@@ -4165,13 +3894,13 @@ internal static class AgentRunner
         try
         {
             using var document = JsonDocument.Parse(snapshotText);
-            if (TryGetJsonProperty(document.RootElement, "focusedElement", out var focusedElement) &&
+            if (TryGetFocusedSnapshotElement(document.RootElement, out var focusedElement) &&
                 ElementLooksLikeBrowserAddressBar(focusedElement))
             {
                 return true;
             }
 
-            return TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree) &&
+            return TryGetSnapshotTree(document.RootElement, out var elementTree) &&
                    ContainsMatchingElement(elementTree, ElementLooksLikeBrowserAddressBar);
         }
         catch
@@ -4198,7 +3927,7 @@ internal static class AgentRunner
         try
         {
             using var document = JsonDocument.Parse(snapshotText);
-            return TryGetJsonProperty(document.RootElement, "focusedElement", out var focusedElement) &&
+            return TryGetFocusedSnapshotElement(document.RootElement, out var focusedElement) &&
                    ElementLooksLikeNetflixPinInput(focusedElement);
         }
         catch
@@ -4225,7 +3954,7 @@ internal static class AgentRunner
         try
         {
             using var document = JsonDocument.Parse(snapshotText);
-            return TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree) &&
+            return TryGetSnapshotTree(document.RootElement, out var elementTree) &&
                    ContainsMatchingElement(elementTree, ElementLooksLikeNetflixPinInputOrPrompt);
         }
         catch
@@ -4245,7 +3974,7 @@ internal static class AgentRunner
         try
         {
             using var document = JsonDocument.Parse(focusSnapshotText);
-            if (!TryGetJsonProperty(document.RootElement, "focusedElement", out var focusedElement))
+            if (!TryGetFocusedSnapshotElement(document.RootElement, out var focusedElement))
             {
                 return false;
             }
@@ -4295,8 +4024,7 @@ internal static class AgentRunner
         try
         {
             using var document = JsonDocument.Parse(snapshotText);
-            if (!TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree) ||
-                elementTree.ValueKind != JsonValueKind.Object)
+            if (!TryGetSnapshotTree(document.RootElement, out var elementTree))
             {
                 return false;
             }
@@ -4320,8 +4048,7 @@ internal static class AgentRunner
         try
         {
             using var document = JsonDocument.Parse(snapshotText);
-            return TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree) &&
-                   elementTree.ValueKind == JsonValueKind.Object;
+            return TryGetSnapshotTree(document.RootElement, out _);
         }
         catch
         {
@@ -4351,7 +4078,7 @@ internal static class AgentRunner
         try
         {
             using var document = JsonDocument.Parse(snapshotText);
-            return TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree) &&
+            return TryGetSnapshotTree(document.RootElement, out var elementTree) &&
                    (ContainsMatchingElement(elementTree, ElementLooksLikeBrowserAddressBar)
                     || ContainsMatchingElement(elementTree, ElementLooksLikeBrowserWebDocument));
         }
@@ -4463,7 +4190,7 @@ internal static class AgentRunner
         try
         {
             using var document = JsonDocument.Parse(snapshotText);
-            return TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree) &&
+            return TryGetSnapshotTree(document.RootElement, out var elementTree) &&
                    TryFindElementByPath(elementTree, elementPath, out element);
         }
         catch
@@ -4526,7 +4253,7 @@ internal static class AgentRunner
         try
         {
             using var document = JsonDocument.Parse(snapshotText);
-            if (!TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree))
+            if (!TryGetSnapshotTree(document.RootElement, out var elementTree))
             {
                 return false;
             }
@@ -4562,8 +4289,7 @@ internal static class AgentRunner
         try
         {
             using var document = JsonDocument.Parse(snapshotText);
-            if (!TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree) ||
-                elementTree.ValueKind != JsonValueKind.Object)
+            if (!TryGetSnapshotTree(document.RootElement, out var elementTree))
             {
                 return false;
             }
@@ -4964,7 +4690,7 @@ internal static class AgentRunner
         try
         {
             using var document = JsonDocument.Parse(toolOutputText);
-            if (!TryGetJsonProperty(document.RootElement, "focusedElement", out var focusedElement))
+            if (!TryGetFocusedSnapshotElement(document.RootElement, out var focusedElement))
             {
                 return null;
             }
@@ -5001,8 +4727,7 @@ internal static class AgentRunner
         try
         {
             using var document = JsonDocument.Parse(snapshotText);
-            if (!TryGetJsonProperty(document.RootElement, "elementTree", out var elementTree) ||
-                elementTree.ValueKind != JsonValueKind.Object)
+            if (!TryGetSnapshotTree(document.RootElement, out var elementTree))
             {
                 return false;
             }
@@ -5573,6 +5298,42 @@ internal static class AgentRunner
         {
             return false;
         }
+    }
+
+    private static bool TryGetSnapshotTree(JsonElement root, out JsonElement elementTree)
+    {
+        if (TryGetJsonProperty(root, "elementTree", out elementTree) &&
+            elementTree.ValueKind == JsonValueKind.Object)
+        {
+            return true;
+        }
+
+        if (TryGetJsonProperty(root, "compactTree", out elementTree) &&
+            elementTree.ValueKind == JsonValueKind.Object)
+        {
+            return true;
+        }
+
+        elementTree = default;
+        return false;
+    }
+
+    private static bool TryGetFocusedSnapshotElement(JsonElement root, out JsonElement focusedElement)
+    {
+        if (TryGetJsonProperty(root, "focusedElement", out focusedElement) &&
+            focusedElement.ValueKind == JsonValueKind.Object)
+        {
+            return true;
+        }
+
+        if (TryGetJsonProperty(root, "compactTree", out focusedElement) &&
+            focusedElement.ValueKind == JsonValueKind.Object)
+        {
+            return true;
+        }
+
+        focusedElement = default;
+        return false;
     }
 
     private static bool LooksLikeWindowPropertyName(string propertyName)
