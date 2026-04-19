@@ -3023,37 +3023,175 @@ internal static class AgentRunner
                 return false;
             }
 
-            using var stream = new MemoryStream();
-            using (var writer = new Utf8JsonWriter(stream))
-            {
-                writer.WriteStartObject();
-
-                if (TryGetJsonProperty(root, "window", out var window) &&
-                    window.ValueKind == JsonValueKind.Object)
-                {
-                    writer.WritePropertyName("window");
-                    window.WriteTo(writer);
-                }
-
-                if (TryGetJsonProperty(root, "sourceStats", out var sourceStats) &&
-                    sourceStats.ValueKind == JsonValueKind.Object)
-                {
-                    writer.WritePropertyName("sourceStats");
-                    sourceStats.WriteTo(writer);
-                }
-
-                writer.WritePropertyName("llmTree");
-                llmTree.WriteTo(writer);
-                writer.WriteEndObject();
-            }
-
-            modelContext = Encoding.UTF8.GetString(stream.ToArray());
+            var jsonContext = BuildCompactSnapshotJsonContext(root, llmTree);
+            var yamlContext = BuildCompactSnapshotYamlContext(root, llmTree);
+            modelContext = Encoding.UTF8.GetByteCount(yamlContext) < Encoding.UTF8.GetByteCount(jsonContext)
+                ? yamlContext
+                : jsonContext;
             return true;
         }
         catch
         {
             return false;
         }
+    }
+
+    private static string BuildCompactSnapshotJsonContext(JsonElement root, JsonElement llmTree)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+
+            if (TryGetJsonProperty(root, "window", out var window) &&
+                window.ValueKind == JsonValueKind.Object)
+            {
+                writer.WritePropertyName("window");
+                window.WriteTo(writer);
+            }
+
+            if (TryGetJsonProperty(root, "sourceStats", out var sourceStats) &&
+                sourceStats.ValueKind == JsonValueKind.Object)
+            {
+                writer.WritePropertyName("sourceStats");
+                sourceStats.WriteTo(writer);
+            }
+
+            writer.WritePropertyName("llmTree");
+            llmTree.WriteTo(writer);
+            writer.WriteEndObject();
+        }
+
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    private static string BuildCompactSnapshotYamlContext(JsonElement root, JsonElement llmTree)
+    {
+        var builder = new StringBuilder();
+        builder.Append('{');
+        var wroteProperty = false;
+
+        void AppendProperty(string propertyName, JsonElement propertyValue)
+        {
+            if (wroteProperty)
+            {
+                builder.Append(',');
+            }
+
+            builder.Append(propertyName);
+            builder.Append(": ");
+            AppendFlowYamlValue(builder, propertyValue);
+            wroteProperty = true;
+        }
+
+        if (TryGetJsonProperty(root, "window", out var window) &&
+            window.ValueKind == JsonValueKind.Object)
+        {
+            AppendProperty("window", window);
+        }
+
+        if (TryGetJsonProperty(root, "sourceStats", out var sourceStats) &&
+            sourceStats.ValueKind == JsonValueKind.Object)
+        {
+            AppendProperty("sourceStats", sourceStats);
+        }
+
+        AppendProperty("llmTree", llmTree);
+        builder.Append('}');
+        return builder.ToString();
+    }
+
+    private static void AppendFlowYamlValue(StringBuilder builder, JsonElement element)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                builder.Append('{');
+                var wroteProperty = false;
+                foreach (var property in element.EnumerateObject())
+                {
+                    if (wroteProperty)
+                    {
+                        builder.Append(',');
+                    }
+
+                    builder.Append(property.Name);
+                    builder.Append(": ");
+                    AppendFlowYamlValue(builder, property.Value);
+                    wroteProperty = true;
+                }
+
+                builder.Append('}');
+                return;
+
+            case JsonValueKind.Array:
+                builder.Append('[');
+                var wroteItem = false;
+                foreach (var item in element.EnumerateArray())
+                {
+                    if (wroteItem)
+                    {
+                        builder.Append(',');
+                    }
+
+                    AppendFlowYamlValue(builder, item);
+                    wroteItem = true;
+                }
+
+                builder.Append(']');
+                return;
+
+            case JsonValueKind.String:
+                builder.Append(FormatYamlScalar(element.GetString() ?? string.Empty));
+                return;
+
+            case JsonValueKind.Number:
+            case JsonValueKind.True:
+            case JsonValueKind.False:
+            case JsonValueKind.Null:
+                builder.Append(element.GetRawText());
+                return;
+
+            default:
+                builder.Append(FormatYamlScalar(element.GetRawText()));
+                return;
+        }
+    }
+
+    private static string FormatYamlScalar(string value)
+        => CanUsePlainYamlScalar(value)
+            ? value
+            : JsonSerializer.Serialize(value);
+
+    private static bool CanUsePlainYamlScalar(string value)
+    {
+        if (string.IsNullOrEmpty(value) ||
+            !string.Equals(value, value.Trim(), StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (value.IndexOfAny(['\r', '\n', '\t', '{', '}', '[', ']', ',']) >= 0 ||
+            value.Contains(": ", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var firstCharacter = value[0];
+        if (firstCharacter is '-' or '?' or ':' or '!' or '&' or '*' or '#' or '|' or '>' or '@' or '`' or '"' or '\'')
+        {
+            return false;
+        }
+
+        if (bool.TryParse(value, out _) ||
+            string.Equals(value, "null", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(value, "~", StringComparison.Ordinal) ||
+            double.TryParse(value, out _))
+        {
+            return false;
+        }
+
+        return true;
     }
 
     internal static bool ShouldUseStoredUiElementContextForToolResult(string toolName)

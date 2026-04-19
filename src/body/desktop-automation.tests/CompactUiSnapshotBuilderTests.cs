@@ -104,7 +104,6 @@ public sealed class CompactUiSnapshotBuilderTests
         Assert.Equal("1/0/0/4", response.LlmTree.UiPath);
         Assert.Contains("focused", response.LlmTree.State ?? []);
         Assert.Contains("selected", response.LlmTree.State ?? []);
-        Assert.Contains("focusable", response.LlmTree.State ?? []);
         Assert.Equal("1/0/0/4/0", Assert.Single(response.LlmTree.Children!).UiPath);
     }
 
@@ -132,6 +131,45 @@ public sealed class CompactUiSnapshotBuilderTests
         var button = Assert.Single(response.LlmTree.Children!);
         Assert.Null(button.Name);
         Assert.Equal("PrimaryActionButton", button.AutomationId);
+    }
+
+    [Fact]
+    public void BuildWindowResponse_PrunesLlmChildrenAndReportsOmissions()
+    {
+        var response = CompactUiSnapshotBuilder.BuildWindowResponse(
+            CreateWindowDescriptor(),
+            Snapshot(
+                "root",
+                "root",
+                "Window",
+                name: "Netflix",
+                children:
+                [
+                    Snapshot(
+                        "0",
+                        "0",
+                        "Document",
+                        name: "Netflix",
+                        children:
+                        [
+                            Snapshot("0/0", "0/0", "Text", name: "Play"),
+                            Snapshot("0/1", "0/1", "Text", name: "Episodes"),
+                            Snapshot("0/2", "0/2", "Text", name: "More Like This"),
+                            Snapshot("0/3", "0/3", "Text", name: "Trailers & More"),
+                            Snapshot("0/4", "0/4", "Text", name: "Add to My List"),
+                            Snapshot("0/5", "0/5", "Text", name: "Rate"),
+                            Snapshot("0/6", "0/6", "Text", name: "Share"),
+                            Snapshot("0/7", "0/7", "Text", name: "Download"),
+                            Snapshot("0/8", "0/8", "Text", name: "Cast"),
+                            Snapshot("0/9", "0/9", "Text", name: "More Info"),
+                        ])
+                ]),
+            includeImage: false);
+
+        var document = Assert.Single(response.LlmTree.Children!);
+        Assert.NotNull(document.OmittedChildren);
+        Assert.True(document.OmittedChildren > 0);
+        Assert.True((document.Children?.Count ?? 0) < 10);
     }
 
     [Fact]

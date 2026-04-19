@@ -95,6 +95,8 @@ internal sealed class LlmUiNode
 
     public IReadOnlyList<string>? AvailableActions { get; init; }
 
+    public int? OmittedChildren { get; init; }
+
     public IReadOnlyList<LlmUiNode>? Children { get; init; }
 }
 
@@ -107,6 +109,9 @@ internal static class CompactUiSnapshotBuilder
     private const int MinRenderWidth = 480;
     private const int MinRenderHeight = 320;
     private const int MaxLabelLength = 60;
+    private const int LlmKeepThreshold = 650;
+    private const int LlmStrongChildThreshold = 1200;
+    private const int LlmCriticalThreshold = 1800;
 
     private static readonly HashSet<string> HighValueControlTypes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -386,21 +391,56 @@ internal static class CompactUiSnapshotBuilder
     }
 
     private static LlmUiNode BuildLlmNode(CompactUiNode node)
+        => BuildLlmProjectionCandidate(node, depth: 0, parentName: null)?.Node
+           ?? throw new InvalidOperationException("The llmTree root could not be built.");
+
+    private static LlmProjectionCandidate? BuildLlmProjectionCandidate(
+        CompactUiNode node,
+        int depth,
+        string? parentName)
     {
-        var children = node.Children?
-            .Select(BuildLlmNode)
-            .ToArray();
+        var childCandidates = node.Children?
+            .Select(child => BuildLlmProjectionCandidate(child, depth + 1, node.Name))
+            .Where(static child => child is not null)
+            .Cast<LlmProjectionCandidate>()
+            .ToArray() ?? [];
+        var selectedChildren = SelectLlmChildren(node, childCandidates, depth);
+        var score = ScoreLlmNode(node, depth);
+        var filteredActions = FilterLlmActions(node, score, hasProjectedChildren: selectedChildren.Length > 0);
         var state = BuildLlmState(node);
-        return new LlmUiNode
+        var name = GetLlmName(node, depth, parentName, score, selectedChildren.Length > 0);
+        var hasOwnSignal = !string.IsNullOrWhiteSpace(name)
+                           || filteredActions.Count > 0
+                           || state is not null
+                           || ShouldIncludeLlmAutomationId(node, name, score);
+
+        if (depth > 0 &&
+            !hasOwnSignal &&
+            selectedChildren.Length == 0 &&
+            score < LlmKeepThreshold)
+        {
+            return null;
+        }
+
+        var omittedChildren = childCandidates.Length - selectedChildren.Length;
+        var llmNode = new LlmUiNode
         {
             UiPath = node.UiPath,
             ControlType = node.ControlType,
-            Name = node.Name,
-            AutomationId = ShouldIncludeLlmAutomationId(node) ? node.AutomationId : null,
+            Name = name,
+            AutomationId = ShouldIncludeLlmAutomationId(node, name, score) ? node.AutomationId : null,
             State = state,
-            AvailableActions = node.AvailableActions,
-            Children = children is { Length: > 0 } ? children : null,
+            AvailableActions = filteredActions.Count == 0 ? null : filteredActions,
+            OmittedChildren = omittedChildren > 0 ? omittedChildren : null,
+            Children = selectedChildren.Length == 0
+                ? null
+                : selectedChildren.Select(candidate => candidate.Node).ToArray(),
         };
+
+        return new LlmProjectionCandidate(
+            llmNode,
+            score,
+            IsCriticalLlmNode(node, score) || selectedChildren.Any(static child => child.HasCriticalPath));
     }
 
     private static IReadOnlyList<string>? BuildLlmState(CompactUiNode node)
@@ -423,11 +463,6 @@ internal static class CompactUiSnapshotBuilder
             AddState("selected");
         }
 
-        if (node.IsKeyboardFocusable == true)
-        {
-            AddState("focusable");
-        }
-
         if (node.IsOffscreen == true)
         {
             AddState("offscreen");
@@ -436,9 +471,265 @@ internal static class CompactUiSnapshotBuilder
         return state;
     }
 
-    private static bool ShouldIncludeLlmAutomationId(CompactUiNode node)
-        => string.IsNullOrWhiteSpace(node.Name) &&
+    private static LlmProjectionCandidate[] SelectLlmChildren(
+        CompactUiNode parent,
+        IReadOnlyList<LlmProjectionCandidate> childCandidates,
+        int depth)
+    {
+        if (childCandidates.Count == 0)
+        {
+            return [];
+        }
+
+        var childBudget = GetLlmChildBudget(parent, depth);
+        var prioritized = childCandidates
+            .OrderByDescending(candidate => candidate.HasCriticalPath)
+            .ThenByDescending(candidate => candidate.Score)
+            .ThenBy(candidate => candidate.Node.UiPath, StringComparer.Ordinal)
+            .ToArray();
+
+        var selectedPaths = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var critical in prioritized.Where(static candidate => candidate.HasCriticalPath))
+        {
+            selectedPaths.Add(critical.Node.UiPath);
+        }
+
+        foreach (var candidate in prioritized)
+        {
+            if (selectedPaths.Count >= childBudget &&
+                !candidate.HasCriticalPath)
+            {
+                break;
+            }
+
+            if (selectedPaths.Contains(candidate.Node.UiPath))
+            {
+                continue;
+            }
+
+            if (candidate.Score < LlmKeepThreshold &&
+                !candidate.HasCriticalPath)
+            {
+                break;
+            }
+
+            selectedPaths.Add(candidate.Node.UiPath);
+        }
+
+        return childCandidates
+            .Where(candidate => selectedPaths.Contains(candidate.Node.UiPath))
+            .ToArray();
+    }
+
+    private static int GetLlmChildBudget(CompactUiNode node, int depth)
+    {
+        var budget = depth switch
+        {
+            0 => 7,
+            1 => 6,
+            2 => 5,
+            3 => 4,
+            _ => 3,
+        };
+
+        if (string.Equals(node.ControlType, "Document", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(node.ControlType, "List", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(node.ControlType, "Menu", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(node.ControlType, "Tree", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(node.ControlType, "Tab", StringComparison.OrdinalIgnoreCase))
+        {
+            budget += 2;
+        }
+
+        if (node.HasKeyboardFocus == true || node.IsSelected == true)
+        {
+            budget += 1;
+        }
+
+        return budget;
+    }
+
+    private static int ScoreLlmNode(CompactUiNode node, int depth)
+    {
+        var score = depth == 0 ? 4_000 : 0;
+
+        if (node.HasKeyboardFocus == true)
+        {
+            score += 2_600;
+        }
+
+        if (node.IsSelected == true)
+        {
+            score += 2_200;
+        }
+
+        if (LooksLikeNamedActionablePageContent(
+                node.Name,
+                node.ControlType,
+                node.ClassName,
+                node.AvailableActions ?? []))
+        {
+            score += 1_600;
+        }
+
+        if (LooksLikeProfilePickerTile(node.Name, node.ControlType, node.ClassName))
+        {
+            score += 1_500;
+        }
+
+        if (LooksLikeMeaningfulPageContent(node.Name, node.ControlType, node.ClassName))
+        {
+            score += 900;
+        }
+
+        if (HasInterestingLlmAction(node))
+        {
+            score += 700;
+        }
+
+        if (HighValueControlTypes.Contains(node.ControlType))
+        {
+            score += 180;
+        }
+
+        if (node.IsKeyboardFocusable == true)
+        {
+            score += 120;
+        }
+
+        if (!string.IsNullOrWhiteSpace(node.Name))
+        {
+            score += depth <= 2 ? 180 : 80;
+        }
+
+        if (LooksLikeBrowserChrome(node.Name, node.ControlType, node.ClassName))
+        {
+            score -= 250;
+        }
+
+        if (LooksLikeWindowCaptionButton(node.Name, node.ControlType))
+        {
+            score -= 1_200;
+        }
+
+        if (node.IsOffscreen == true)
+        {
+            score -= 150;
+        }
+
+        if (IsGenericContainerControlType(node.ControlType) &&
+            string.IsNullOrWhiteSpace(node.Name) &&
+            !HasInterestingLlmAction(node))
+        {
+            score -= 500;
+        }
+
+        return score;
+    }
+
+    private static IReadOnlyList<string> FilterLlmActions(
+        CompactUiNode node,
+        int score,
+        bool hasProjectedChildren)
+    {
+        if (node.AvailableActions is null || node.AvailableActions.Count == 0)
+        {
+            return [];
+        }
+
+        var filtered = node.AvailableActions
+            .Where(ShouldKeepLlmAction)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (filtered.Count == 0)
+        {
+            return [];
+        }
+
+        if (filtered.Count > 1)
+        {
+            filtered.RemoveAll(action => string.Equals(action, "focus", StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (filtered.Count == 0 ||
+            string.Equals(node.ControlType, "Window", StringComparison.OrdinalIgnoreCase) ||
+            LooksLikeWindowCaptionButton(node.Name, node.ControlType))
+        {
+            return [];
+        }
+
+        var shouldExposeActions =
+            node.HasKeyboardFocus == true ||
+            node.IsSelected == true ||
+            score >= LlmStrongChildThreshold ||
+            (!hasProjectedChildren && score >= LlmKeepThreshold);
+
+        return shouldExposeActions ? filtered.ToArray() : [];
+    }
+
+    private static bool ShouldKeepLlmAction(string action)
+        => !string.Equals(action, "scroll_into_view", StringComparison.OrdinalIgnoreCase)
+           && !string.Equals(action, "scroll", StringComparison.OrdinalIgnoreCase)
+           && !string.Equals(action, "close", StringComparison.OrdinalIgnoreCase)
+           && !string.Equals(action, "maximize", StringComparison.OrdinalIgnoreCase)
+           && !string.Equals(action, "minimize", StringComparison.OrdinalIgnoreCase)
+           && !string.Equals(action, "restore", StringComparison.OrdinalIgnoreCase)
+           && !string.Equals(action, "dock", StringComparison.OrdinalIgnoreCase)
+           && !string.Equals(action, "move", StringComparison.OrdinalIgnoreCase)
+           && !string.Equals(action, "resize", StringComparison.OrdinalIgnoreCase)
+           && !string.Equals(action, "rotate", StringComparison.OrdinalIgnoreCase);
+
+    private static string? GetLlmName(
+        CompactUiNode node,
+        int depth,
+        string? parentName,
+        int score,
+        bool hasProjectedChildren)
+    {
+        if (string.IsNullOrWhiteSpace(node.Name))
+        {
+            return null;
+        }
+
+        if (depth > 0 &&
+            string.Equals(node.Name, parentName, StringComparison.OrdinalIgnoreCase) &&
+            IsGenericContainerControlType(node.ControlType) &&
+            score < LlmStrongChildThreshold)
+        {
+            return null;
+        }
+
+        if (IsGenericContainerControlType(node.ControlType) &&
+            !hasProjectedChildren &&
+            score < LlmKeepThreshold)
+        {
+            return null;
+        }
+
+        return node.Name;
+    }
+
+    private static bool ShouldIncludeLlmAutomationId(
+        CompactUiNode node,
+        string? llmName,
+        int score)
+        => string.IsNullOrWhiteSpace(llmName) &&
+           score >= LlmKeepThreshold &&
            !string.IsNullOrWhiteSpace(node.AutomationId);
+
+    private static bool HasInterestingLlmAction(CompactUiNode node)
+        => node.AvailableActions is not null &&
+           node.AvailableActions.Any(ShouldKeepLlmAction);
+
+    private static bool IsCriticalLlmNode(CompactUiNode node, int score)
+        => node.HasKeyboardFocus == true
+           || node.IsSelected == true
+           || score >= LlmCriticalThreshold;
+
+    private static bool IsGenericContainerControlType(string controlType)
+        => string.Equals(controlType, "Pane", StringComparison.OrdinalIgnoreCase)
+           || string.Equals(controlType, "Group", StringComparison.OrdinalIgnoreCase)
+           || string.Equals(controlType, "Custom", StringComparison.OrdinalIgnoreCase);
 
     private static bool ShouldIncludeElement(NodeInfo node, bool focusMode)
     {
@@ -1015,6 +1306,11 @@ internal static class CompactUiSnapshotBuilder
 
         internal int FocusModePriority { get; set; }
     }
+
+    private sealed record LlmProjectionCandidate(
+        LlmUiNode Node,
+        int Score,
+        bool HasCriticalPath);
 
     private static string? NormalizeInlineText(string? value)
     {

@@ -1606,9 +1606,6 @@ public sealed class AgentRunnerDecisionTests
         const string compactToolText = """
         {"window":{"handle":"0x0033061A","title":"Netflix"},"sourceStats":{"sourceNodeCount":12,"keptNodeCount":4,"omittedNodeCount":8,"algorithmVersion":"compact-tree-v1"},"compactTree":{"path":"root","uiPath":"root","controlType":"Window","name":"Netflix"},"llmTree":{"uiPath":"root","controlType":"Window","name":"Netflix"}}
         """;
-        const string expectedModelContext = """
-        {"window":{"handle":"0x0033061A","title":"Netflix"},"sourceStats":{"sourceNodeCount":12,"keptNodeCount":4,"omittedNodeCount":8,"algorithmVersion":"compact-tree-v1"},"llmTree":{"uiPath":"root","controlType":"Window","name":"Netflix"}}
-        """;
 
         var actual = AgentRunner.ResolveToolResultContextForModel(
             "describe_window_compact",
@@ -1618,7 +1615,11 @@ public sealed class AgentRunnerDecisionTests
             currentFocusElementContext: null,
             profile);
 
-        Assert.Equal(expectedModelContext, actual);
+        Assert.DoesNotContain("compactTree", actual, StringComparison.Ordinal);
+        Assert.Contains("window", actual, StringComparison.Ordinal);
+        Assert.Contains("sourceStats", actual, StringComparison.Ordinal);
+        Assert.Contains("llmTree", actual, StringComparison.Ordinal);
+        Assert.Contains("uiPath", actual, StringComparison.Ordinal);
     }
 
     [Fact]
