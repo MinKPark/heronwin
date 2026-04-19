@@ -17,6 +17,10 @@ The goal is to improve two things together:
 - rewrite guardrails, so passive observation text does not become an
   actionable click target
 
+## Visual Overview
+
+![Observed failure flow and proposed guardrails](./brain-debuggability-and-rewrite-guardrails-flow.svg)
+
 ## Problem Statement
 
 Observed failure pattern from the aborted scenario run:
@@ -250,4 +254,3 @@ trace:
 - what rewrite chose instead
 - why rewrite chose it
 - whether `brain` decided to continue a Netflix profile step internally
-

@@ -1,6 +1,6 @@
 # Body Refactor And Tool Naming Normalization
 
-Last updated: 2026-04-18
+Last updated: 2026-04-19
 Status: completed
 
 ## Summary
@@ -101,6 +101,39 @@ Remaining follow-up after the cutover:
 - For ordinary "open/launch/play X" requests, `brain` should try the app path
   before browser navigation. Website flow is the default only when the user
   explicitly asks for a website, URL, browser tab, or in-browser content.
+
+## End-To-End Flow
+
+### Brain-Orchestrated Request Flow
+
+The following diagram shows the current end-to-end flow for the live smoke
+scenario in `src/scenarios/netflix-boyfriend-on-demand.yml`.
+
+This case intentionally starts with a browser-navigation command, so `brain`
+does not use the normal app-first launch branch. The first step explicitly says
+`Navigate the active browser tab directly to https://www.netflix.com/`, which
+means the website route is part of the scenario contract rather than a fallback.
+
+![Rendered brain-orchestrated request flow](./body-cognition-execution-refactor-flow.svg)
+
+### Scenario Notes
+
+- `brain` owns session continuity across the whole flow. `cognition` and
+  `execution` stay stateless and only act on the explicit window handle and
+  element path that `brain` supplies.
+- The main control loop is evidence-driven: inspect current Netflix surface,
+  choose one action, then refresh evidence before deciding again.
+- The profile and PIN stages are treated as gating surfaces. `brain` must clear
+  them before it is allowed to continue to search or playback.
+- PIN entry is intentionally modeled as a per-digit loop using refreshed focus
+  evidence, because the Netflix profile-lock screen is more reliable that way
+  than a single bulk text send.
+- For `Boyfriend on Demand`, `brain` should prefer an exact visible title match
+  from Netflix search results over generic browser chrome, hero banners, or
+  off-target site controls.
+- Screenshot capture is a fallback evidence source, not the default success
+  path. The preferred confirmation path is refreshed UIAutomation state from
+  `describe_window` or `describe_window_focus`.
 
 ## Tool Naming
 

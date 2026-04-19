@@ -1,0 +1,226 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="2280" viewBox="0 0 1500 2280" role="img" aria-labelledby="title desc">
+  <title id="title">Brain-orchestrated Netflix smoke flow</title>
+  <desc id="desc">A cleaned-up rendered flowchart showing the main runtime path across brain, process-manager, cognition, and execution.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f7f7f8; }
+      .frame { fill: #ffffff; stroke: #d6d6db; stroke-width: 2; rx: 20; ry: 20; }
+      .panel { fill: #fbfbfc; stroke: #d6d6db; stroke-width: 2; rx: 18; ry: 18; }
+      .user { fill: #edf5ff; stroke: #4d84c6; stroke-width: 2; rx: 12; ry: 12; }
+      .brain { fill: #f3efff; stroke: #7b61c9; stroke-width: 2; rx: 12; ry: 12; }
+      .pm { fill: #eefaf1; stroke: #2f8f46; stroke-width: 2; rx: 12; ry: 12; }
+      .cog { fill: #fff7e8; stroke: #c98a00; stroke-width: 2; rx: 12; ry: 12; }
+      .exe { fill: #fff1f0; stroke: #cf5a4f; stroke-width: 2; rx: 12; ry: 12; }
+      .note { fill: #fafafb; stroke: #8a8f99; stroke-width: 2; rx: 12; ry: 12; }
+      .decision { fill: #ffffff; stroke: #444444; stroke-width: 2; }
+      .title { font: 700 30px Arial, Helvetica, sans-serif; fill: #111111; }
+      .subtitle { font: 700 22px Arial, Helvetica, sans-serif; fill: #111111; }
+      .panel-title { font: 700 20px Arial, Helvetica, sans-serif; fill: #111111; }
+      .body { font: 16px Arial, Helvetica, sans-serif; fill: #222222; }
+      .small { font: 14px Arial, Helvetica, sans-serif; fill: #444444; }
+      .tiny { font: 13px Arial, Helvetica, sans-serif; fill: #555555; }
+      .badge { font: 700 12px Arial, Helvetica, sans-serif; fill: #ffffff; }
+      .label { font: 700 14px Arial, Helvetica, sans-serif; fill: #333333; }
+      .arrow { stroke: #535862; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+      .arrow-user { stroke: #4d84c6; stroke-width: 3; fill: none; marker-end: url(#arrowUser); }
+      .arrow-brain { stroke: #7b61c9; stroke-width: 3; fill: none; marker-end: url(#arrowBrain); }
+      .arrow-pm { stroke: #2f8f46; stroke-width: 3; fill: none; marker-end: url(#arrowPm); }
+      .arrow-cog { stroke: #c98a00; stroke-width: 3; fill: none; marker-end: url(#arrowCog); }
+      .arrow-exe { stroke: #cf5a4f; stroke-width: 3; fill: none; marker-end: url(#arrowExe); }
+      .arrow-dash { stroke: #7b61c9; stroke-width: 2.5; stroke-dasharray: 8 8; fill: none; marker-end: url(#arrowBrain); }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#535862"/>
+    </marker>
+    <marker id="arrowUser" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4d84c6"/>
+    </marker>
+    <marker id="arrowBrain" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7b61c9"/>
+    </marker>
+    <marker id="arrowPm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2f8f46"/>
+    </marker>
+    <marker id="arrowCog" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#c98a00"/>
+    </marker>
+    <marker id="arrowExe" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#cf5a4f"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1500" height="2280"/>
+  <rect class="frame" x="24" y="24" width="1452" height="2232"/>
+
+  <text class="title" x="750" y="66" text-anchor="middle">Brain-Orchestrated Request Flow</text>
+  <text class="body" x="750" y="98" text-anchor="middle">Current runtime path for the live Netflix smoke after the split into process-manager, cognition, and execution.</text>
+
+  <rect class="note" x="150" y="128" width="1200" height="62"/>
+  <text class="small" x="750" y="153" text-anchor="middle">This scenario explicitly says “Navigate the active browser tab directly to https://www.netflix.com/”, so the website route is intentional here.</text>
+  <text class="small" x="750" y="173" text-anchor="middle">The normal app-first launch branch still exists for ordinary “open/launch/play X” requests, but it is not the branch shown below.</text>
+
+  <g>
+    <rect class="user" x="210" y="216" width="26" height="26" rx="6" ry="6"/>
+    <text class="badge" x="223" y="234" text-anchor="middle">U</text>
+    <text class="small" x="246" y="235">User / Scenario</text>
+
+    <rect class="brain" x="450" y="216" width="26" height="26" rx="6" ry="6"/>
+    <text class="badge" x="463" y="234" text-anchor="middle">B</text>
+    <text class="small" x="486" y="235">Brain</text>
+
+    <rect class="pm" x="650" y="216" width="26" height="26" rx="6" ry="6"/>
+    <text class="badge" x="663" y="234" text-anchor="middle">P</text>
+    <text class="small" x="686" y="235">Process Manager</text>
+
+    <rect class="cog" x="910" y="216" width="26" height="26" rx="6" ry="6"/>
+    <text class="badge" x="923" y="234" text-anchor="middle">C</text>
+    <text class="small" x="946" y="235">Cognition</text>
+
+    <rect class="exe" x="1120" y="216" width="26" height="26" rx="6" ry="6"/>
+    <text class="badge" x="1133" y="234" text-anchor="middle">E</text>
+    <text class="small" x="1156" y="235">Execution</text>
+  </g>
+
+  <rect class="user" x="510" y="278" width="480" height="90"/>
+  <text class="body" x="750" y="311" text-anchor="middle">Scenario steps</text>
+  <text class="small" x="750" y="336" text-anchor="middle">Navigate browser to netflix.com -> Select Min -> Enter PIN if needed</text>
+  <text class="small" x="750" y="356" text-anchor="middle">Search Boyfriend on Demand -> Open title -> Play episode 1</text>
+
+  <rect class="brain" x="550" y="420" width="400" height="76"/>
+  <text class="body" x="750" y="451" text-anchor="middle">Parse active step and load DesktopSessionContext</text>
+  <text class="small" x="750" y="476" text-anchor="middle">window handle, title, recent evidence, and follow-up state</text>
+
+  <polygon class="decision" points="750,536 910,606 750,676 590,606"/>
+  <text class="body" x="750" y="596" text-anchor="middle">Explicit website or</text>
+  <text class="body" x="750" y="618" text-anchor="middle">browser-tab request?</text>
+
+  <rect class="note" x="1080" y="566" width="230" height="82"/>
+  <text class="body" x="1195" y="598" text-anchor="middle">This smoke: yes</text>
+  <text class="small" x="1195" y="623" text-anchor="middle">Use browser navigation flow,</text>
+  <text class="small" x="1195" y="643" text-anchor="middle">not the ordinary app-first branch.</text>
+
+  <rect class="pm" x="560" y="736" width="380" height="76"/>
+  <text class="body" x="750" y="767" text-anchor="middle">Ensure browser session exists</text>
+  <text class="small" x="750" y="792" text-anchor="middle">process-manager keeps the browser route alive</text>
+
+  <rect class="pm" x="560" y="856" width="380" height="76"/>
+  <text class="body" x="750" y="887" text-anchor="middle">Navigate active tab to Netflix</text>
+  <text class="small" x="750" y="912" text-anchor="middle">direct website navigation is part of the scenario contract</text>
+
+  <rect class="cog" x="560" y="976" width="380" height="76"/>
+  <text class="body" x="750" y="1007" text-anchor="middle">list_windows</text>
+  <text class="small" x="750" y="1032" text-anchor="middle">confirm the visible browser window and handle</text>
+
+  <rect class="brain" x="560" y="1096" width="380" height="76"/>
+  <text class="body" x="750" y="1127" text-anchor="middle">Reuse DesktopSessionContext</text>
+  <text class="small" x="750" y="1152" text-anchor="middle">carry selected window and freshest recent evidence forward</text>
+
+  <rect class="exe" x="560" y="1216" width="380" height="76"/>
+  <text class="body" x="750" y="1247" text-anchor="middle">activate_window</text>
+  <text class="small" x="750" y="1272" text-anchor="middle">bring the chosen browser window to the foreground</text>
+
+  <rect class="cog" x="560" y="1336" width="380" height="76"/>
+  <text class="body" x="750" y="1367" text-anchor="middle">describe_window</text>
+  <text class="small" x="750" y="1392" text-anchor="middle">refresh compact UI evidence before deciding what happens next</text>
+
+  <rect class="brain" x="510" y="1456" width="480" height="88"/>
+  <text class="body" x="750" y="1488" text-anchor="middle">Choose next action from freshest evidence</text>
+  <text class="small" x="750" y="1513" text-anchor="middle">Treat current Netflix surface as the source of truth before acting again.</text>
+  <text class="small" x="750" y="1533" text-anchor="middle">Profile picker, PIN gate, and browse/home are handled as separate branches.</text>
+
+  <g>
+    <rect class="panel" x="60" y="1600" width="420" height="220"/>
+    <text class="panel-title" x="270" y="1635" text-anchor="middle">Profile Picker Visible</text>
+    <rect class="exe" x="100" y="1662" width="340" height="60"/>
+    <text class="body" x="270" y="1690" text-anchor="middle">click_window_element / invoke_window_element</text>
+    <text class="small" x="270" y="1710" text-anchor="middle">target the exact visible profile: Min</text>
+    <rect class="cog" x="100" y="1738" width="340" height="60"/>
+    <text class="body" x="270" y="1766" text-anchor="middle">describe_window</text>
+    <text class="small" x="270" y="1786" text-anchor="middle">confirm the picker is cleared or the next gate is visible</text>
+  </g>
+
+  <g>
+    <rect class="panel" x="540" y="1600" width="420" height="360"/>
+    <text class="panel-title" x="750" y="1635" text-anchor="middle">PIN Gate Visible</text>
+    <rect class="cog" x="580" y="1662" width="340" height="60"/>
+    <text class="body" x="750" y="1690" text-anchor="middle">describe_window_focus</text>
+    <text class="small" x="750" y="1710" text-anchor="middle">identify the focused PIN input and current digit position</text>
+    <rect class="exe" x="580" y="1738" width="340" height="60"/>
+    <text class="body" x="750" y="1766" text-anchor="middle">type_window_text</text>
+    <text class="small" x="750" y="1786" text-anchor="middle">enter one PIN digit at a time</text>
+    <polygon class="decision" points="750,1812 860,1864 750,1916 640,1864"/>
+    <text class="body" x="750" y="1860" text-anchor="middle">More digits</text>
+    <text class="body" x="750" y="1882" text-anchor="middle">needed?</text>
+  </g>
+
+  <g>
+    <rect class="panel" x="1020" y="1600" width="420" height="560"/>
+    <text class="panel-title" x="1230" y="1635" text-anchor="middle">Netflix Home / Browse Visible</text>
+    <rect class="exe" x="1060" y="1662" width="340" height="60"/>
+    <text class="body" x="1230" y="1690" text-anchor="middle">focus visible Search control and type title</text>
+    <text class="small" x="1230" y="1710" text-anchor="middle">search for Boyfriend on Demand on the Netflix surface</text>
+    <rect class="cog" x="1060" y="1738" width="340" height="60"/>
+    <text class="body" x="1230" y="1766" text-anchor="middle">describe_window</text>
+    <text class="small" x="1230" y="1786" text-anchor="middle">confirm visible search results or title detail state</text>
+    <rect class="exe" x="1060" y="1814" width="340" height="60"/>
+    <text class="body" x="1230" y="1842" text-anchor="middle">open exact title and play episode 1</text>
+    <text class="small" x="1230" y="1862" text-anchor="middle">prefer the exact Netflix title result over browser chrome</text>
+    <rect class="brain" x="1060" y="1890" width="340" height="60"/>
+    <text class="body" x="1230" y="1918" text-anchor="middle">Verify post-action state</text>
+    <text class="small" x="1230" y="1938" text-anchor="middle">use refreshed tree evidence first</text>
+    <rect class="cog" x="1060" y="1966" width="340" height="60"/>
+    <text class="body" x="1230" y="1994" text-anchor="middle">capture_window_screenshot</text>
+    <text class="small" x="1230" y="2014" text-anchor="middle">fallback only when the UI tree is missing or insufficient</text>
+    <rect class="brain" x="1060" y="2042" width="340" height="60"/>
+    <text class="body" x="1230" y="2070" text-anchor="middle">Recover on drift</text>
+    <text class="small" x="1230" y="2090" text-anchor="middle">repair target, retry, or ask the user</text>
+  </g>
+
+  <path class="arrow-user" d="M750 368 L750 418"/>
+  <path class="arrow-brain" d="M750 496 L750 534"/>
+  <path class="arrow-pm" d="M750 676 L750 734"/>
+  <path class="arrow-pm" d="M750 812 L750 854"/>
+  <path class="arrow-cog" d="M750 932 L750 974"/>
+  <path class="arrow-brain" d="M750 1052 L750 1094"/>
+  <path class="arrow-exe" d="M750 1172 L750 1214"/>
+  <path class="arrow-cog" d="M750 1292 L750 1334"/>
+  <path class="arrow-brain" d="M750 1412 L750 1454"/>
+
+  <path class="arrow" d="M910 606 L1078 606"/>
+  <text class="label" x="978" y="590">yes</text>
+  <path class="arrow" d="M590 606 L412 606"/>
+  <text class="label" x="500" y="590">no</text>
+  <rect class="note" x="120" y="566" width="220" height="82"/>
+  <text class="body" x="230" y="598" text-anchor="middle">Ordinary launch request</text>
+  <text class="small" x="230" y="623" text-anchor="middle">Use the normal app-first branch.</text>
+  <text class="small" x="230" y="643" text-anchor="middle">That path is not shown in this diagram.</text>
+
+  <path class="arrow-exe" d="M660 1544 C560 1582, 440 1600, 270 1660"/>
+  <path class="arrow-cog" d="M270 1722 L270 1736"/>
+  <path class="arrow-dash" d="M270 1798 C270 1850, 450 1868, 600 1570"/>
+  <text class="tiny" x="332" y="1832">return to choose next action</text>
+
+  <path class="arrow-cog" d="M750 1544 L750 1660"/>
+  <path class="arrow-exe" d="M750 1722 L750 1736"/>
+  <path class="arrow" d="M860 1864 L940 1864"/>
+  <text class="tiny" x="890" y="1848">no</text>
+  <rect class="cog" x="980" y="1834" width="240" height="60"/>
+  <text class="body" x="1100" y="1862" text-anchor="middle">describe_window</text>
+  <text class="small" x="1100" y="1882" text-anchor="middle">PIN cleared, resume normal flow</text>
+  <path class="arrow-dash" d="M640 1864 C560 1864, 560 1768, 580 1768"/>
+  <text class="tiny" x="592" y="1848">yes</text>
+  <path class="arrow-dash" d="M1100 1834 C1100 1568, 930 1568, 840 1568"/>
+
+  <path class="arrow-exe" d="M840 1544 C980 1582, 1100 1600, 1230 1660"/>
+  <path class="arrow-cog" d="M1230 1722 L1230 1736"/>
+  <path class="arrow-exe" d="M1230 1798 L1230 1812"/>
+  <path class="arrow-brain" d="M1230 1874 L1230 1888"/>
+  <path class="arrow-cog" d="M1230 1950 L1230 1964"/>
+  <path class="arrow-brain" d="M1230 2026 L1230 2040"/>
+  <path class="arrow-dash" d="M1060 2072 C930 2072, 910 1570, 840 1570"/>
+  <text class="tiny" x="978" y="2050">if tree is ambiguous, recover and retry from fresh evidence</text>
+
+  <rect class="note" x="540" y="2148" width="420" height="74"/>
+  <text class="body" x="750" y="2178" text-anchor="middle">Key runtime rule</text>
+  <text class="small" x="750" y="2200" text-anchor="middle">After each action, brain refreshes evidence first, then decides again. Cognition and execution remain stateless.</text>
+</svg>

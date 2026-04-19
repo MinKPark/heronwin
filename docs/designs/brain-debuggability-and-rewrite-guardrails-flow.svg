@@ -1,0 +1,147 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1160" viewBox="0 0 1400 1160" role="img" aria-labelledby="title desc">
+  <title id="title">Brain debuggability and rewrite guardrails flow</title>
+  <desc id="desc">A side by side diagram showing the observed Netflix failure loop and the proposed tracing and guardrail changes.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f7f7f8; }
+      .panel { fill: #ffffff; stroke: #d6d6db; stroke-width: 2; rx: 18; ry: 18; }
+      .title { font: 700 30px Arial, Helvetica, sans-serif; fill: #111111; }
+      .subtitle { font: 700 22px Arial, Helvetica, sans-serif; fill: #111111; }
+      .body { font: 16px Arial, Helvetica, sans-serif; fill: #222222; }
+      .small { font: 14px Arial, Helvetica, sans-serif; fill: #444444; }
+      .box { fill: #ffffff; stroke: #555555; stroke-width: 2; rx: 12; ry: 12; }
+      .box-red { fill: #fff2f1; stroke: #d35b50; stroke-width: 2; rx: 12; ry: 12; }
+      .box-amber { fill: #fff7e8; stroke: #d08a00; stroke-width: 2; rx: 12; ry: 12; }
+      .box-green { fill: #eefaf1; stroke: #2f8f46; stroke-width: 2; rx: 12; ry: 12; }
+      .box-blue { fill: #eef6ff; stroke: #3a78c2; stroke-width: 2; rx: 12; ry: 12; }
+      .label-red { font: 700 14px Arial, Helvetica, sans-serif; fill: #b03a2e; }
+      .label-green { font: 700 14px Arial, Helvetica, sans-serif; fill: #276c37; }
+      .arrow-red { stroke: #c55045; stroke-width: 3; fill: none; marker-end: url(#arrowRed); }
+      .arrow-amber { stroke: #b67a00; stroke-width: 3; fill: none; marker-end: url(#arrowAmber); }
+      .arrow-green { stroke: #2f8f46; stroke-width: 3; fill: none; marker-end: url(#arrowGreen); }
+      .arrow-blue { stroke: #3a78c2; stroke-width: 3; fill: none; marker-end: url(#arrowBlue); }
+      .arrow-dash { stroke: #6f6f76; stroke-width: 2; stroke-dasharray: 8 8; fill: none; marker-end: url(#arrowGray); }
+      .pill-red { fill: #d35b50; }
+      .pill-green { fill: #2f8f46; }
+      .pill-amber { fill: #d08a00; }
+      .pill-text { font: 700 13px Arial, Helvetica, sans-serif; fill: #ffffff; }
+    </style>
+    <marker id="arrowRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#c55045"/>
+    </marker>
+    <marker id="arrowAmber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#b67a00"/>
+    </marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2f8f46"/>
+    </marker>
+    <marker id="arrowBlue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#3a78c2"/>
+    </marker>
+    <marker id="arrowGray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6f6f76"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1400" height="1160"/>
+
+  <text class="title" x="700" y="52" text-anchor="middle">Netflix Failure Loop and Proposed Guardrails</text>
+  <text class="body" x="700" y="84" text-anchor="middle">What happened in the stuck run, and what the next patch should make visible and prevent.</text>
+
+  <rect class="panel" x="40" y="120" width="630" height="990"/>
+  <rect class="panel" x="730" y="120" width="630" height="990"/>
+
+  <text class="subtitle" x="355" y="162" text-anchor="middle">Observed Failure</text>
+  <text class="small" x="355" y="188" text-anchor="middle">Current trace can reconstruct the loop, but not the decision state behind it.</text>
+
+  <text class="subtitle" x="1045" y="162" text-anchor="middle">Planned Fix and Trace Upgrade</text>
+  <text class="small" x="1045" y="188" text-anchor="middle">Make the decisions explicit in logs, and tighten the rules that allowed the rewrite.</text>
+
+  <rect class="box-blue" x="110" y="230" width="490" height="90"/>
+  <text class="body" x="355" y="262" text-anchor="middle">Turn 1 user/scenario text</text>
+  <text class="small" x="355" y="287" text-anchor="middle">Navigate to Netflix and wait until either profile selection</text>
+  <text class="small" x="355" y="307" text-anchor="middle">or Netflix home is visible.</text>
+
+  <rect class="box-green" x="120" y="370" width="470" height="86"/>
+  <text class="body" x="355" y="402" text-anchor="middle">Brain reaches Netflix profile picker</text>
+  <text class="small" x="355" y="427" text-anchor="middle">"Who's watching?" with Min, Esther, Henry, Yoon.</text>
+
+  <rect class="box-amber" x="120" y="506" width="470" height="96"/>
+  <text class="body" x="355" y="538" text-anchor="middle">Assistant draft stops at confirmation</text>
+  <text class="small" x="355" y="563" text-anchor="middle">"Netflix is open, and the profile screen is up."</text>
+  <text class="small" x="355" y="583" text-anchor="middle">No actual Min selection yet.</text>
+
+  <rect class="box-amber" x="120" y="652" width="470" height="104"/>
+  <text class="body" x="355" y="684" text-anchor="middle">Internal profile auto-follow-through runs</text>
+  <text class="small" x="355" y="709" text-anchor="middle">Brain invokes a stored Netflix profile target because the</text>
+  <text class="small" x="355" y="729" text-anchor="middle">reply stopped before completing the requested selection.</text>
+
+  <rect class="box-red" x="120" y="806" width="470" height="102"/>
+  <text class="body" x="355" y="838" text-anchor="middle">State drifts away from Netflix profile picker</text>
+  <text class="small" x="355" y="863" text-anchor="middle">The active page becomes Edge new-tab / Copilot content.</text>
+  <text class="small" x="355" y="883" text-anchor="middle">The original profile path is now stale.</text>
+
+  <rect class="box-red" x="110" y="958" width="490" height="96"/>
+  <text class="body" x="355" y="990" text-anchor="middle">Named-target rewrite misfires</text>
+  <text class="small" x="355" y="1015" text-anchor="middle">Original turn text still contains "Netflix home".</text>
+  <text class="small" x="355" y="1035" text-anchor="middle">Rewrite scans current UI tree, matches Edge Home button, rewrites click.</text>
+
+  <rect class="pill-red" x="227" y="1074" width="256" height="30" rx="15" ry="15"/>
+  <text class="pill-text" x="355" y="1094" text-anchor="middle">Loop: set URL -> Enter -> click Home</text>
+
+  <path class="arrow-blue" d="M355 320 L355 368"/>
+  <path class="arrow-green" d="M355 456 L355 504"/>
+  <path class="arrow-amber" d="M355 602 L355 650"/>
+  <path class="arrow-amber" d="M355 756 L355 804"/>
+  <path class="arrow-red" d="M355 908 L355 956"/>
+  <path class="arrow-red" d="M355 1056 L355 1074"/>
+
+  <rect class="box-blue" x="802" y="226" width="486" height="96"/>
+  <text class="body" x="1045" y="258" text-anchor="middle">1. Add explicit decision trace events</text>
+  <text class="small" x="1045" y="283" text-anchor="middle">Log auto-follow-through start/skip/complete.</text>
+  <text class="small" x="1045" y="303" text-anchor="middle">Log named-target rewrite evaluation with requested and chosen elements.</text>
+
+  <rect class="box-green" x="802" y="372" width="486" height="102"/>
+  <text class="body" x="1045" y="404" text-anchor="middle">2. Require explicit profile-selection intent</text>
+  <text class="small" x="1045" y="429" text-anchor="middle">"Select the profile named Min" should qualify.</text>
+  <text class="small" x="1045" y="449" text-anchor="middle">"Wait until profile selection is visible" should not.</text>
+
+  <rect class="box-green" x="802" y="524" width="486" height="102"/>
+  <text class="body" x="1045" y="556" text-anchor="middle">3. Require activation intent for generic named-target rewrite</text>
+  <text class="small" x="1045" y="581" text-anchor="middle">Passive visibility text can mention "Home" without becoming</text>
+  <text class="small" x="1045" y="601" text-anchor="middle">permission to click the browser's Home button.</text>
+
+  <rect class="box-blue" x="802" y="676" width="486" height="114"/>
+  <text class="body" x="1045" y="708" text-anchor="middle">4. Trace the actual candidate set and skip reason</text>
+  <text class="small" x="1045" y="733" text-anchor="middle">Requested path, requested element summary, matched path,</text>
+  <text class="small" x="1045" y="753" text-anchor="middle">matched element summary, profile-picker visibility,</text>
+  <text class="small" x="1045" y="773" text-anchor="middle">rewrite eligibility, and explicit reason for rewrite or no rewrite.</text>
+
+  <rect class="box-green" x="802" y="840" width="486" height="112"/>
+  <text class="body" x="1045" y="872" text-anchor="middle">5. Regression tests for this exact class of bug</text>
+  <text class="small" x="1045" y="897" text-anchor="middle">Passive "wait until home/profile visible" prompt should not</text>
+  <text class="small" x="1045" y="917" text-anchor="middle">trigger profile auto-follow-through or stale-path rewrite to Home.</text>
+  <text class="small" x="1045" y="937" text-anchor="middle">Explicit "Select Min" should still resolve to the correct target.</text>
+
+  <rect class="pill-green" x="899" y="987" width="292" height="34" rx="17" ry="17"/>
+  <text class="pill-text" x="1045" y="1009" text-anchor="middle">Expected result: explainable trace, no Home loop</text>
+
+  <path class="arrow-blue" d="M1045 324 L1045 370"/>
+  <path class="arrow-green" d="M1045 474 L1045 522"/>
+  <path class="arrow-green" d="M1045 626 L1045 674"/>
+  <path class="arrow-blue" d="M1045 790 L1045 838"/>
+  <path class="arrow-green" d="M1045 952 L1045 987"/>
+
+  <rect class="box" x="625" y="420" width="150" height="120"/>
+  <text class="subtitle" x="700" y="455" text-anchor="middle">Key Gap</text>
+  <text class="small" x="700" y="485" text-anchor="middle">Today the logs show</text>
+  <text class="small" x="700" y="505" text-anchor="middle">that a rewrite</text>
+  <text class="small" x="700" y="525" text-anchor="middle">happened, but not</text>
+  <text class="small" x="700" y="545" text-anchor="middle">why it chose Home.</text>
+
+  <path class="arrow-dash" d="M590 860 C650 860, 640 610, 625 540"/>
+  <path class="arrow-dash" d="M775 540 C790 610, 780 780, 802 790"/>
+
+  <text class="label-red" x="78" y="217">What happened</text>
+  <text class="label-green" x="784" y="213">What to change</text>
+</svg>
