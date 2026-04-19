@@ -38,6 +38,7 @@ applies_when:
 2. If a profile picker, profile lock, or PIN surface is visible, resolve that gate before browsing titles or claiming playback progress.
 3. Prefer exact named Netflix tiles, rows, profiles, tabs, and controls over generic wrappers.
 4. After any open, play, or navigation action, verify the resulting Netflix screen before continuing.
+5. Keep observation turns and action turns separate: a request to wait for or confirm a Netflix surface does not by itself authorize the next gated action on that surface.
 
 - If the search field, result list, hero banner, or visible playback surface changes after an action, refresh the state before deciding the next click.
 - If a click lands on a Netflix title-detail page with controls like `Back to Browse`, `Play`, or `More Like This`, report that exact title-detail state rather than overstating it as playback.

@@ -892,6 +892,63 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void TryFindNetflixProfileSelectionTargetPath_ReturnsFalse_ForPassiveProfileVisibilityRequest()
+    {
+        var snapshot =
+            """
+            {
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "1/0/0/1/1/0/0/0/0/0/0",
+                    "UiPath": "1/0/0/1/1/0/0/0/0/0/0",
+                    "Name": "Netflix",
+                    "ControlType": "Document",
+                    "Children": [
+                      {
+                        "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/1",
+                        "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/1",
+                        "Name": "Who's watching?",
+                        "ControlType": "Text",
+                        "ClassName": "profile-gate-label"
+                      },
+                      {
+                        "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0",
+                        "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0",
+                        "Name": "Min",
+                        "ControlType": "ListItem",
+                        "ClassName": "profile",
+                        "AvailableActions": [ "scroll_into_view" ],
+                        "Children": [
+                          {
+                            "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0/0",
+                            "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0/0",
+                            "Name": "Min",
+                            "ControlType": "Hyperlink",
+                            "ClassName": "profile-link",
+                            "AvailableActions": [ "focus", "invoke", "scroll_into_view" ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+            """;
+
+        var actual = AgentRunner.TryFindNetflixProfileSelectionTargetPath(
+            "Open Netflix and stop when the profile selection screen is visible.",
+            snapshot,
+            out _);
+
+        Assert.False(actual);
+    }
+
+    [Fact]
     public void TryBuildRemainingNetflixPinDigits_ReturnsRemainingDigits_FromFocusedOrdinal()
     {
         var windowSnapshot =
@@ -2112,6 +2169,87 @@ public sealed class AgentRunnerDecisionTests
             "Close it.",
             "invoke_window_element",
             new Dictionary<string, object?> { ["elementPath"] = "root" },
+            snapshot,
+            out _);
+
+        Assert.False(rewritten);
+    }
+
+    [Fact]
+    public void EvaluateGenericContainerActionToNamedTarget_SkipsPassiveVisibilityPromptWithActivationIntentMissing()
+    {
+        var snapshot =
+            """
+            {
+              "Window": {
+                "Handle": "0x00060A88",
+                "Title": "Home - Netflix - Microsoft Edge",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "1/0/0/1/0/0/2",
+                    "UiPath": "1/0/0/1/0/0/2",
+                    "Name": "Home",
+                    "ControlType": "Button",
+                    "AutomationId": "Home",
+                    "AvailableActions": [ "invoke" ]
+                  }
+                ]
+              }
+            }
+            """;
+
+        var evaluation = AgentRunner.EvaluateGenericContainerActionToNamedTarget(
+            "Navigate the active browser tab directly to https://www.netflix.com/ and wait until either the Netflix profile selection screen or Netflix home is visible.",
+            "click_window_element",
+            new Dictionary<string, object?> { ["elementPath"] = "1/0/0/1/1/0/0/0/0/0/0/2/0" },
+            snapshot);
+
+        Assert.False(evaluation.Rewritten);
+        Assert.Equal("activation_intent_missing", evaluation.SkipReason);
+        Assert.Equal("1/0/0/1/1/0/0/0/0/0/0/2/0", evaluation.RequestedPath);
+        Assert.False(evaluation.RequestedElementResolved);
+        Assert.False(evaluation.UserRequestedActivation);
+    }
+
+    [Fact]
+    public void TryRewriteGenericContainerActionToNamedTarget_DoesNotRewritePassiveVisibilityPromptToHome()
+    {
+        var snapshot =
+            """
+            {
+              "Window": {
+                "Handle": "0x00060A88",
+                "Title": "Home - Netflix - Microsoft Edge",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "1/0/0/1/0/0/2",
+                    "UiPath": "1/0/0/1/0/0/2",
+                    "Name": "Home",
+                    "ControlType": "Button",
+                    "AutomationId": "Home",
+                    "AvailableActions": [ "invoke" ]
+                  }
+                ]
+              }
+            }
+            """;
+
+        var rewritten = AgentRunner.TryRewriteGenericContainerActionToNamedTarget(
+            "Navigate the active browser tab directly to https://www.netflix.com/ and wait until either the Netflix profile selection screen or Netflix home is visible.",
+            "click_window_element",
+            new Dictionary<string, object?> { ["elementPath"] = "1/0/0/1/1/0/0/0/0/0/0/2/0" },
             snapshot,
             out _);
 

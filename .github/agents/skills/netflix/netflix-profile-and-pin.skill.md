@@ -39,6 +39,8 @@ applies_when:
 
 ## Profile Rules
 
+- If the user only asked to wait, confirm, or report whether the profile picker is visible, stop after reporting that state. Do not continue into profile activation from a visibility-only turn.
+- Only treat profile selection as actionable when the user explicitly asked to select, choose, click, or open a named profile.
 - If a Netflix profile picker is visible and the user named an exact profile, target that exact named profile tile.
 - If the spoken profile name is not exact but there is one obvious visible ASR repair, such as `mean` when only `Min` is visible, prefer that repaired exact visible profile over treating the request as absent.
 - If more than one visible profile could match the spoken name, do not guess; ask for a short clarification instead.
@@ -48,6 +50,7 @@ applies_when:
 
 ## Profile Lock And PIN Rules
 
+- If the user only asked whether a profile-lock or PIN surface is visible, report that state and stop. Do not start entering digits from a visibility-only turn.
 - When Netflix shows a profile lock or PIN screen with separate digit boxes, treat that as a structured PIN-entry flow rather than a freeform text field.
 - Prefer per-digit entry over bulk text when focus advances box by box; one digit at a time is more reliable than sending the whole PIN as one text string.
 - If the code is a four-digit PIN, enter it as four separate single-character actions; do not send the full PIN as one `press_window_key` text value or one bulk value-set call on a four-box PIN screen.

@@ -106,6 +106,7 @@ internal static class AgentRunner
         var llmAttempt = 0;
         var attemptedNetflixProfileSelectionAutoFollowThrough = false;
         var attemptedNetflixPinAutoFollowThrough = false;
+        var internalContinuationSequence = 0;
         string? recentListWindowsOutput = desktopSession.RecentListWindowsOutput;
         string? recentWindowContext = desktopSession.RecentWindowContext;
         string? recentUiTreeContext = desktopSession.RecentUiTreeContext;
@@ -250,15 +251,140 @@ internal static class AgentRunner
             return await mcpManager.CallToolAsync(toolName, preparedArgs, cancellationToken);
         }
 
+        string CreateInternalContinuationId(string policyName)
+            => $"{turnId}:{llmAttempt}:{++internalContinuationSequence}:{policyName}";
+
+        void WriteInternalContinuationEvent(
+            string category,
+            string continuationId,
+            string policyName,
+            string continuationKind,
+            string triggerReason,
+            string assistantResponseText,
+            string? userIntentSummary,
+            object? surfaceSummary = null,
+            object? targetSummary = null,
+            object? plannedSteps = null,
+            int? stepIndex = null,
+            string? stepAction = null,
+            object? stepTargetSummary = null,
+            string? result = null,
+            string? skipReason = null,
+            string? abortReason = null,
+            string? preActionWindow = null,
+            string? postActionWindow = null)
+        {
+            DebugTrace.WriteStructuredEvent(
+                category,
+                new Dictionary<string, object?>
+                {
+                    ["turn"] = turnId,
+                    ["continuationId"] = continuationId,
+                    ["policyName"] = policyName,
+                    ["continuationKind"] = continuationKind,
+                    ["triggerReason"] = triggerReason,
+                    ["userTextPreview"] = DebugTrace.Preview(userText, 500),
+                    ["assistantReplyPreview"] = DebugTrace.Preview(assistantResponseText, 400),
+                    ["userIntentSummary"] = userIntentSummary,
+                    ["surfaceSummary"] = surfaceSummary,
+                    ["targetSummary"] = targetSummary,
+                    ["plannedSteps"] = plannedSteps,
+                    ["stepIndex"] = stepIndex,
+                    ["stepAction"] = stepAction,
+                    ["stepTargetSummary"] = stepTargetSummary,
+                    ["result"] = result,
+                    ["skipReason"] = skipReason,
+                    ["abortReason"] = abortReason,
+                    ["preActionWindow"] = preActionWindow,
+                    ["postActionWindow"] = postActionWindow,
+                });
+        }
+
         async Task<bool> MaybeContinueNetflixProfileSelectionAsync(string assistantResponseText)
         {
-            if (attemptedNetflixProfileSelectionAutoFollowThrough ||
-                !TryFindNetflixProfileSelectionTargetPath(userText, ResolveActionableUiTreeContext(), out var profileTargetPath))
+            var continuationId = CreateInternalContinuationId("netflix_profile_selection");
+            var actionableUiTreeContext = ResolveActionableUiTreeContext();
+            var hasProfileContinuationTarget = TryBuildNetflixProfileSelectionContinuation(
+                userText,
+                actionableUiTreeContext,
+                out var profileTargetPath,
+                out var profileSkipReason,
+                out var profileSurfaceSummary,
+                out var profileTargetSummary);
+            var profilePlannedSteps = hasProfileContinuationTarget
+                ? new object[]
+                {
+                    new Dictionary<string, object?>
+                    {
+                        ["stepIndex"] = 1,
+                        ["stepAction"] = "invoke_window_element",
+                        ["stepTargetSummary"] = profileTargetSummary,
+                    }
+                }
+                : null;
+
+            WriteInternalContinuationEvent(
+                "agent.internal_continuation_considered",
+                continuationId,
+                "netflix_profile_selection",
+                "select_named_target",
+                "assistant_reply_stopped_before_named_profile_activation",
+                assistantResponseText,
+                "select_exact_visible_profile_named_in_user_text",
+                surfaceSummary: profileSurfaceSummary,
+                targetSummary: profileTargetSummary,
+                plannedSteps: profilePlannedSteps,
+                preActionWindow: DescribePrimaryWindowFromToolOutput(actionableUiTreeContext));
+
+            if (attemptedNetflixProfileSelectionAutoFollowThrough)
             {
+                WriteInternalContinuationEvent(
+                    "agent.internal_continuation_skipped",
+                    continuationId,
+                    "netflix_profile_selection",
+                    "select_named_target",
+                    "assistant_reply_stopped_before_named_profile_activation",
+                    assistantResponseText,
+                    "select_exact_visible_profile_named_in_user_text",
+                    surfaceSummary: profileSurfaceSummary,
+                    targetSummary: profileTargetSummary,
+                    plannedSteps: profilePlannedSteps,
+                    skipReason: "already_attempted_this_turn",
+                    preActionWindow: DescribePrimaryWindowFromToolOutput(actionableUiTreeContext));
+                return false;
+            }
+
+            if (!hasProfileContinuationTarget)
+            {
+                WriteInternalContinuationEvent(
+                    "agent.internal_continuation_skipped",
+                    continuationId,
+                    "netflix_profile_selection",
+                    "select_named_target",
+                    "assistant_reply_stopped_before_named_profile_activation",
+                    assistantResponseText,
+                    "select_exact_visible_profile_named_in_user_text",
+                    surfaceSummary: profileSurfaceSummary,
+                    targetSummary: profileTargetSummary,
+                    plannedSteps: profilePlannedSteps,
+                    skipReason: profileSkipReason,
+                    preActionWindow: DescribePrimaryWindowFromToolOutput(actionableUiTreeContext));
                 return false;
             }
 
             attemptedNetflixProfileSelectionAutoFollowThrough = true;
+            WriteInternalContinuationEvent(
+                "agent.internal_continuation_started",
+                continuationId,
+                "netflix_profile_selection",
+                "select_named_target",
+                "assistant_reply_stopped_before_named_profile_activation",
+                assistantResponseText,
+                "select_exact_visible_profile_named_in_user_text",
+                surfaceSummary: profileSurfaceSummary,
+                targetSummary: profileTargetSummary,
+                plannedSteps: profilePlannedSteps,
+                preActionWindow: DescribePrimaryWindowFromToolOutput(actionableUiTreeContext));
 
             var invokeArgs = new Dictionary<string, object?> { ["elementPath"] = profileTargetPath };
             var invokeArgsText = JsonSerializer.Serialize(invokeArgs, JsonSerializerOptionsCache.Default);
@@ -271,6 +397,32 @@ internal static class AgentRunner
             if (!invokeResult.IsError)
             {
                 RememberRecentWindowSnapshot(invokeResult.Text);
+            }
+
+            WriteInternalContinuationEvent(
+                invokeResult.IsError
+                    ? "agent.internal_continuation_aborted"
+                    : "agent.internal_continuation_step_completed",
+                continuationId,
+                "netflix_profile_selection",
+                "select_named_target",
+                "assistant_reply_stopped_before_named_profile_activation",
+                assistantResponseText,
+                "select_exact_visible_profile_named_in_user_text",
+                surfaceSummary: profileSurfaceSummary,
+                targetSummary: profileTargetSummary,
+                plannedSteps: profilePlannedSteps,
+                stepIndex: 1,
+                stepAction: "invoke_window_element",
+                stepTargetSummary: profileTargetSummary,
+                result: DebugTrace.Preview(invokeResult.Text, 500),
+                abortReason: invokeResult.IsError ? "invoke_window_element_failed" : null,
+                preActionWindow: DescribePrimaryWindowFromToolOutput(actionableUiTreeContext),
+                postActionWindow: DescribePrimaryWindowFromToolOutput(invokeResult.Text));
+
+            if (invokeResult.IsError)
+            {
+                return false;
             }
 
             messages.Add(new AgentMessage.Assistant(assistantResponseText));
@@ -290,17 +442,68 @@ internal static class AgentRunner
             messages.Add(new AgentMessage.User(
                 "Use the newest compact UI snapshot as the source of truth for the current screen. Any debug-only evidence attached to that snapshot is for inspection, not for the model's answer."));
 
+            WriteInternalContinuationEvent(
+                "agent.internal_continuation_completed",
+                continuationId,
+                "netflix_profile_selection",
+                "select_named_target",
+                "assistant_reply_stopped_before_named_profile_activation",
+                assistantResponseText,
+                "select_exact_visible_profile_named_in_user_text",
+                surfaceSummary: profileSurfaceSummary,
+                targetSummary: profileTargetSummary,
+                plannedSteps: profilePlannedSteps,
+                preActionWindow: DescribePrimaryWindowFromToolOutput(actionableUiTreeContext),
+                postActionWindow: DescribePrimaryWindowFromToolOutput(postActionSnapshot.Text));
+
             return true;
         }
 
         async Task<bool> MaybeContinueNetflixPinEntryAsync(string assistantResponseText)
         {
+            var continuationId = CreateInternalContinuationId("netflix_pin_entry");
+            var actionableUiTreeContext = ResolveActionableUiTreeContext();
+            var preContinuationWindow = DescribePrimaryWindowFromToolOutput(actionableUiTreeContext);
+            var pinWindowVisible = SnapshotLooksLikeNetflixPinWindow(actionableUiTreeContext);
+            var pinFocusVisible = SnapshotLooksLikeNetflixPinFocus(recentFocusContext);
+            var focusedOrdinalBeforeRefresh = TryExtractNetflixPinInputOrdinal(recentFocusContext, out var extractedFocusedOrdinal)
+                ? extractedFocusedOrdinal
+                : (int?)null;
+            var initialPinSurfaceSummary = new Dictionary<string, object?>
+            {
+                ["pinPromptVisible"] = pinWindowVisible || pinFocusVisible,
+                ["pinWindowVisible"] = pinWindowVisible,
+                ["pinFocusVisible"] = pinFocusVisible,
+                ["focusedOrdinal"] = focusedOrdinalBeforeRefresh,
+            };
+
+            WriteInternalContinuationEvent(
+                "agent.internal_continuation_considered",
+                continuationId,
+                "netflix_pin_entry",
+                "enter_sequential_text",
+                "assistant_reply_stopped_before_pin_completion",
+                assistantResponseText,
+                "enter_remaining_profile_pin_digits_provided_by_user",
+                surfaceSummary: initialPinSurfaceSummary,
+                preActionWindow: preContinuationWindow);
+
             if (attemptedNetflixPinAutoFollowThrough)
             {
+                WriteInternalContinuationEvent(
+                    "agent.internal_continuation_skipped",
+                    continuationId,
+                    "netflix_pin_entry",
+                    "enter_sequential_text",
+                    "assistant_reply_stopped_before_pin_completion",
+                    assistantResponseText,
+                    "enter_remaining_profile_pin_digits_provided_by_user",
+                    surfaceSummary: initialPinSurfaceSummary,
+                    skipReason: "already_attempted_this_turn",
+                    preActionWindow: preContinuationWindow);
                 return false;
             }
 
-            var actionableUiTreeContext = ResolveActionableUiTreeContext();
             var effectiveFocusContext = recentFocusContext;
             if (ShouldRefreshNetflixPinFocusBeforeContinuation(actionableUiTreeContext, effectiveFocusContext))
             {
@@ -315,16 +518,64 @@ internal static class AgentRunner
                 }
             }
 
-            if (!TryBuildRemainingNetflixPinDigits(
-                    userText,
-                    actionableUiTreeContext,
-                    effectiveFocusContext,
-                    out var remainingDigits))
+            var hasRemainingDigits = TryBuildNetflixPinContinuation(
+                userText,
+                actionableUiTreeContext,
+                effectiveFocusContext,
+                out var remainingDigits,
+                out var pinSkipReason,
+                out var pinSurfaceSummary);
+            var pinTargetSummary = hasRemainingDigits
+                ? new Dictionary<string, object?>
+                {
+                    ["inputKind"] = "sequential_single_character_boxes",
+                    ["remainingDigitCount"] = remainingDigits.Length,
+                }
+                : null;
+            var pinPlannedSteps = hasRemainingDigits
+                ? new object[]
+                {
+                    new Dictionary<string, object?>
+                    {
+                        ["stepIndex"] = 1,
+                        ["stepAction"] = "type_window_text",
+                        ["stepTargetSummary"] = pinTargetSummary,
+                    }
+                }
+                : null;
+
+            if (!hasRemainingDigits)
             {
+                WriteInternalContinuationEvent(
+                    "agent.internal_continuation_skipped",
+                    continuationId,
+                    "netflix_pin_entry",
+                    "enter_sequential_text",
+                    "assistant_reply_stopped_before_pin_completion",
+                    assistantResponseText,
+                    "enter_remaining_profile_pin_digits_provided_by_user",
+                    surfaceSummary: pinSurfaceSummary,
+                    targetSummary: pinTargetSummary,
+                    plannedSteps: pinPlannedSteps,
+                    skipReason: pinSkipReason,
+                    preActionWindow: preContinuationWindow);
                 return false;
             }
 
             attemptedNetflixPinAutoFollowThrough = true;
+            WriteInternalContinuationEvent(
+                "agent.internal_continuation_started",
+                continuationId,
+                "netflix_pin_entry",
+                "enter_sequential_text",
+                "assistant_reply_stopped_before_pin_completion",
+                assistantResponseText,
+                "enter_remaining_profile_pin_digits_provided_by_user",
+                surfaceSummary: pinSurfaceSummary,
+                targetSummary: pinTargetSummary,
+                plannedSteps: pinPlannedSteps,
+                preActionWindow: preContinuationWindow);
+
             Display.ToolCall("type_window_text", """{"text":"[remaining Netflix PIN digits redacted]"}""");
             var pinResult = await ExecuteStructuredNetflixPinEntryAsync(
                 turnId,
@@ -337,6 +588,31 @@ internal static class AgentRunner
             usedAnyTools = true;
             performedDesktopAction = true;
             lastCompletedToolNameInTurn = "type_window_text";
+
+            WriteInternalContinuationEvent(
+                pinResult.IsError
+                    ? "agent.internal_continuation_aborted"
+                    : "agent.internal_continuation_step_completed",
+                continuationId,
+                "netflix_pin_entry",
+                "enter_sequential_text",
+                "assistant_reply_stopped_before_pin_completion",
+                assistantResponseText,
+                "enter_remaining_profile_pin_digits_provided_by_user",
+                surfaceSummary: pinSurfaceSummary,
+                targetSummary: pinTargetSummary,
+                plannedSteps: pinPlannedSteps,
+                stepIndex: 1,
+                stepAction: "type_window_text",
+                stepTargetSummary: pinTargetSummary,
+                result: DebugTrace.Preview(pinResult.Text, 500),
+                abortReason: pinResult.IsError ? "structured_pin_entry_failed" : null,
+                preActionWindow: preContinuationWindow);
+
+            if (pinResult.IsError)
+            {
+                return false;
+            }
 
             messages.Add(new AgentMessage.Assistant(assistantResponseText));
             messages.Add(new AgentMessage.User(
@@ -354,6 +630,20 @@ internal static class AgentRunner
             }
             messages.Add(new AgentMessage.User(
                 "Use the newest compact UI snapshot as the source of truth for the current screen. Any debug-only evidence attached to that snapshot is for inspection, not for the model's answer."));
+
+            WriteInternalContinuationEvent(
+                "agent.internal_continuation_completed",
+                continuationId,
+                "netflix_pin_entry",
+                "enter_sequential_text",
+                "assistant_reply_stopped_before_pin_completion",
+                assistantResponseText,
+                "enter_remaining_profile_pin_digits_provided_by_user",
+                surfaceSummary: pinSurfaceSummary,
+                targetSummary: pinTargetSummary,
+                plannedSteps: pinPlannedSteps,
+                preActionWindow: preContinuationWindow,
+                postActionWindow: DescribePrimaryWindowFromToolOutput(postActionSnapshot.Text));
 
             return true;
         }
@@ -1008,26 +1298,49 @@ internal static class AgentRunner
                         });
                 }
 
-                if (TryRewriteGenericContainerActionToNamedTarget(
+                if (IsGenericNamedTargetRewriteTool(toolCall.Name))
+                {
+                    var namedTargetRewriteEvaluation = EvaluateGenericContainerActionToNamedTarget(
                         userText,
                         toolCall.Name,
                         executableArgs,
-                        actionableUiTreeContext,
-                        out var rewrittenNamedTargetArgs))
-                {
-                    executableArgs = rewrittenNamedTargetArgs;
-                    effectiveArgumentsText = JsonSerializer.Serialize(executableArgs, JsonSerializerOptionsCache.Default);
+                        actionableUiTreeContext);
                     DebugTrace.WriteStructuredEvent(
-                        "agent.tool_call_arguments_rewritten",
+                        "agent.named_target_rewrite_evaluated",
                         new Dictionary<string, object?>
                         {
                             ["turn"] = turnId,
                             ["toolCallId"] = toolCall.Id,
                             ["tool"] = toolCall.Name,
-                            ["reason"] = "exact_named_visible_target_preferred",
-                            ["originalArgumentsPreview"] = DebugTrace.Preview(toolCall.Arguments, 600),
-                            ["rewrittenArgumentsPreview"] = DebugTrace.Preview(effectiveArgumentsText, 600),
+                            ["userTextPreview"] = DebugTrace.Preview(userText, 500),
+                            ["requestedPath"] = namedTargetRewriteEvaluation.RequestedPath,
+                            ["requestedElementResolved"] = namedTargetRewriteEvaluation.RequestedElementResolved,
+                            ["requestedElementSummary"] = namedTargetRewriteEvaluation.RequestedElementSummary,
+                            ["requiredAction"] = namedTargetRewriteEvaluation.RequiredAction,
+                            ["userRequestedActivation"] = namedTargetRewriteEvaluation.UserRequestedActivation,
+                            ["snapshotContainsProfilePicker"] = namedTargetRewriteEvaluation.SnapshotContainsProfilePicker,
+                            ["matchedPath"] = namedTargetRewriteEvaluation.MatchedPath,
+                            ["matchedElementSummary"] = namedTargetRewriteEvaluation.MatchedElementSummary,
+                            ["rewritten"] = namedTargetRewriteEvaluation.Rewritten,
+                            ["skipReason"] = namedTargetRewriteEvaluation.SkipReason,
                         });
+                    if (namedTargetRewriteEvaluation.Rewritten &&
+                        namedTargetRewriteEvaluation.RewrittenArgs is not null)
+                    {
+                        executableArgs = namedTargetRewriteEvaluation.RewrittenArgs;
+                        effectiveArgumentsText = JsonSerializer.Serialize(executableArgs, JsonSerializerOptionsCache.Default);
+                        DebugTrace.WriteStructuredEvent(
+                            "agent.tool_call_arguments_rewritten",
+                            new Dictionary<string, object?>
+                            {
+                                ["turn"] = turnId,
+                                ["toolCallId"] = toolCall.Id,
+                                ["tool"] = toolCall.Name,
+                                ["reason"] = "exact_named_visible_target_preferred",
+                                ["originalArgumentsPreview"] = DebugTrace.Preview(toolCall.Arguments, 600),
+                                ["rewrittenArgumentsPreview"] = DebugTrace.Preview(effectiveArgumentsText, 600),
+                            });
+                    }
                 }
 
                 if (TryRewriteBrowserSearchFieldValueEntryToTyping(
@@ -2551,7 +2864,7 @@ internal static class AgentRunner
             : title;
     }
 
-    internal static string? DescribePrimaryWindowFromToolOutput(string toolOutputText)
+    internal static string? DescribePrimaryWindowFromToolOutput(string? toolOutputText)
     {
         if (TryGetWindowProperty(toolOutputText, "selectedWindow", out var selectedWindow) &&
             selectedWindow.ValueKind == JsonValueKind.Object)
@@ -3261,63 +3574,146 @@ internal static class AgentRunner
         string? recentWindowContext,
         out Dictionary<string, object?> rewrittenArgs)
     {
-        rewrittenArgs = new Dictionary<string, object?>(StringComparer.Ordinal);
-        if (toolName is not "click_window_element"
-            and not "invoke_window_element"
-            and not "focus_window_element")
-        {
-            return false;
-        }
+        var evaluation = EvaluateGenericContainerActionToNamedTarget(
+            userText,
+            toolName,
+            args,
+            recentWindowContext);
+        rewrittenArgs = evaluation.RewrittenArgs is null
+            ? new Dictionary<string, object?>(StringComparer.Ordinal)
+            : new Dictionary<string, object?>(evaluation.RewrittenArgs, StringComparer.Ordinal);
+        return evaluation.Rewritten;
+    }
 
-        var elementPath = TryGetStringArgument(args, "elementPath") ?? TryGetStringArgument(args, "uiPath");
-        JsonElement requestedElement = default;
-        var hasRequestedElement =
-            !string.IsNullOrWhiteSpace(elementPath) &&
-            TryFindElementByPath(recentWindowContext, elementPath, out requestedElement);
-        if (string.IsNullOrWhiteSpace(elementPath) && string.IsNullOrWhiteSpace(recentWindowContext))
-        {
-            return false;
-        }
-
+    internal static NamedTargetRewriteEvaluation EvaluateGenericContainerActionToNamedTarget(
+        string userText,
+        string toolName,
+        IReadOnlyDictionary<string, object?> args,
+        string? recentWindowContext)
+    {
+        var requestedPath = TryGetStringArgument(args, "elementPath") ?? TryGetStringArgument(args, "uiPath");
         var requiredAction = toolName switch
         {
             "focus_window_element" => "focus",
             "invoke_window_element" => "invoke",
             _ => null
         };
+        var userRequestedActivation = UserRequestLooksLikeActivation(userText);
+
+        JsonElement elementTree = default;
+        JsonElement requestedElement = default;
+        JsonElement matchedElement = default;
+        var hasSnapshotTree = false;
+        var hasRequestedElement = false;
+        var snapshotContainsProfilePicker = false;
+
+        if (!string.IsNullOrWhiteSpace(recentWindowContext))
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(recentWindowContext);
+                if (TryGetSnapshotTree(document.RootElement, out elementTree))
+                {
+                    hasSnapshotTree = true;
+                    snapshotContainsProfilePicker = SnapshotContainsVisibleProfilePicker(elementTree);
+                    hasRequestedElement =
+                        !string.IsNullOrWhiteSpace(requestedPath) &&
+                        TryFindElementByPath(elementTree, requestedPath, out requestedElement);
+                }
+            }
+            catch
+            {
+                hasSnapshotTree = false;
+            }
+        }
+
+        var requestedElementSummary = hasRequestedElement
+            ? CreateElementTraceSummary(requestedElement)
+            : null;
+
+        NamedTargetRewriteEvaluation Skip(string skipReason, string? matchedPath = null, IReadOnlyDictionary<string, object?>? matchedElementSummary = null)
+            => new(
+                requestedPath,
+                hasRequestedElement,
+                requestedElementSummary,
+                requiredAction,
+                userRequestedActivation,
+                snapshotContainsProfilePicker,
+                matchedPath,
+                matchedElementSummary,
+                false,
+                skipReason,
+                null);
+
+        if (!IsGenericNamedTargetRewriteTool(toolName))
+        {
+            return Skip("unsupported_tool");
+        }
+
+        if (string.IsNullOrWhiteSpace(recentWindowContext))
+        {
+            return Skip("missing_window_snapshot");
+        }
+
+        if (!hasSnapshotTree)
+        {
+            return Skip("invalid_window_snapshot");
+        }
+
+        if (!userRequestedActivation)
+        {
+            return Skip("activation_intent_missing");
+        }
 
         if (hasRequestedElement &&
             ElementAlreadyLooksLikeRequestedNamedTarget(requestedElement, userText, requiredAction))
         {
-            return false;
+            return Skip("requested_target_already_specific");
         }
 
         if (hasRequestedElement &&
-            ShouldPreserveExplicitRootInvocation(toolName, elementPath, requestedElement))
+            ShouldPreserveExplicitRootInvocation(toolName, requestedPath, requestedElement))
         {
-            return false;
+            return Skip("explicit_root_invocation_preserved");
         }
 
         if (!TryFindUniqueNamedActionTargetFromUserText(
-                recentWindowContext,
+                elementTree,
                 userText,
                 requiredAction,
                 out var matchedPath,
-                preferredAncestorPath: hasRequestedElement ? elementPath : null))
+                preferredAncestorPath: hasRequestedElement ? requestedPath : null))
         {
-            return false;
+            return Skip("no_named_visible_target_match");
+        }
+
+        IReadOnlyDictionary<string, object?>? matchedElementSummary = null;
+        if (TryFindElementByPath(elementTree, matchedPath, out matchedElement))
+        {
+            matchedElementSummary = CreateElementTraceSummary(matchedElement);
         }
 
         if (hasRequestedElement &&
-            string.Equals(matchedPath, elementPath, StringComparison.OrdinalIgnoreCase))
+            string.Equals(matchedPath, requestedPath, StringComparison.OrdinalIgnoreCase))
         {
-            return false;
+            return Skip("matched_requested_path", matchedPath, matchedElementSummary);
         }
 
-        rewrittenArgs = CloneArguments(args);
+        var rewrittenArgs = CloneArguments(args);
         rewrittenArgs["elementPath"] = matchedPath;
         rewrittenArgs.Remove("uiPath");
-        return true;
+        return new NamedTargetRewriteEvaluation(
+            requestedPath,
+            hasRequestedElement,
+            requestedElementSummary,
+            requiredAction,
+            userRequestedActivation,
+            snapshotContainsProfilePicker,
+            matchedPath,
+            matchedElementSummary,
+            true,
+            null,
+            rewrittenArgs);
     }
 
     private static bool ShouldPreserveExplicitRootInvocation(
@@ -3329,6 +3725,11 @@ internal static class AgentRunner
                string.Equals(elementPath, "root", StringComparison.OrdinalIgnoreCase) &&
                ElementHasAction(requestedElement, "close");
     }
+
+    private static bool IsGenericNamedTargetRewriteTool(string toolName)
+        => toolName is "click_window_element"
+            or "invoke_window_element"
+            or "focus_window_element";
 
     private static async Task<ToolCallOutcome> ExecuteStructuredNetflixPinEntryAsync(
         long turnId,
@@ -3699,30 +4100,82 @@ internal static class AgentRunner
         string? recentWindowContext,
         out string matchedPath)
     {
+        return TryBuildNetflixProfileSelectionContinuation(
+            userText,
+            recentWindowContext,
+            out matchedPath,
+            out _,
+            out _,
+            out _);
+    }
+
+    internal static bool TryBuildNetflixProfileSelectionContinuation(
+        string userText,
+        string? recentWindowContext,
+        out string matchedPath,
+        out string skipReason,
+        out Dictionary<string, object?> surfaceSummary,
+        out IReadOnlyDictionary<string, object?>? targetSummary)
+    {
         matchedPath = string.Empty;
-        if (!UserRequestLooksLikeProfileSelection(userText) ||
-            string.IsNullOrWhiteSpace(recentWindowContext))
+        skipReason = "unknown";
+        targetSummary = null;
+        surfaceSummary = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
+            ["profilePickerVisible"] = false,
+            ["window"] = DescribePrimaryWindowFromToolOutput(recentWindowContext),
+        };
+
+        if (string.IsNullOrWhiteSpace(recentWindowContext))
+        {
+            skipReason = "missing_window_snapshot";
+            return false;
+        }
+
+        if (!UserRequestLooksLikeProfileSelection(userText))
+        {
+            skipReason = "request_not_explicit_profile_selection";
             return false;
         }
 
         try
         {
             using var document = JsonDocument.Parse(recentWindowContext);
-            if (!TryGetSnapshotTree(document.RootElement, out var elementTree) ||
-                !SnapshotContainsVisibleProfilePicker(elementTree))
+            if (!TryGetSnapshotTree(document.RootElement, out var elementTree))
             {
+                skipReason = "invalid_window_snapshot";
                 return false;
             }
 
-            return TryFindUniqueNamedActionTargetFromUserText(
-                recentWindowContext,
-                userText,
-                "invoke",
-                out matchedPath);
+            var profilePickerVisible = SnapshotContainsVisibleProfilePicker(elementTree);
+            surfaceSummary["profilePickerVisible"] = profilePickerVisible;
+            if (!profilePickerVisible)
+            {
+                skipReason = "profile_picker_not_visible";
+                return false;
+            }
+
+            if (!TryFindUniqueNamedActionTargetFromUserText(
+                    elementTree,
+                    userText,
+                    "invoke",
+                    out matchedPath))
+            {
+                skipReason = "no_exact_visible_profile_match";
+                return false;
+            }
+
+            if (TryFindElementByPath(elementTree, matchedPath, out var matchedElement))
+            {
+                targetSummary = CreateElementTraceSummary(matchedElement);
+            }
+
+            skipReason = string.Empty;
+            return true;
         }
         catch
         {
+            skipReason = "invalid_window_snapshot";
             return false;
         }
     }
@@ -3761,6 +4214,58 @@ internal static class AgentRunner
 
         remainingDigits = fullDigits[nextDigitIndex..];
         return remainingDigits.Length > 0;
+    }
+
+    internal static bool TryBuildNetflixPinContinuation(
+        string userText,
+        string? recentWindowContext,
+        string? recentFocusContext,
+        out string remainingDigits,
+        out string skipReason,
+        out Dictionary<string, object?> surfaceSummary)
+    {
+        remainingDigits = string.Empty;
+        var pinWindowVisible = SnapshotLooksLikeNetflixPinWindow(recentWindowContext);
+        var pinFocusVisible = SnapshotLooksLikeNetflixPinFocus(recentFocusContext);
+        var focusedOrdinal = TryExtractNetflixPinInputOrdinal(recentFocusContext, out var extractedFocusedOrdinal)
+            ? extractedFocusedOrdinal
+            : (int?)null;
+        surfaceSummary = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["pinPromptVisible"] = pinWindowVisible || pinFocusVisible,
+            ["pinWindowVisible"] = pinWindowVisible,
+            ["pinFocusVisible"] = pinFocusVisible,
+            ["focusedOrdinal"] = focusedOrdinal,
+            ["window"] = DescribePrimaryWindowFromToolOutput(recentWindowContext),
+        };
+
+        if (!TryExtractRequestedPinDigitsFromUserText(userText, out _))
+        {
+            skipReason = "no_pin_digits_in_user_text";
+            return false;
+        }
+
+        if (!(pinWindowVisible || pinFocusVisible))
+        {
+            skipReason = "pin_prompt_not_visible";
+            return false;
+        }
+
+        if (!TryBuildRemainingNetflixPinDigits(
+                userText,
+                recentWindowContext,
+                recentFocusContext,
+                out remainingDigits))
+        {
+            skipReason = focusedOrdinal is not null
+                ? "no_remaining_pin_digits"
+                : "remaining_pin_digits_unavailable";
+            return false;
+        }
+
+        surfaceSummary["remainingDigitCount"] = remainingDigits.Length;
+        skipReason = string.Empty;
+        return true;
     }
 
     internal static bool ShouldRefreshNetflixPinFocusBeforeContinuation(
@@ -4710,6 +5215,32 @@ internal static class AgentRunner
         }
     }
 
+    private static IReadOnlyDictionary<string, object?> CreateElementTraceSummary(JsonElement element)
+    {
+        string[]? availableActions = null;
+        if (TryGetJsonProperty(element, "availableActions", out var actionsElement) &&
+            actionsElement.ValueKind == JsonValueKind.Array)
+        {
+            availableActions = actionsElement
+                .EnumerateArray()
+                .Where(actionElement => actionElement.ValueKind == JsonValueKind.String)
+                .Select(actionElement => actionElement.GetString())
+                .Where(action => !string.IsNullOrWhiteSpace(action))
+                .Cast<string>()
+                .ToArray();
+        }
+
+        return new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["path"] = TryGetJsonStringProperty(element, "path") ?? TryGetJsonStringProperty(element, "uiPath"),
+            ["name"] = TryGetJsonStringProperty(element, "name"),
+            ["controlType"] = TryGetJsonStringProperty(element, "controlType"),
+            ["className"] = TryGetJsonStringProperty(element, "className"),
+            ["automationId"] = TryGetJsonStringProperty(element, "automationId"),
+            ["availableActions"] = availableActions,
+        };
+    }
+
     private static bool TryFindUniqueNamedActionTargetFromUserText(
         string? snapshotText,
         string userText,
@@ -4732,40 +5263,51 @@ internal static class AgentRunner
                 return false;
             }
 
-            var candidateMatches = new List<NamedActionTargetCandidate>();
-            if (!string.IsNullOrWhiteSpace(preferredAncestorPath) &&
-                TryFindElementByPath(elementTree, preferredAncestorPath, out var preferredAncestor))
-            {
-                CollectNamedActionTargetCandidatesFromUserText(
-                    preferredAncestor,
-                    userText,
-                    requiredAction,
-                    candidateMatches);
-
-                if (TryChooseBestNamedActionTargetCandidate(candidateMatches, out matchedPath))
-                {
-                    return true;
-                }
-
-                candidateMatches.Clear();
-            }
-
-            CollectNamedActionTargetCandidatesFromUserText(
+            return TryFindUniqueNamedActionTargetFromUserText(
                 elementTree,
                 userText,
                 requiredAction,
-                candidateMatches);
-            if (!TryChooseBestNamedActionTargetCandidate(candidateMatches, out matchedPath))
-            {
-                return false;
-            }
-
-            return true;
+                out matchedPath,
+                preferredAncestorPath);
         }
         catch
         {
             return false;
         }
+    }
+
+    private static bool TryFindUniqueNamedActionTargetFromUserText(
+        JsonElement elementTree,
+        string userText,
+        string? requiredAction,
+        out string matchedPath,
+        string? preferredAncestorPath = null)
+    {
+        matchedPath = string.Empty;
+        var candidateMatches = new List<NamedActionTargetCandidate>();
+        if (!string.IsNullOrWhiteSpace(preferredAncestorPath) &&
+            TryFindElementByPath(elementTree, preferredAncestorPath, out var preferredAncestor))
+        {
+            CollectNamedActionTargetCandidatesFromUserText(
+                preferredAncestor,
+                userText,
+                requiredAction,
+                candidateMatches);
+
+            if (TryChooseBestNamedActionTargetCandidate(candidateMatches, out matchedPath))
+            {
+                return true;
+            }
+
+            candidateMatches.Clear();
+        }
+
+        CollectNamedActionTargetCandidatesFromUserText(
+            elementTree,
+            userText,
+            requiredAction,
+            candidateMatches);
+        return TryChooseBestNamedActionTargetCandidate(candidateMatches, out matchedPath);
     }
 
     private static void CollectNamedActionTargetCandidatesFromUserText(
@@ -5268,7 +5810,7 @@ internal static class AgentRunner
         }
     }
 
-    private static bool TryGetWindowProperty(string toolOutputText, string propertyName, out JsonElement window)
+    private static bool TryGetWindowProperty(string? toolOutputText, string propertyName, out JsonElement window)
     {
         window = default;
         if (string.IsNullOrWhiteSpace(toolOutputText))
@@ -5511,16 +6053,17 @@ internal static class AgentRunner
             return false;
         }
 
-        return userText.Contains("select", StringComparison.OrdinalIgnoreCase)
-               || userText.Contains("choose", StringComparison.OrdinalIgnoreCase)
-               || userText.Contains("pick", StringComparison.OrdinalIgnoreCase)
-               || userText.Contains("open", StringComparison.OrdinalIgnoreCase)
-               || userText.Contains("click", StringComparison.OrdinalIgnoreCase)
-               || userText.Contains("invoke", StringComparison.OrdinalIgnoreCase)
-               || userText.Contains("press", StringComparison.OrdinalIgnoreCase)
-               || userText.Contains("play", StringComparison.OrdinalIgnoreCase)
-               || userText.Contains("watch", StringComparison.OrdinalIgnoreCase)
-               || userText.Contains("go to", StringComparison.OrdinalIgnoreCase);
+        var normalized = NormalizeForNameMatching(userText);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return false;
+        }
+
+        return Regex.IsMatch(
+            normalized,
+            @"\b(select|choose|pick|open|click|invoke|press|play|watch)\b",
+            RegexOptions.CultureInvariant)
+               || normalized.Contains(" go to ", StringComparison.Ordinal);
     }
 
     private static bool UserRequestLooksLikeProfileSelection(string userText)
@@ -5530,8 +6073,25 @@ internal static class AgentRunner
             return false;
         }
 
-        return userText.Contains("profile", StringComparison.OrdinalIgnoreCase)
-               && UserRequestLooksLikeActivation(userText);
+        var normalized = NormalizeForNameMatching(userText);
+        if (string.IsNullOrWhiteSpace(normalized) ||
+            !normalized.Contains("profile", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (Regex.IsMatch(
+                normalized,
+                @"\b(select|choose|pick|click|tap|invoke)\b",
+                RegexOptions.CultureInvariant))
+        {
+            return true;
+        }
+
+        return Regex.IsMatch(
+            normalized,
+            @"\bopen\s+(?:the\s+)?(?:[a-z0-9]+\s+){0,2}profile\b",
+            RegexOptions.CultureInvariant);
     }
 
     private static bool TryExtractRequestedPinDigitsFromUserText(string userText, out string digits)
@@ -5572,6 +6132,19 @@ internal static class AgentRunner
         int NameMatchScore,
         int Specificity,
         int PathDepth);
+
+    internal sealed record NamedTargetRewriteEvaluation(
+        string? RequestedPath,
+        bool RequestedElementResolved,
+        IReadOnlyDictionary<string, object?>? RequestedElementSummary,
+        string? RequiredAction,
+        bool UserRequestedActivation,
+        bool SnapshotContainsProfilePicker,
+        string? MatchedPath,
+        IReadOnlyDictionary<string, object?>? MatchedElementSummary,
+        bool Rewritten,
+        string? SkipReason,
+        Dictionary<string, object?>? RewrittenArgs);
 
 }
 
