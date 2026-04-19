@@ -27,6 +27,8 @@ internal sealed class CompactSnapshotResponse
 
     public required CompactUiNode CompactTree { get; init; }
 
+    public required LlmUiNode LlmTree { get; init; }
+
     public CompactRenderedImage? RenderedImage { get; init; }
 }
 
@@ -77,6 +79,23 @@ internal sealed class CompactUiNode
     public ElementBounds? Bounds { get; init; }
 
     public IReadOnlyList<CompactUiNode>? Children { get; init; }
+}
+
+internal sealed class LlmUiNode
+{
+    public required string UiPath { get; init; }
+
+    public required string ControlType { get; init; }
+
+    public string? Name { get; init; }
+
+    public string? AutomationId { get; init; }
+
+    public IReadOnlyList<string>? State { get; init; }
+
+    public IReadOnlyList<string>? AvailableActions { get; init; }
+
+    public IReadOnlyList<LlmUiNode>? Children { get; init; }
 }
 
 internal static class CompactUiSnapshotBuilder
@@ -147,6 +166,7 @@ internal static class CompactUiSnapshotBuilder
         var keep = SelectNodes(root, nodes, focusMode);
         var compactTree = BuildCompactNode(root, keep)
                           ?? throw new InvalidOperationException("The compact tree root could not be built.");
+        var llmTree = BuildLlmNode(compactTree);
         var keptNodeCount = CountCompactNodes(compactTree);
         CompactRenderedImage? renderedImage = null;
         if (includeImage)
@@ -165,6 +185,7 @@ internal static class CompactUiSnapshotBuilder
                 AlgorithmVersion = AlgorithmVersion,
             },
             CompactTree = compactTree,
+            LlmTree = llmTree,
             RenderedImage = renderedImage,
         };
     }
@@ -363,6 +384,61 @@ internal static class CompactUiSnapshotBuilder
 
         return count;
     }
+
+    private static LlmUiNode BuildLlmNode(CompactUiNode node)
+    {
+        var children = node.Children?
+            .Select(BuildLlmNode)
+            .ToArray();
+        var state = BuildLlmState(node);
+        return new LlmUiNode
+        {
+            UiPath = node.UiPath,
+            ControlType = node.ControlType,
+            Name = node.Name,
+            AutomationId = ShouldIncludeLlmAutomationId(node) ? node.AutomationId : null,
+            State = state,
+            AvailableActions = node.AvailableActions,
+            Children = children is { Length: > 0 } ? children : null,
+        };
+    }
+
+    private static IReadOnlyList<string>? BuildLlmState(CompactUiNode node)
+    {
+        List<string>? state = null;
+
+        void AddState(string value)
+        {
+            state ??= [];
+            state.Add(value);
+        }
+
+        if (node.HasKeyboardFocus == true)
+        {
+            AddState("focused");
+        }
+
+        if (node.IsSelected == true)
+        {
+            AddState("selected");
+        }
+
+        if (node.IsKeyboardFocusable == true)
+        {
+            AddState("focusable");
+        }
+
+        if (node.IsOffscreen == true)
+        {
+            AddState("offscreen");
+        }
+
+        return state;
+    }
+
+    private static bool ShouldIncludeLlmAutomationId(CompactUiNode node)
+        => string.IsNullOrWhiteSpace(node.Name) &&
+           !string.IsNullOrWhiteSpace(node.AutomationId);
 
     private static bool ShouldIncludeElement(NodeInfo node, bool focusMode)
     {

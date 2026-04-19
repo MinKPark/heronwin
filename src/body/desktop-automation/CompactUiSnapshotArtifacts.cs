@@ -160,6 +160,7 @@ internal static class CompactUiSnapshotArtifactRenderer
                 Window = response.Window,
                 SourceStats = response.SourceStats,
                 CompactTree = response.CompactTree,
+                LlmTree = response.LlmTree,
                 RenderedImage = new CompactRenderedImage
                 {
                     ImagePath = compactImagePath,

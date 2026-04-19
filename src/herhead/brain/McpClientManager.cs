@@ -389,7 +389,6 @@ internal sealed class McpClientManager : IAsyncDisposable
         {
             case "describe_window_compact":
                 shadowToolName = "describe_window";
-                shadowArguments.Remove("budgetHintChars");
                 shadowArguments.Remove("includeImage");
                 shadowArguments.Remove("maxDepth");
                 shadowArguments["fullDepth"] = true;
@@ -397,7 +396,6 @@ internal sealed class McpClientManager : IAsyncDisposable
 
             case "describe_window_focus_compact":
                 shadowToolName = "describe_window_focus";
-                shadowArguments.Remove("budgetHintChars");
                 shadowArguments.Remove("includeImage");
                 shadowArguments["maxDepth"] = 4;
                 return true;

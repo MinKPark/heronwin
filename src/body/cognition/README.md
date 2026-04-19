@@ -9,10 +9,10 @@ Stateless Windows UI inspection MCP server for `heronwin`.
 | `list_windows` | List visible top-level windows on the current desktop |
 | `list_taskbar_items` | List visible items on the main Windows taskbar |
 | `describe_window` | Return a structured UI Automation tree for a window |
-| `describe_window_compact` | Return a retained compact tree plus source stats, with optional rendered-image metadata |
+| `describe_window_compact` | Return a retained compact tree, an `llmTree` projection, source stats, and optional rendered-image metadata |
 | `capture_window_screenshot` | Capture a PNG screenshot of a window |
 | `describe_window_focus` | Describe the currently focused element in a window |
-| `describe_window_focus_compact` | Return a retained compact focus tree plus source stats, with optional rendered-image metadata |
+| `describe_window_focus_compact` | Return a retained compact focus tree, an `llmTree` projection, source stats, and optional rendered-image metadata |
 | `list_window_main_menu_items` | List visible main-menu sections and items |
 | `list_window_context_menu_items` | Open and inspect the current context menu |
 

@@ -12,7 +12,10 @@ screen.
 
 The plan keeps the existing raw inspection tools for debugging and manual
 inspection, then adds new compact inspection tools that are intended to become
-the model-facing path used by `brain`.
+the model-facing path used by `brain`. The compact response now carries two
+tree-shaped views over the same retained nodes: a richer `compactTree` for
+runtime/debugging and a slim `llmTree` projection that `brain` can pass to the
+LLM.
 
 ## Goals
 
@@ -43,6 +46,10 @@ the model-facing path used by `brain`.
   `availableActions`, and `bounds`.
 - `brain` already supports vision inputs and scripted scenario execution, which
   makes it the right place for opt-in evaluation against screenshots.
+- `describe_window_focus*` snapshots intentionally have different `path` and
+  `uiPath` values: `path` is rooted at the focused subtree while `uiPath`
+  remains rooted at the actual window, which makes `uiPath` the safer
+  model-facing identifier for later execution.
 
 ## Decisions
 
@@ -62,24 +69,34 @@ the model-facing path used by `brain`.
   - `window`
   - `sourceStats`
   - `compactTree`
+  - `llmTree`
   - optional rendered image metadata when image rendering is requested
 - `sourceStats` includes:
   - `sourceNodeCount`
   - `keptNodeCount`
   - `omittedNodeCount`
   - `algorithmVersion`
-  - `budgetHintChars`
 
 ### Parameters
 
-- Add `budgetHintChars` to the new compact tools.
-  - `brain` supplies this from the active `LlmModelProfile`.
-  - when omitted, cognition uses a server default aligned with current standard
-    budgets.
 - Add `includeImage` to the new compact tools.
   - default `false`
   - when `true`, the tool emits a rendered compact-tree image plus image path
     metadata in the response
+
+### Tree roles
+
+- `compactTree` is the retained runtime/debug tree.
+  - keep rich fields needed for rendering, debugging, and action-time
+    validation
+  - preserve both `path` and `uiPath`
+- `llmTree` is a projection of `compactTree`, not a second independent
+  compaction pass.
+  - use `uiPath` as the stable model-facing identifier
+  - omit fields that mostly matter for diagnostics rather than model reasoning
+  - stay tree-shaped so the model still sees containment and nearby context
+- The two trees must refer to the same retained node set so model choices can
+  be resolved against the richer compact response without ambiguity.
 
 ### Migration shape
 
@@ -128,12 +145,10 @@ the model-facing path used by `brain`.
 - Precompute node features once instead of repeatedly reading the same fields.
 - Replace repeated full child sorting with a bounded priority-selection
   approach.
-- Track estimated output size while building the compact tree so the algorithm
-  stops growing once the response is near the requested budget.
 - Keep ancestor chains automatically so deep retained nodes remain
   understandable without extra backtracking passes.
 - Serialize compact responses without indentation to reduce payload size and
-  avoid wasted budget.
+  avoid wasted bytes.
 
 ### 3. Define the compact-tree output
 
@@ -148,6 +163,21 @@ the model-facing path used by `brain`.
   siblings to preserve recognition quality around retained targets.
 - The compact response should be usable both by `brain` and by offline
   render/evaluation tooling without requiring the original raw tree.
+- `llmTree` is derived from the retained `compactTree` nodes and should default
+  to:
+  - `uiPath`
+  - `controlType`
+  - `name`
+  - `availableActions`
+  - `children`
+- `llmTree` may also include small, high-signal extras when present:
+  - compact state flags such as focused, selected, focusable, or offscreen
+  - `automationId` only when `name` is empty or unusually weak
+  - omission metadata such as `omittedChildren` when it helps the model reason
+    about truncated local context
+- `llmTree` should not include `path` by default because `path` is relative in
+  focus snapshots and can point at a different root than the later execution
+  tools expect.
 
 ### 4. Render the compact tree to an image
 
@@ -169,8 +199,9 @@ the model-facing path used by `brain`.
 - Update normal model-facing UI-context paths in `brain` to call:
   - `describe_window_compact`
   - `describe_window_focus_compact`
-- Pass `budgetHintChars` from the active `LlmModelProfile`.
 - Cache the compact JSON result in the existing UI/focus context slots.
+- Send `llmTree` to the model for ordinary UI reasoning, while keeping
+  `compactTree` available for validation, rendering, and debug shadow work.
 - Keep raw describe tools available for:
   - explicit debugging
   - parity comparison
@@ -216,10 +247,14 @@ the model-facing path used by `brain`.
 - Port current `UiSnapshotCompactor` test coverage to the new typed compaction
   engine.
 - Add compact-tool contract tests for:
-  - `budgetHintChars`
+  - presence and shape of `llmTree`
   - `includeImage`
   - image metadata fields
   - compact JSON shape
+- Add projection tests to verify:
+  - `llmTree` uses `uiPath`
+  - focus snapshots do not leak relative `path` values into model-facing nodes
+  - `llmTree` stays aligned with the retained `compactTree` node set
 - Add renderer tests to verify:
   - nonblank output
   - expected canvas sizing
@@ -243,11 +278,12 @@ the model-facing path used by `brain`.
 
 1. Add the typed compaction engine and compact response model.
 2. Add `describe_window_compact` and `describe_window_focus_compact`.
-3. Add compact-tree image rendering behind `includeImage`.
-4. Switch `brain` to use the compact tools for normal model-facing UI context.
-5. Add the opt-in screenshot-vs-compact evaluation harness.
-6. Run parity checks, benchmarks, and manual evals.
-7. Remove the old local `UiSnapshotCompactor` once the new path is proven.
+3. Add `llmTree` as a projection of the retained compact tree.
+4. Add compact-tree image rendering behind `includeImage`.
+5. Switch `brain` to use the compact tools for normal model-facing UI context.
+6. Add the opt-in screenshot-vs-compact evaluation harness.
+7. Run parity checks, benchmarks, and manual evals.
+8. Remove the old local `UiSnapshotCompactor` once the new path is proven.
 
 ## Assumptions
 

@@ -238,7 +238,7 @@ internal static class AgentRunner
                 desktopSession.CurrentWindowTitle = windowTitle;
             }
 
-            currentUiElementContext = snapshotText;
+            currentUiElementContext = GetCompactSnapshotModelContext(snapshotText);
             currentFocusElementContext = null;
             SyncDesktopSession();
         }
@@ -256,7 +256,7 @@ internal static class AgentRunner
                 desktopSession.CurrentWindowTitle = windowTitle;
             }
 
-            currentFocusElementContext = snapshotText;
+            currentFocusElementContext = GetCompactSnapshotModelContext(snapshotText);
             SyncDesktopSession();
         }
 
@@ -2985,7 +2985,7 @@ internal static class AgentRunner
 
             if (toolName is "describe_window_compact" or "describe_window_focus_compact")
             {
-                return toolText;
+                return GetCompactSnapshotModelContext(toolText);
             }
 
             if (ShouldUseStoredUiElementContextForToolResult(toolName) &&
@@ -2996,6 +2996,64 @@ internal static class AgentRunner
         }
 
         return toolText;
+    }
+
+    private static string GetCompactSnapshotModelContext(string snapshotText)
+        => TryBuildCompactSnapshotModelContext(snapshotText, out var modelContext)
+            ? modelContext
+            : snapshotText;
+
+    private static bool TryBuildCompactSnapshotModelContext(
+        string? snapshotText,
+        out string modelContext)
+    {
+        modelContext = string.Empty;
+        if (string.IsNullOrWhiteSpace(snapshotText))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(snapshotText);
+            var root = document.RootElement;
+            if (!TryGetJsonProperty(root, "llmTree", out var llmTree) ||
+                llmTree.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            using var stream = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(stream))
+            {
+                writer.WriteStartObject();
+
+                if (TryGetJsonProperty(root, "window", out var window) &&
+                    window.ValueKind == JsonValueKind.Object)
+                {
+                    writer.WritePropertyName("window");
+                    window.WriteTo(writer);
+                }
+
+                if (TryGetJsonProperty(root, "sourceStats", out var sourceStats) &&
+                    sourceStats.ValueKind == JsonValueKind.Object)
+                {
+                    writer.WritePropertyName("sourceStats");
+                    sourceStats.WriteTo(writer);
+                }
+
+                writer.WritePropertyName("llmTree");
+                llmTree.WriteTo(writer);
+                writer.WriteEndObject();
+            }
+
+            modelContext = Encoding.UTF8.GetString(stream.ToArray());
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     internal static bool ShouldUseStoredUiElementContextForToolResult(string toolName)

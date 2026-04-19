@@ -156,6 +156,7 @@ public sealed class CompactUiSnapshotArtifactRendererTests
 
             var compactJson = File.ReadAllText(artifact.CompactJsonPath);
             Assert.Contains("\"compactTree\"", compactJson, StringComparison.Ordinal);
+            Assert.Contains("\"llmTree\"", compactJson, StringComparison.Ordinal);
             Assert.Contains("Min", compactJson, StringComparison.Ordinal);
         }
         finally

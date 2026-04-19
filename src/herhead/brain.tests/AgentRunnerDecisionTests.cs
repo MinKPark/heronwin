@@ -1600,11 +1600,14 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
-    public void ResolveToolResultContextForModel_ReturnsCompactToolText_ForCompactDescribeTool()
+    public void ResolveToolResultContextForModel_ReturnsLlmProjection_ForCompactDescribeTool()
     {
         var profile = LlmModelProfiles.Create(LlmProviderId.OpenAiApi, "gpt-5.4-mini");
         const string compactToolText = """
-        {"window":{"handle":"0x0033061A","title":"Netflix"},"sourceStats":{"sourceNodeCount":12,"keptNodeCount":4,"omittedNodeCount":8,"algorithmVersion":"compact-tree-v1"},"compactTree":{"path":"root","uiPath":"root","controlType":"Window","name":"Netflix"}}
+        {"window":{"handle":"0x0033061A","title":"Netflix"},"sourceStats":{"sourceNodeCount":12,"keptNodeCount":4,"omittedNodeCount":8,"algorithmVersion":"compact-tree-v1"},"compactTree":{"path":"root","uiPath":"root","controlType":"Window","name":"Netflix"},"llmTree":{"uiPath":"root","controlType":"Window","name":"Netflix"}}
+        """;
+        const string expectedModelContext = """
+        {"window":{"handle":"0x0033061A","title":"Netflix"},"sourceStats":{"sourceNodeCount":12,"keptNodeCount":4,"omittedNodeCount":8,"algorithmVersion":"compact-tree-v1"},"llmTree":{"uiPath":"root","controlType":"Window","name":"Netflix"}}
         """;
 
         var actual = AgentRunner.ResolveToolResultContextForModel(
@@ -1615,7 +1618,7 @@ public sealed class AgentRunnerDecisionTests
             currentFocusElementContext: null,
             profile);
 
-        Assert.Equal(compactToolText, actual);
+        Assert.Equal(expectedModelContext, actual);
     }
 
     [Fact]

@@ -99,7 +99,6 @@ public sealed class McpClientManagerTests
         var args = new Dictionary<string, object?>
         {
             ["windowHandle"] = "0x00123456",
-            ["budgetHintChars"] = 7200,
             ["includeImage"] = true,
         };
 
@@ -113,7 +112,6 @@ public sealed class McpClientManagerTests
         Assert.Equal("describe_window", shadowTool);
         Assert.Equal("0x00123456", shadowArgs["windowHandle"]);
         Assert.Equal(true, shadowArgs["fullDepth"]);
-        Assert.DoesNotContain("budgetHintChars", shadowArgs.Keys, StringComparer.Ordinal);
         Assert.DoesNotContain("includeImage", shadowArgs.Keys, StringComparer.Ordinal);
     }
 
@@ -123,7 +121,6 @@ public sealed class McpClientManagerTests
         var args = new Dictionary<string, object?>
         {
             ["windowHandle"] = "0x00123456",
-            ["budgetHintChars"] = 3600,
             ["includeImage"] = false,
         };
 
@@ -137,7 +134,6 @@ public sealed class McpClientManagerTests
         Assert.Equal("describe_window_focus", shadowTool);
         Assert.Equal("0x00123456", shadowArgs["windowHandle"]);
         Assert.Equal(4, shadowArgs["maxDepth"]);
-        Assert.DoesNotContain("budgetHintChars", shadowArgs.Keys, StringComparer.Ordinal);
         Assert.DoesNotContain("includeImage", shadowArgs.Keys, StringComparer.Ordinal);
     }
 

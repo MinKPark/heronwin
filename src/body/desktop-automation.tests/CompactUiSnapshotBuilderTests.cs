@@ -64,6 +64,7 @@ public sealed class CompactUiSnapshotBuilderTests
         var json = CompactUiSnapshotJson.Serialize(response);
 
         Assert.Contains("\"compactTree\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"llmTree\"", json, StringComparison.Ordinal);
         Assert.Contains("Address and search bar", json, StringComparison.Ordinal);
         Assert.Contains("watching?", json, StringComparison.Ordinal);
         Assert.Contains("Boyfriend on Demand", json, StringComparison.Ordinal);
@@ -100,6 +101,37 @@ public sealed class CompactUiSnapshotBuilderTests
         Assert.Contains("\"hasKeyboardFocus\":true", json, StringComparison.Ordinal);
         Assert.Contains("\"isSelected\":true", json, StringComparison.Ordinal);
         Assert.Contains("\"uiPath\":\"1/0/0/4\"", json, StringComparison.Ordinal);
+        Assert.Equal("1/0/0/4", response.LlmTree.UiPath);
+        Assert.Contains("focused", response.LlmTree.State ?? []);
+        Assert.Contains("selected", response.LlmTree.State ?? []);
+        Assert.Contains("focusable", response.LlmTree.State ?? []);
+        Assert.Equal("1/0/0/4/0", Assert.Single(response.LlmTree.Children!).UiPath);
+    }
+
+    [Fact]
+    public void BuildWindowResponse_UsesAutomationIdInLlmTree_WhenNameIsMissing()
+    {
+        var response = CompactUiSnapshotBuilder.BuildWindowResponse(
+            CreateWindowDescriptor(),
+            Snapshot(
+                "root",
+                "root",
+                "Window",
+                name: "Contoso",
+                children:
+                [
+                    Snapshot(
+                        "0",
+                        "0",
+                        "Button",
+                        automationId: "PrimaryActionButton",
+                        actions: ["invoke"])
+                ]),
+            includeImage: false);
+
+        var button = Assert.Single(response.LlmTree.Children!);
+        Assert.Null(button.Name);
+        Assert.Equal("PrimaryActionButton", button.AutomationId);
     }
 
     [Fact]

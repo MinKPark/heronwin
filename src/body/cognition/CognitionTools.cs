@@ -51,19 +51,17 @@ public static class CognitionTools
         return WindowAutomation.Serialize(result);
     }
 
-    [McpServerTool, Description("Describe a window as a compact retained UI tree for model-facing use. The response includes source stats, a compactTree, and optional rendered image metadata.")]
+    [McpServerTool, Description("Describe a window as a compact retained UI tree for model-facing use. The response includes source stats, a rich compactTree, a slim llmTree projection, and optional rendered image metadata.")]
     public static async Task<string> DescribeWindowCompact(
         UiAutomationExecutor executor,
         [Description("Window handle from list_windows, such as 0x00123456.")]
         string windowHandle,
-        [Description("Reserved for future response-size tuning. Currently ignored.")]
-        int? budgetHintChars = null,
         [Description("When true, render the compact tree to a local PNG and include image metadata in the response.")]
         bool includeImage = false,
         CancellationToken cancellationToken = default)
     {
         var result = await executor.RunAsync(
-            () => WindowAutomation.DescribeSelectedWindowCompact(CreateSelectionState(windowHandle), budgetHintChars, includeImage),
+            () => WindowAutomation.DescribeSelectedWindowCompact(CreateSelectionState(windowHandle), includeImage),
             cancellationToken);
 
         return CompactUiSnapshotJson.Serialize(result);
@@ -99,19 +97,17 @@ public static class CognitionTools
         return WindowAutomation.Serialize(result);
     }
 
-    [McpServerTool, Description("Describe the currently focused UI element inside a window as a compact retained UI tree for model-facing use. The response includes source stats, a compactTree, and optional rendered image metadata.")]
+    [McpServerTool, Description("Describe the currently focused UI element inside a window as a compact retained UI tree for model-facing use. The response includes source stats, a rich compactTree, a slim llmTree projection, and optional rendered image metadata.")]
     public static async Task<string> DescribeWindowFocusCompact(
         UiAutomationExecutor executor,
         [Description("Window handle from list_windows, such as 0x00123456.")]
         string windowHandle,
-        [Description("Reserved for future response-size tuning. Currently ignored.")]
-        int? budgetHintChars = null,
         [Description("When true, render the compact tree to a local PNG and include image metadata in the response.")]
         bool includeImage = false,
         CancellationToken cancellationToken = default)
     {
         var result = await executor.RunAsync(
-            () => WindowAutomation.DescribeSelectedWindowFocusCompact(CreateSelectionState(windowHandle), budgetHintChars, includeImage),
+            () => WindowAutomation.DescribeSelectedWindowFocusCompact(CreateSelectionState(windowHandle), includeImage),
             cancellationToken);
 
         return CompactUiSnapshotJson.Serialize(result);

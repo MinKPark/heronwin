@@ -341,10 +341,8 @@ internal static class WindowAutomation
 
     internal static CompactSnapshotResponse DescribeSelectedWindowCompact(
         WindowSelectionState selectionState,
-        int? budgetHintChars,
         bool includeImage)
     {
-        _ = budgetHintChars;
         var handle = ResolveInteractionWindowHandle(selectionState);
         var windowElement = AutomationElement.FromHandle(handle);
         return CompactUiSnapshotBuilder.BuildWindowResponse(
@@ -670,10 +668,8 @@ internal static class WindowAutomation
 
     internal static CompactSnapshotResponse DescribeSelectedWindowFocusCompact(
         WindowSelectionState selectionState,
-        int? budgetHintChars,
         bool includeImage)
     {
-        _ = budgetHintChars;
         var handle = ResolveInteractionWindowHandle(selectionState);
 
         var windowElement = AutomationElement.FromHandle(handle);
