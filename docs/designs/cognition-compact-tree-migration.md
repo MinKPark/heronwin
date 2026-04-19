@@ -1,7 +1,7 @@
 # Cognition Compact Tree Migration
 
 Last updated: 2026-04-18
-Status: completed
+Status: in progress
 
 ## Summary
 
@@ -17,6 +17,14 @@ the model-facing path used by `brain`. The compact response now carries two
 tree-shaped views over the same retained nodes: a richer `compactTree` for
 runtime/debugging and a slim `llmTree` projection that `brain` can pass to the
 LLM.
+
+## Remaining Work
+
+The runtime migration is landed, but the rollout is still open until these
+follow-ups are done:
+
+- add the opt-in screenshot-vs-compact evaluation harness
+- run and document parity checks, benchmarks, and manual evaluation passes
 
 ## Goals
 
