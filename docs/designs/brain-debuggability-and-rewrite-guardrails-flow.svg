@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1160" viewBox="0 0 1400 1160" role="img" aria-labelledby="title desc">
   <title id="title">Brain debuggability and rewrite guardrails flow</title>
-  <desc id="desc">A side by side diagram showing the observed Netflix failure loop and the proposed tracing and guardrail changes.</desc>
+  <desc id="desc">A side by side diagram showing the observed Netflix failure loop and the proposed reusable tracing and guardrail changes.</desc>
   <defs>
     <style>
       .bg { fill: #f7f7f8; }
@@ -45,8 +45,8 @@
 
   <rect class="bg" x="0" y="0" width="1400" height="1160"/>
 
-  <text class="title" x="700" y="52" text-anchor="middle">Netflix Failure Loop and Proposed Guardrails</text>
-  <text class="body" x="700" y="84" text-anchor="middle">What happened in the stuck run, and what the next patch should make visible and prevent.</text>
+  <text class="title" x="700" y="52" text-anchor="middle">Observed Failure Loop and Proposed Guardrails</text>
+  <text class="body" x="700" y="84" text-anchor="middle">What happened in the stuck Netflix run, and what the next patch should make visible and prevent.</text>
 
   <rect class="panel" x="40" y="120" width="630" height="990"/>
   <rect class="panel" x="730" y="120" width="630" height="990"/>
@@ -97,14 +97,14 @@
   <path class="arrow-red" d="M355 1056 L355 1074"/>
 
   <rect class="box-blue" x="802" y="226" width="486" height="96"/>
-  <text class="body" x="1045" y="258" text-anchor="middle">1. Add explicit decision trace events</text>
-  <text class="small" x="1045" y="283" text-anchor="middle">Log auto-follow-through start/skip/complete.</text>
-  <text class="small" x="1045" y="303" text-anchor="middle">Log named-target rewrite evaluation with requested and chosen elements.</text>
+  <text class="body" x="1045" y="258" text-anchor="middle">1. Add shared internal continuation tracing</text>
+  <text class="small" x="1045" y="283" text-anchor="middle">Log considered, start, step, skip, complete, and abort.</text>
+  <text class="small" x="1045" y="303" text-anchor="middle">Keep policy detection local, but centralize the event lifecycle.</text>
 
   <rect class="box-green" x="802" y="372" width="486" height="102"/>
-  <text class="body" x="1045" y="404" text-anchor="middle">2. Require explicit profile-selection intent</text>
-  <text class="small" x="1045" y="429" text-anchor="middle">"Select the profile named Min" should qualify.</text>
-  <text class="small" x="1045" y="449" text-anchor="middle">"Wait until profile selection is visible" should not.</text>
+  <text class="body" x="1045" y="404" text-anchor="middle">2. Keep app policy in app skill files</text>
+  <text class="small" x="1045" y="429" text-anchor="middle">Netflix profile and PIN rules live in the Netflix skill group.</text>
+  <text class="small" x="1045" y="449" text-anchor="middle">Core runtime only adds generic tracing, rewrite rules, and guardrails.</text>
 
   <rect class="box-green" x="802" y="524" width="486" height="102"/>
   <text class="body" x="1045" y="556" text-anchor="middle">3. Require activation intent for generic named-target rewrite</text>
@@ -112,7 +112,7 @@
   <text class="small" x="1045" y="601" text-anchor="middle">permission to click the browser's Home button.</text>
 
   <rect class="box-blue" x="802" y="676" width="486" height="114"/>
-  <text class="body" x="1045" y="708" text-anchor="middle">4. Trace the actual candidate set and skip reason</text>
+  <text class="body" x="1045" y="708" text-anchor="middle">4. Trace requested target, matched target, and skip reason</text>
   <text class="small" x="1045" y="733" text-anchor="middle">Requested path, requested element summary, matched path,</text>
   <text class="small" x="1045" y="753" text-anchor="middle">matched element summary, profile-picker visibility,</text>
   <text class="small" x="1045" y="773" text-anchor="middle">rewrite eligibility, and explicit reason for rewrite or no rewrite.</text>
@@ -120,7 +120,7 @@
   <rect class="box-green" x="802" y="840" width="486" height="112"/>
   <text class="body" x="1045" y="872" text-anchor="middle">5. Regression tests for this exact class of bug</text>
   <text class="small" x="1045" y="897" text-anchor="middle">Passive "wait until home/profile visible" prompt should not</text>
-  <text class="small" x="1045" y="917" text-anchor="middle">trigger profile auto-follow-through or stale-path rewrite to Home.</text>
+  <text class="small" x="1045" y="917" text-anchor="middle">trigger the Netflix continuation policy or stale-path rewrite to Home.</text>
   <text class="small" x="1045" y="937" text-anchor="middle">Explicit "Select Min" should still resolve to the correct target.</text>
 
   <rect class="pill-green" x="899" y="987" width="292" height="34" rx="17" ry="17"/>

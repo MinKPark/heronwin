@@ -10,6 +10,11 @@ profile picker, an internal follow-through path went stale, and a later
 named-target rewrite reinterpreted the action as Edge browser chrome
 (`Home`) because the original turn text mentioned "Netflix home".
 
+It also uses that failure to define a more general tracing shape for
+internal continuations, so future app-specific helpers can explain their
+decision path with the same event vocabulary instead of each feature growing
+its own special-case logs.
+
 The goal is to improve two things together:
 
 - debuggability, so future failures can be explained from the trace without
@@ -51,8 +56,8 @@ decision state. The trace did not directly answer:
 ## Goals
 
 - Make named-target rewrites explainable from a single structured trace event.
-- Make Netflix profile auto-follow-through explainable from explicit
-  start/skip/complete trace events.
+- Make internal continuation decisions explainable from explicit considered,
+  start, step, skip, complete, and abort trace events.
 - Prevent passive "wait until visible" language from turning into an action
   target rewrite.
 - Prevent turns that merely mention "profile selection screen" from
@@ -62,9 +67,48 @@ decision state. The trace did not directly answer:
 ## Non-Goals
 
 - Redesign all action-rewrite logic in one pass.
-- Remove Netflix auto-follow-through entirely.
+- Remove the current Netflix continuation behaviors entirely.
 - Change MCP snapshot formats or the compact-tree contract.
 - Add always-on screenshot capture beyond the current debug-mode behavior.
+- Add a Netflix-only tracing subsystem that future apps cannot reuse.
+
+## Architecture Boundary
+
+This patch should follow the repository rule in
+`.github/agents/skill-vs-code-policy.md`:
+
+- prompts and skills define app behavior
+- runtime code enforces generic reliability
+
+For this work, that means the code changes should stay app agnostic.
+
+Runtime code should own:
+
+- the generic continuation lifecycle and trace schema
+- generic guardrails for stale-path rewrite eligibility
+- generic evidence refresh, abort, and completion reporting
+- regression tests for generic reliability rules
+
+App-specific agent or skill files should own:
+
+- app vocabulary such as profile picker, profile lock, search, browse, or
+  playback language
+- when an app-specific continuation is appropriate versus when the agent
+  should stop and report state
+- target-selection playbooks such as exact profile matching rules
+- app-specific sequencing such as per-digit PIN entry preferences
+- app-specific success criteria
+
+For Netflix specifically, that policy should live in:
+
+- `.github/agents/skills/netflix/netflix-profile-and-pin.skill.md`
+- `.github/agents/skills/netflix/netflix-surface-and-state.skill.md`
+- `src/scenarios/netflix-boyfriend-on-demand.yml` when scenario wording needs
+  to make turn boundaries clearer
+
+The existing Netflix-specific branches in `Conversation.cs` should be treated
+as migration debt, not as the pattern to extend. This patch should avoid
+adding new app-name-specific branching to core runtime code.
 
 ## Proposed Changes
 
@@ -105,32 +149,72 @@ Why this matters:
   intent, because no named match existed, or because the requested element was
   already specific enough
 
-## 2. Add Netflix Auto-Follow-Through Tracing
+## 2. Add Internal Continuation Tracing
 
-Add dedicated events around profile auto-follow-through:
+Treat Netflix profile follow-through as the first adopter of a general
+internal continuation model: when `brain` decides to finish an obvious next
+UI step on the user's behalf, it should emit the same lifecycle regardless of
+which app-specific policy produced the candidate.
 
-- `agent.netflix_profile_auto_follow_through_skipped`
-- `agent.netflix_profile_auto_follow_through_started`
-- `agent.netflix_profile_auto_follow_through_completed`
+Add generic lifecycle events:
+
+- `agent.internal_continuation_considered`
+- `agent.internal_continuation_started`
+- `agent.internal_continuation_step_completed`
+- `agent.internal_continuation_completed`
+- `agent.internal_continuation_skipped`
+- `agent.internal_continuation_aborted`
 
 Recommended fields:
 
 - `turn`
+- `continuationId`
+- `policyName`
+- `continuationKind`
+- `triggerReason`
 - `userTextPreview`
 - `assistantReplyPreview`
-- `profilePickerVisible`
-- `matchedProfilePath`
-- `matchedProfileSummary`
+- `userIntentSummary`
+- `surfaceSummary`
+- `targetSummary`
+- `plannedSteps`
+- `stepIndex`
+- `stepAction`
+- `stepTargetSummary`
+- `result`
 - `skipReason`
+- `abortReason`
 - `preActionWindow`
 - `postActionWindow`
 
+Implementation shape:
+
+- shared continuation contract:
+  runtime code defines a generic continuation lifecycle, trace payload shape,
+  correlation ID, and completion or abort handling
+- skill-owned app policy:
+  app-specific skills define when the assistant should continue, what target
+  it should choose, and what success looks like
+- narrow runtime integration:
+  if legacy app-specific continuations remain temporarily in code, they should
+  emit the shared generic events and should not grow new app-specific trace
+  formats or branching patterns
+
+First adopters:
+
+- `policyName = "netflix_profile_selection"`
+  - `continuationKind = "select_named_target"`
+- `policyName = "netflix_pin_entry"`
+  - `continuationKind = "enter_sequential_text"`
+
 Why this matters:
 
-- future traces will clearly show whether `brain` decided to continue on the
-  user's behalf or not
-- if it did continue, the exact matched profile target will be recorded
-- if it did not continue, the skip reason will be explicit instead of implicit
+- future traces will clearly show whether `brain` considered continuing on the
+  user's behalf, whether it actually started, and where it stopped
+- the same event family can cover browser prompts, modal confirmations, OTP
+  entry, installer flows, and other small follow-through helpers later
+- Netflix stays the immediate bug fix, but the added tracing becomes reusable
+  infrastructure instead of a one-off patch
 
 ## 3. Tighten Generic Named-Target Rewrite Guardrails
 
@@ -165,19 +249,28 @@ Expected outcome:
   during a passive visibility/navigation turn
 - explicit corrective rewrites for real selection turns still work
 
-## 4. Tighten Netflix Profile-Selection Intent Detection
+## 4. Tighten Netflix Behavior in Netflix Skill Files
 
 Current issue:
 
-- the system should only auto-follow through profile selection when the user
-  explicitly asked to select a profile
-- turns that merely mention the phrase "profile selection screen" should not
-  count
+- the Netflix behavior should only treat profile selection as actionable when
+  the user explicitly asked to select a profile
+- turns that merely mention the phrase "profile selection screen" should stay
+  observational and should not qualify as continuation intent
+- that rule belongs in the Netflix skill files, not as new app-specific
+  branching inside core runtime code
 
 Planned guardrail:
 
-- make `UserRequestLooksLikeProfileSelection(...)` require explicit
-  profile-selection intent, not just the presence of the word `profile`
+- update the Netflix skill files so they explicitly separate:
+  - passive visibility checks
+  - explicit profile-selection turns
+  - explicit PIN-entry turns
+- make the Netflix skill wording state that passive observation text does not
+  authorize profile activation
+- keep exact profile matching, ASR repair guidance, and per-digit PIN rules in
+  the Netflix skill group rather than encoding more of that behavior in
+  generic runtime logic
 
 Examples that should count:
 
@@ -195,6 +288,8 @@ Expected outcome:
 
 - turn 1 of the scenario will stop at the correct wait condition
 - turn 2 will own the actual profile-selection action
+- the Netflix-specific behavior will be expressed where future Netflix fixes
+  are expected to live
 
 ## 5. Add Focused Regression Tests
 
@@ -211,9 +306,10 @@ decision payload shape at the helper level.
 ## Planned Implementation Order
 
 1. land named-target rewrite evaluation tracing
-2. land Netflix profile auto-follow-through tracing
+2. land internal continuation tracing with an app-agnostic event schema
 3. tighten generic named-target rewrite guardrails
-4. tighten profile-selection intent detection
+4. revise the Netflix skill files so passive checks, profile selection, and
+   PIN entry are explicitly separated there
 5. add focused regression tests
 6. rerun the scripted Netflix scenario in debug mode
 7. confirm the new trace makes the decision path obvious
@@ -233,14 +329,28 @@ decision payload shape at the helper level.
     payload dumps, and reserve candidate-level expansion for follow-up if
     needed
 
+- Risk: the generic continuation schema is too narrow for future app flows
+  - Mitigation: start with policy name, continuation kind, target summary, and
+    step summaries; extend from actual second-use cases rather than guessing
+
+- Risk: the patch quietly adds more Netflix-specific logic to `Conversation.cs`
+  - Mitigation: treat the skill files as the place for app policy and review
+    every runtime change against the repository skill-versus-code checklist
+
 ## Review Questions
 
 - Is "activation intent required" the right top-level rule for generic
   named-target rewrite, or do we want an even narrower rule?
+- Is the proposed internal continuation schema generic enough for other apps,
+  or are we missing one or two fields we will want immediately?
+- Are the Netflix profile-selection and PIN rules better expressed as skill
+  changes first, with runtime changes limited to generic tracing and
+  guardrails?
 - Do we want candidate lists in the new rewrite event now, or only requested
   and chosen element summaries in the first pass?
-- Should Netflix profile auto-follow-through stay enabled by default after the
-  new intent guard lands?
+- Do we want a follow-up task to retire the current Netflix-specific
+  continuations from `Conversation.cs` once the generic tracing and skill
+  guidance are in place?
 
 ## Expected Outcome
 
@@ -253,4 +363,6 @@ trace:
 - whether rewrite was even eligible
 - what rewrite chose instead
 - why rewrite chose it
-- whether `brain` decided to continue a Netflix profile step internally
+- whether `brain` decided to continue an app step internally
+- which policy made that continuation eligible
+- which target and steps the continuation intended to execute
