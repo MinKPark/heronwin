@@ -1619,7 +1619,7 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
-    public void ResolveToolResultContextForModel_FallsBackToCompactedSnapshot_WhenStoredContextUnavailable()
+    public void ResolveToolResultContextForModel_FallsBackToRawSnapshot_WhenStoredContextUnavailable()
     {
         var profile = new LlmModelProfile(
             LlmProviderId.OpenAiApi,
@@ -1676,8 +1676,7 @@ public sealed class AgentRunnerDecisionTests
             currentFocusElementContext: null,
             profile);
 
-        Assert.Contains("UI snapshot compacted", actual, StringComparison.OrdinalIgnoreCase);
-        Assert.NotEqual(snapshot, actual);
+        Assert.Equal(snapshot, actual);
     }
 
     [Fact]

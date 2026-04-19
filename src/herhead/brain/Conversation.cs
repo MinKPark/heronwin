@@ -170,10 +170,7 @@ internal static class AgentRunner
 
                 if (string.Equals(snapshotToolName, "describe_window", StringComparison.Ordinal))
                 {
-                    currentUiElementContext = UiSnapshotCompactor.CompactToolTextForContext(
-                        "describe_window",
-                        snapshotText,
-                        llmClient.ModelProfile);
+                    currentUiElementContext = snapshotText;
                 }
             }
 
@@ -196,10 +193,7 @@ internal static class AgentRunner
                 return currentUiElementContext;
             }
 
-            currentUiElementContext = UiSnapshotCompactor.CompactToolTextForContext(
-                "describe_window",
-                actionableUiTreeContext,
-                llmClient.ModelProfile);
+            currentUiElementContext = actionableUiTreeContext;
             return currentUiElementContext;
         }
 
@@ -215,10 +209,7 @@ internal static class AgentRunner
                 return null;
             }
 
-            currentFocusElementContext = UiSnapshotCompactor.CompactToolTextForContext(
-                "describe_window_focus",
-                recentFocusContext,
-                llmClient.ModelProfile);
+            currentFocusElementContext = recentFocusContext;
             return currentFocusElementContext;
         }
 
@@ -271,10 +262,7 @@ internal static class AgentRunner
 
         async Task RefreshCompactWindowContextAsync(string fallbackSnapshotText)
         {
-            currentUiElementContext = UiSnapshotCompactor.CompactToolTextForContext(
-                "describe_window",
-                fallbackSnapshotText,
-                llmClient.ModelProfile);
+            currentUiElementContext = fallbackSnapshotText;
             SyncDesktopSession();
 
             if (!HasCompactWindowContextTool())
@@ -310,10 +298,7 @@ internal static class AgentRunner
 
         async Task RefreshCompactFocusContextAsync(string fallbackSnapshotText)
         {
-            currentFocusElementContext = UiSnapshotCompactor.CompactToolTextForContext(
-                "describe_window_focus",
-                fallbackSnapshotText,
-                llmClient.ModelProfile);
+            currentFocusElementContext = fallbackSnapshotText;
             SyncDesktopSession();
 
             if (!HasCompactFocusContextTool())
@@ -2704,10 +2689,7 @@ internal static class AgentRunner
                     desktopSession),
                 cancellationToken);
             Display.ToolResult("describe_window", retrySnapshot.Text, retrySnapshot.Images.Count);
-            var compactRetrySnapshot = UiSnapshotCompactor.CompactToolTextForContext(
-                "describe_window",
-                retrySnapshot.Text,
-                modelProfile);
+            var compactRetrySnapshot = retrySnapshot.Text;
             try
             {
                 var compactResult = await mcpManager.CallToolAsync(
@@ -2725,7 +2707,7 @@ internal static class AgentRunner
             }
             catch
             {
-                // Keep the local fallback compaction when the compact tool is unavailable during migration.
+                // Keep the raw fallback when the compact tool is unavailable.
             }
             extraEvidence.Add(new AgentMessage.User(
                 $"Second-pass visible UI snapshot after waiting 1 more second:\n{compactRetrySnapshot}"));
@@ -3023,6 +3005,8 @@ internal static class AgentRunner
         string? currentFocusElementContext,
         LlmModelProfile modelProfile)
     {
+        _ = modelProfile;
+
         if (!toolIsError)
         {
             if (toolName is "describe_window_focus" or "describe_window_focus_compact" &&
@@ -3043,7 +3027,7 @@ internal static class AgentRunner
             }
         }
 
-        return UiSnapshotCompactor.CompactToolTextForContext(toolName, toolText, modelProfile);
+        return toolText;
     }
 
     internal static bool ShouldUseStoredUiElementContextForToolResult(string toolName)
