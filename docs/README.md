@@ -15,23 +15,22 @@ runtime-loaded prompt and skill files under `.github/agents`.
 
 Last updated: 2026-04-18
 
-- Git baseline: `main` at `c43051a`, tracking `origin/main`.
+- Git baseline: `main` at `5dd4a28`, tracking `origin/main`.
 - The active implementation lives under `src`.
 - The `body` refactor is landed:
   - `src/body` is the active tree.
   - `cognition` and `execution` are in the solution and referenced by `brain`.
   - prompts, skills, tests, and repo docs have been retargeted to the new
     server and tool names.
-  - the local `brain/.env` MCP server wiring now points at `process-manager`,
+  - the local untracked `brain/.env` MCP server wiring now points at `process-manager`,
     `cognition`, and `execution`.
   - the empty historical `src\herbody` directory is gone.
-- `obsolete/herface-nodejs` is historical reference code and is not part of the
-  current runtime path.
+- the removed obsolete Node.js runtime is no longer part of the repository.
 - Latest verified work in the current refactor pass:
   - `dotnet build src\heronwin.sln` passed with 0 warnings and 0 errors.
-  - `dotnet test src\heronwin.sln` passed with 289 total tests.
+  - `dotnet test src\heronwin.sln` passed with 295 total tests.
   - `dotnet test src\herhead\brain.tests\HeronWin.Brain.Tests.csproj` passed
-    with 217 total tests after adding browser-request guardrails, app-first
+    with 214 total tests after adding browser-request guardrails, app-first
     website-fallback confirmation, screenshot-gating checks, and Netflix
     profile-selection, PIN follow-through, and named-target disambiguation
     coverage.
@@ -81,6 +80,9 @@ Run `brain` directly:
 ```powershell
 dotnet run --project src\herhead\brain
 ```
+
+Keep a local `src\herhead\brain\.env` next to the project and start from
+`src\herhead\brain\.env.example` when you need to recreate it.
 
 Run `face` directly:
 

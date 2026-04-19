@@ -10,7 +10,7 @@ Native Windows companion UI for `heronwin`.
 - simple mascot-style visual state changes
 - recent activity log
 - tray icon with open, settings, and exit
-- settings window that edits `brain` `.env` values and stores local face settings
+- settings window that edits the local `brain` `.env` values and stores local face settings
 - named-pipe client that reconnects to `brain` automatically
 
 ## Runtime contract

@@ -32,7 +32,7 @@ npm run build
 ### 2. Configure and start the brain agent
 
 ```powershell
-# Edit src/herhead/brain/.env as needed, then run:
+# Copy src/herhead/brain/.env.example to src/herhead/brain/.env, edit it as needed, then run:
 dotnet run --project src/herhead/brain
 ```
 

@@ -31,7 +31,7 @@ As of 2026-04-18, the structural cutover is complete for the main runtime path:
   live test references to the old tool names have been retargeted.
 - `dotnet build src\heronwin.sln` and `dotnet test src\heronwin.sln` both pass.
 - `npm run build` in `src\body\process-manager` passes again.
-- Local `brain/.env` MCP wiring now points at `process-manager`, `cognition`,
+- Local untracked `brain/.env` MCP wiring now points at `process-manager`, `cognition`,
   and `execution` instead of the old `eyesandhands` executable.
 - A new `brain` guardrail blocks `process-manager/start_process` from hijacking
   browser-navigation requests into Microsoft Store or other OS-process launch
@@ -194,9 +194,9 @@ npm run build
 ```
 
 - `dotnet build src\heronwin.sln` passed with 0 warnings and 0 errors.
-- `dotnet test src\heronwin.sln` passed with 289 total tests.
+- `dotnet test src\heronwin.sln` passed with 295 total tests.
 - `dotnet test src\herhead\brain.tests\HeronWin.Brain.Tests.csproj` passed
-  with 217 total tests.
+  with 214 total tests.
 - `npm run build` passed in `src\body\process-manager`.
 
 Smoke-test status:

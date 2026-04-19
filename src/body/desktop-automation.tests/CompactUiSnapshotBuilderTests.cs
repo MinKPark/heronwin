@@ -173,6 +173,29 @@ public sealed class CompactUiSnapshotBuilderTests
     }
 
     [Fact]
+    public void BuildWindowResponse_CountsOmittedLlmChildren_WhenLowSignalCompactChildrenAreDropped()
+    {
+        var response = CompactUiSnapshotBuilder.BuildWindowResponse(
+            CreateWindowDescriptor(),
+            Snapshot(
+                "root",
+                "root",
+                "Window",
+                name: "Shell",
+                children:
+                [
+                    Snapshot("0", "0", "Pane", name: "Shell"),
+                    Snapshot("1", "1", "Pane", name: "Shell"),
+                    Snapshot("2", "2", "Button", name: "Play", actions: ["invoke"])
+                ]),
+            includeImage: false);
+
+        Assert.Equal(2, response.LlmTree.OmittedChildren);
+        var child = Assert.Single(response.LlmTree.Children!);
+        Assert.Equal("Play", child.Name);
+    }
+
+    [Fact]
     public void BuildWindowResponse_RendersImageIgnoringNodesWithoutBounds()
     {
         var tempDirectory = Path.Combine(Path.GetTempPath(), "heronwin-compact-tests", Guid.NewGuid().ToString("N"));

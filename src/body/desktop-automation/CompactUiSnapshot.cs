@@ -422,7 +422,7 @@ internal static class CompactUiSnapshotBuilder
             return null;
         }
 
-        var omittedChildren = childCandidates.Length - selectedChildren.Length;
+        var omittedChildren = (node.Children?.Count ?? 0) - selectedChildren.Length;
         var llmNode = new LlmUiNode
         {
             UiPath = node.UiPath,

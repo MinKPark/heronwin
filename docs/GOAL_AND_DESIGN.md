@@ -41,7 +41,7 @@ It is responsible for:
 - always-on-top desktop presence,
 - live agent state display,
 - recent activity display,
-- settings editing for the selected `brain` `.env`,
+- settings editing for the selected local `brain` `.env`,
 - named-pipe connectivity to `brain`.
 
 ### `body`
@@ -106,5 +106,5 @@ Current areas of emphasis:
 These are currently outside the main path:
 
 - browser-backed ChatGPT mode in the .NET `brain`,
-- reviving `obsolete/herface-nodejs` as the main runtime,
+- reintroducing a separate obsolete Node.js agent runtime,
 - moving runtime-consumed prompt files out of `.github/agents`.

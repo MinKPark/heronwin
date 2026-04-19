@@ -17,7 +17,7 @@ Each subdirectory is either a standalone MCP server or a shared package used by 
 
 1. Create a new subdirectory such as `src/body/my-server/`.
 2. Implement a stdio-based MCP server using the TypeScript or C# MCP SDK.
-3. Register the server in `src/herhead/brain/.env` by adding it to `MCP_SERVERS`.
+3. Register the server in the local `src/herhead/brain/.env` file by adding it to `MCP_SERVERS`. Start from `src/herhead/brain/.env.example` if you do not have one yet.
 
 ## Prerequisites
 

@@ -13,7 +13,7 @@ public sealed class SettingsViewModel : ObservableObject
     private string _pipeName;
     private string _llmProvider = "openai-api";
     private string _openAiApiKey = string.Empty;
-    private string _openAiModel = "gpt-5.2-chat-latest";
+    private string _openAiModel = "gpt-5.4-mini";
     private string _anthropicApiKey = string.Empty;
     private string _anthropicModel = "claude-3-5-sonnet-20241022";
     private string _whisperModel = "whisper-1";
@@ -149,7 +149,7 @@ public sealed class SettingsViewModel : ObservableObject
         var document = EnvFileDocument.Load(EnvFilePath);
         LlmProvider = document.GetValue("LLM_PROVIDER", "openai-api");
         OpenAiApiKey = document.GetValue("OPENAI_API_KEY");
-        OpenAiModel = document.GetValue("OPENAI_MODEL", "gpt-5.2-chat-latest");
+        OpenAiModel = document.GetValue("OPENAI_MODEL", "gpt-5.4-mini");
         AnthropicApiKey = document.GetValue("ANTHROPIC_API_KEY");
         AnthropicModel = document.GetValue("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022");
         WhisperModel = document.GetValue("WHISPER_MODEL", "whisper-1");
