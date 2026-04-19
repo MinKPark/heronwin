@@ -124,6 +124,7 @@ public sealed class BoundedTreePromotionTests
             IsOffscreen: false,
             HasKeyboardFocus: false,
             IsKeyboardFocusable: true,
+            IsSelected: false,
             AvailableActions: ["focus", "invoke"],
             Bounds: null,
             Children: []);
@@ -152,6 +153,7 @@ public sealed class BoundedTreePromotionTests
             IsOffscreen: false,
             HasKeyboardFocus: false,
             IsKeyboardFocusable: false,
+            IsSelected: false,
             AvailableActions: [],
             Bounds: null,
             Children: []);

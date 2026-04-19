@@ -51,6 +51,24 @@ public static class CognitionTools
         return WindowAutomation.Serialize(result);
     }
 
+    [McpServerTool, Description("Describe a window as a compact retained UI tree for model-facing use. The response includes source stats, a compactTree, and optional rendered image metadata.")]
+    public static async Task<string> DescribeWindowCompact(
+        UiAutomationExecutor executor,
+        [Description("Window handle from list_windows, such as 0x00123456.")]
+        string windowHandle,
+        [Description("Approximate character budget for the compact JSON response. When omitted, cognition uses its standard default.")]
+        int? budgetHintChars = null,
+        [Description("When true, render the compact tree to a local PNG and include image metadata in the response.")]
+        bool includeImage = false,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await executor.RunAsync(
+            () => WindowAutomation.DescribeSelectedWindowCompact(CreateSelectionState(windowHandle), budgetHintChars, includeImage),
+            cancellationToken);
+
+        return CompactUiSnapshotJson.Serialize(result);
+    }
+
     [McpServerTool, Description("Capture a PNG screenshot of a window.")]
     public static async Task<string> CaptureWindowScreenshot(
         UiAutomationExecutor executor,
@@ -79,6 +97,24 @@ public static class CognitionTools
             cancellationToken);
 
         return WindowAutomation.Serialize(result);
+    }
+
+    [McpServerTool, Description("Describe the currently focused UI element inside a window as a compact retained UI tree for model-facing use. The response includes source stats, a compactTree, and optional rendered image metadata.")]
+    public static async Task<string> DescribeWindowFocusCompact(
+        UiAutomationExecutor executor,
+        [Description("Window handle from list_windows, such as 0x00123456.")]
+        string windowHandle,
+        [Description("Approximate character budget for the compact JSON response. When omitted, cognition uses its standard default.")]
+        int? budgetHintChars = null,
+        [Description("When true, render the compact tree to a local PNG and include image metadata in the response.")]
+        bool includeImage = false,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await executor.RunAsync(
+            () => WindowAutomation.DescribeSelectedWindowFocusCompact(CreateSelectionState(windowHandle), budgetHintChars, includeImage),
+            cancellationToken);
+
+        return CompactUiSnapshotJson.Serialize(result);
     }
 
     [McpServerTool, Description("List a window's traditional main-menu sections and their immediate visible menu items.")]

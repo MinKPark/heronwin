@@ -339,6 +339,20 @@ internal static class WindowAutomation
             CaptureElementTree(windowElement, normalizedDepth, "root", "root"));
     }
 
+    internal static CompactSnapshotResponse DescribeSelectedWindowCompact(
+        WindowSelectionState selectionState,
+        int? budgetHintChars,
+        bool includeImage)
+    {
+        var handle = ResolveInteractionWindowHandle(selectionState);
+        var windowElement = AutomationElement.FromHandle(handle);
+        return CompactUiSnapshotBuilder.BuildWindowResponse(
+            BuildWindowDescriptor(handle),
+            CaptureElementTree(windowElement, remainingLevels: null, "root", "root"),
+            budgetHintChars,
+            includeImage);
+    }
+
     internal static WindowScreenshotResult CaptureSelectedWindowScreenshot(WindowSelectionState selectionState)
     {
         var handle = ResolveInteractionWindowHandle(selectionState);
@@ -654,6 +668,34 @@ internal static class WindowAutomation
             CaptureElementTree(focusedElement, normalizedDepth, "focused", focusedElementUiPath));
     }
 
+    internal static CompactSnapshotResponse DescribeSelectedWindowFocusCompact(
+        WindowSelectionState selectionState,
+        int? budgetHintChars,
+        bool includeImage)
+    {
+        var handle = ResolveInteractionWindowHandle(selectionState);
+
+        var windowElement = AutomationElement.FromHandle(handle);
+        var focusedElement = AutomationElement.FocusedElement
+            ?? throw new InvalidOperationException("No focused UI element is currently available.");
+
+        if (!IsSameOrDescendantOf(focusedElement, windowElement))
+        {
+            throw new InvalidOperationException(
+                "The currently focused UI element does not belong to the selected window.");
+        }
+
+        var focusedElementUiPath = TryFindElementPath(windowElement, focusedElement, "root")
+            ?? throw new InvalidOperationException(
+                "Could not resolve the focused UI element's path within the selected window.");
+
+        return CompactUiSnapshotBuilder.BuildFocusResponse(
+            BuildWindowDescriptor(handle),
+            CaptureElementTree(focusedElement, remainingLevels: null, "focused", focusedElementUiPath),
+            budgetHintChars,
+            includeImage);
+    }
+
     internal static MainMenuListResult ListMainMenuItems(
         WindowSelectionState selectionState,
         string? windowHandle)
@@ -957,6 +999,7 @@ internal static class WindowAutomation
             GetIsOffscreen(element),
             GetHasKeyboardFocus(element),
             GetIsKeyboardFocusable(element),
+            GetIsSelected(element),
             GetAvailableActions(element),
             GetBoundingRectangle(element),
             includeChildren ? children : []);
@@ -3670,6 +3713,19 @@ internal static class WindowAutomation
         }
     }
 
+    private static bool GetIsSelected(AutomationElement element)
+    {
+        try
+        {
+            return TryGetPattern<SelectionItemPattern>(element, SelectionItemPattern.Pattern, out var selectionItemPattern)
+                   && selectionItemPattern.Current.IsSelected;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static ElementBounds? GetBoundingRectangle(AutomationElement element)
     {
         try
@@ -3796,6 +3852,7 @@ internal sealed record UiElementSnapshot(
     bool IsOffscreen,
     bool HasKeyboardFocus,
     bool IsKeyboardFocusable,
+    bool IsSelected,
     IReadOnlyList<string> AvailableActions,
     ElementBounds? Bounds,
     IReadOnlyList<UiElementSnapshot> Children);
@@ -3819,6 +3876,7 @@ internal sealed class UiElementSnapshotJsonConverter : JsonConverter<UiElementSn
         WriteBooleanIfTrue(writer, "IsOffscreen", value.IsOffscreen);
         WriteBooleanIfTrue(writer, "HasKeyboardFocus", value.HasKeyboardFocus);
         WriteBooleanIfTrue(writer, "IsKeyboardFocusable", value.IsKeyboardFocusable);
+        WriteBooleanIfTrue(writer, "IsSelected", value.IsSelected);
         WriteArrayIfNotEmpty(writer, "AvailableActions", value.AvailableActions, options);
 
         if (value.Bounds is not null)

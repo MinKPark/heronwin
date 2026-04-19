@@ -337,7 +337,9 @@ internal sealed class McpClientManager : IAsyncDisposable
         }
 
         return toolName is "describe_window"
-            or "describe_window_focus";
+            or "describe_window_compact"
+            or "describe_window_focus"
+            or "describe_window_focus_compact";
     }
 
     internal static IReadOnlyList<string> ExtractImageFilePathsFromJsonText(string toolText)

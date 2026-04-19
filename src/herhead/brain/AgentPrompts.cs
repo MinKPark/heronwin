@@ -585,7 +585,9 @@ internal static class AgentPromptComposer
             "ui-refresh-and-evidence" => HasAnyNamedTools(
                 availableToolNames,
                 "describe_window",
+                "describe_window_compact",
                 "describe_window_focus",
+                "describe_window_focus_compact",
                 "capture_window_screenshot"),
             "desktop-launch-and-first-look"
                 => (requestIntents.Contains("launch_request") || requestIntents.Contains("direct_browser_navigation_request"))
@@ -595,7 +597,9 @@ internal static class AgentPromptComposer
                    && HasAnyNamedTools(
                        availableToolNames,
                        "describe_window",
+                       "describe_window_compact",
                        "describe_window_focus",
+                       "describe_window_focus_compact",
                        "invoke_window_element",
                        "click_window_element",
                        "focus_window_element",
@@ -607,7 +611,9 @@ internal static class AgentPromptComposer
                    && HasAnyNamedTools(
                        availableToolNames,
                        "describe_window",
+                       "describe_window_compact",
                        "describe_window_focus",
+                       "describe_window_focus_compact",
                        "capture_window_screenshot"),
             "action-discovery-and-invocation"
                 => !requestIntents.Contains("browser_request")

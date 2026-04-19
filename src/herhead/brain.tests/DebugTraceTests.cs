@@ -51,7 +51,9 @@ public sealed class DebugTraceTests
     public void ShouldLogFullToolPayload_ReturnsTrue_ForUiTreeTools()
     {
         Assert.True(McpClientManager.ShouldLogFullToolPayload("describe_window", "{ }"));
+        Assert.True(McpClientManager.ShouldLogFullToolPayload("describe_window_compact", "{ }"));
         Assert.True(McpClientManager.ShouldLogFullToolPayload("describe_window_focus", "{ }"));
+        Assert.True(McpClientManager.ShouldLogFullToolPayload("describe_window_focus_compact", "{ }"));
     }
 
     [Fact]

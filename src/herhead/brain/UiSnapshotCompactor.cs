@@ -39,6 +39,8 @@ internal static class UiSnapshotCompactor
         {
             "describe_window" => CompactSnapshot(toolText, modelProfile, focusMode: false),
             "describe_window_focus" => CompactSnapshot(toolText, modelProfile, focusMode: true),
+            "describe_window_compact" => toolText,
+            "describe_window_focus_compact" => toolText,
             _ => toolText
         };
 

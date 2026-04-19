@@ -7,8 +7,8 @@ preferred_tools:
   - cognition/list_windows
   - execution/activate_window
   - execution/launch_application
-  - cognition/describe_window
-  - cognition/describe_window_focus
+  - cognition/describe_window_compact
+  - cognition/describe_window_focus_compact
   - execution/click_window_element
   - execution/invoke_window_element
   - execution/focus_window_element
@@ -25,7 +25,9 @@ activation:
     - activate_window
     - launch_application
     - describe_window
+    - describe_window_compact
     - describe_window_focus
+    - describe_window_focus_compact
     - invoke_window_element
     - click_window_element
     - focus_window_element
