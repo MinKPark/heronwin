@@ -1,6 +1,6 @@
 # Brain OpenAI + ChatGPT Subscription Plan
 
-Last updated: 2026-04-18
+Last updated: 2026-04-19
 Status: proposed
 
 ## Summary
@@ -17,9 +17,11 @@ This design proposes adding a second OpenAI route so `brain` can use either:
   ChatGPT account.
 
 The main recommendation is to treat this as a separate provider with separate
-capabilities and risks, not as an alias for the existing OpenAI API path.
-It also proposes making `voice`, `text`, and `scripted` explicit launch modes
-instead of assuming that every non-scripted run is voice-capable.
+capabilities and risks, not as an alias for the existing OpenAI API path. It
+also proposes making interactive mode a provider-defined capability instead of
+an independent startup choice: providers declare whether they support `voice`,
+`text`, or both, and the runtime only allows one active interactive mode at a
+time.
 
 ## Why This Needs A Design Pass
 
@@ -29,8 +31,8 @@ The external picture is now clearer than it was when the original
 - OpenAI officially documents that ChatGPT billing and API billing are separate
   systems.
 - OpenAI officially supports signing into Codex clients with a ChatGPT account.
-- OpenClaw appears to support ChatGPT-subscription usage through a separate
-  OpenAI route, not by pretending a ChatGPT plan is an API key.
+- Existing third-party tools suggest that ChatGPT-subscription access is often
+  handled as a separate route, not by pretending a ChatGPT plan is an API key.
 
 That means the right local mental model is:
 
@@ -46,8 +48,14 @@ That means the right local mental model is:
 - Make the provider choice explicit in config and in `face`.
 - Add an explicit interactive text mode that reuses the normal agent/tool
   pipeline without microphone or TTS requirements.
+- Let each provider declare its supported interactive modes as predefined
+  properties.
 - Support `openai-api` in voice mode and text mode.
 - Support ChatGPT/Codex sign-in in text mode and scripted mode.
+- Allow in-session switching between supported interactive modes with local
+  commands such as `/mode:voice` and `to text mode`.
+- Implement each LLM provider in its own class behind a common provider
+  interface.
 - Avoid storing fragile browser cookies in `.env`.
 
 ## Non-Goals
@@ -57,7 +65,9 @@ That means the right local mental model is:
 - Do not bring back generic browser-automation chat scraping as the default
   implementation strategy.
 - Do not remove the existing OpenAI API path.
-- Do not silently downgrade an unsupported voice launch into text mode.
+- Do not run voice mode and text mode at the same time.
+- Do not send local mode-switch commands through the LLM/tool loop when the
+  runtime can handle them deterministically.
 
 ## External Constraints
 
@@ -68,9 +78,6 @@ Verified on 2026-04-18:
   billing.
 - OpenAI Help and OpenAI Developers docs say Codex clients can authenticate
   with a ChatGPT account.
-- OpenClaw documents two OpenAI routes:
-  - `openai/*` for API-key access
-  - `openai-codex/*` for ChatGPT/Codex sign-in
 
 Important inference from those sources:
 
@@ -90,6 +97,8 @@ Today the repo has partial groundwork but no working subscription route:
   - `Load()` immediately throws if that provider is selected
 - `src/head/brain/LlmClients.cs`
   - only instantiates `OpenAiApiClient` and `ClaudeApiClient`
+  - keeps multiple provider implementations in one file
+  - has no first-class provider capability metadata
 - `src/head/brain/.env.example`
   - still advertises `chatgpt-web`
   - still contains browser-oriented `CHATGPT_*` placeholders
@@ -97,25 +106,27 @@ Today the repo has partial groundwork but no working subscription route:
   - explicitly says browser-backed ChatGPT mode is not included
 - `src/head/brain/ConsoleMode.cs`
   - only distinguishes scripted mode from non-scripted mode
-  - has no interactive text mode
+  - has no provider-driven interactive mode selection
 - `src/head/brain/Program.cs`
   - currently treats every non-scripted run as voice mode
   - voice mode still requires `OPENAI_API_KEY` for Whisper transcription
+  - has no runtime mode-switch controller
 - `src/head/face/ViewModels/SettingsViewModel.cs`
   - persists API-key settings
   - has no subscription-auth UX or token-status concept
+  - has no visibility into provider-supported modes
 
 So the repo is not starting from zero, but the existing placeholder shape is
 more misleading than useful.
 
 ## Options Considered
 
-### 1. OpenClaw-style direct `chatgpt.com` backend route
+### 1. Direct `chatgpt.com` backend route
 
 Description:
 
 - Add a new `ILlmClient` that talks to a `chatgpt.com` backend with
-  ChatGPT/Codex auth, similar to OpenClaw's `openai-codex` route.
+  ChatGPT/Codex auth.
 
 Pros:
 
@@ -208,41 +219,82 @@ Recommended implementation strategy:
 1. Do a short transport/auth spike first.
 2. If the only workable route is direct `chatgpt.com` backend traffic, ship it
    as experimental.
-3. Make launch mode explicit: `voice`, `text`, or `scripted`.
-4. Keep the voice/speech pipeline separate from the LLM provider decision.
+3. Add first-class provider capabilities and let the provider choose the
+   initial interactive mode.
+4. Keep the voice/speech pipeline separate from scripted execution and from
+   unsupported provider modes.
 
 ## Proposed Runtime Shape
 
-### Launch modes
+### Provider-defined capabilities
 
-Add an explicit launch-mode concept:
+Add a first-class provider capability object that becomes the source of truth
+for startup, `face`, validation, and mode switching.
 
-- `Voice`
-  - microphone input
-  - optional spoken output
-  - interactive wake-word flow
-- `Text`
-  - typed interactive REPL in the console
-  - no microphone requirement
-  - no Whisper requirement
-  - no TTS requirement
-- `Scripted`
+Recommended shape:
+
+```csharp
+internal enum BrainInteractiveMode
+{
+    Voice,
+    Text
+}
+
+internal sealed record LlmProviderCapabilities(
+    IReadOnlySet<BrainInteractiveMode> SupportedInteractiveModes,
+    BrainInteractiveMode DefaultInteractiveMode,
+    bool SupportsScriptedMode,
+    bool SupportsRuntimeModeSwitch,
+    bool SupportsVisionInputs,
+    bool SupportsToolCalls);
+```
+
+Minimum meaning:
+
+- `SupportedInteractiveModes`
+  - whether this provider supports `Voice`, `Text`, or both
+- `DefaultInteractiveMode`
+  - which interactive mode starts by default for normal `brain.exe` launches
+- `SupportsScriptedMode`
+  - whether scripted `--command` / `--scenario` runs are allowed
+- `SupportsRuntimeModeSwitch`
+  - whether the runtime should accept interactive mode changes after startup
+
+This metadata should be predefined by provider class, not inferred ad hoc at
+startup.
+
+### Interactive and scripted execution
+
+Treat interactive mode and scripted execution as separate concepts:
+
+- interactive session
+  - exactly one active interactive mode at a time:
+    - `Voice`
+    - `Text`
+- scripted execution
   - existing `--command`, `--commands-file`, and `--scenario` flows
+  - not concurrent with an interactive session
 
-Recommended CLI shape:
+Recommended startup rule:
 
 - `brain.exe`
-  - start voice mode
-- `brain.exe --text`
-  - start interactive text mode
-- `brain.exe --command "..."`, `--commands-file`, `--scenario`
-  - start scripted mode
+  - resolve the configured provider
+  - read the provider's `DefaultInteractiveMode`
+  - start in that mode
+- scripted flags
+  - bypass interactive mode and run scripted execution if the provider allows
+    it
 
-Recommended validation rule:
+Examples:
 
-- launch mode is chosen first
-- provider compatibility is validated second
-- unsupported combinations fail fast with a precise message
+- `openai-api`
+  - `SupportedInteractiveModes = { Voice, Text }`
+  - `DefaultInteractiveMode = Voice`
+- `openai-codex`
+  - `SupportedInteractiveModes = { Text }`
+  - `DefaultInteractiveMode = Text`
+
+There is never a combined `voice + text` live mode.
 
 ### Provider model
 
@@ -255,56 +307,108 @@ Support:
 Provider expectations:
 
 - `openai-api`
+  - implemented as its own provider class
   - requires `OPENAI_API_KEY`
-  - uses existing `OpenAiApiClient`
   - supports `Voice`, `Text`, and `Scripted`
+  - should default normal interactive startup to `Voice`
 - `openai-codex` / `chatgpt-subscription`
+  - implemented as its own provider class
   - requires interactive ChatGPT/Codex sign-in or imported local auth state
-  - uses a new `ChatGptSubscriptionClient`
   - supports `Text` and `Scripted`
   - does not support `Voice`
 - `claude-api`
-  - unchanged
+  - implemented as its own provider class
+  - unchanged for now
 
-Recommended strict behavior:
+Recommended provider abstraction:
 
-- `openai-api` + no flags
-  - start voice mode
-- `openai-api --text`
-  - start text mode
-- `openai-codex` / `chatgpt-subscription` + no flags
-  - fail with a message such as:
-    `This provider supports text mode only. Start brain with --text or use scripted commands.`
-- `openai-codex --text`
-  - start text mode
-- `openai-codex` + scripted flags
-  - allowed
+```csharp
+internal interface ILlmProvider
+{
+    LlmProviderId Id { get; }
+    string DisplayName { get; }
+    LlmProviderCapabilities Capabilities { get; }
+    void ValidateConfiguration(AppConfig config);
+    ILlmClient CreateClient(AppConfig config, HttpClient httpClient);
+    IAudioTranscriber? CreateAudioTranscriber(AppConfig config, HttpClient httpClient);
+    ISpeechSynthesizer? CreateSpeechSynthesizer(AppConfig config, HttpClient httpClient);
+}
+```
+
+Recommended provider classes:
+
+- `OpenAiApiProvider`
+- `OpenAiCodexProvider` or `ChatGptSubscriptionProvider`
+- `ClaudeApiProvider`
+
+This keeps provider-specific config validation, capabilities, transport wiring,
+and optional audio support in one place instead of scattering it across
+`AppConfig`, `Program`, and `LlmFactory`.
+
+### Mode-switch commands
+
+For providers that support more than one interactive mode, allow local runtime
+switches.
+
+Recommended commands:
+
+- from text mode
+  - `/mode:voice`
+  - `/mode:text`
+- from voice mode
+  - natural phrases such as:
+    - `to text mode`
+    - `switch to text mode`
+
+Recommended runtime behavior:
+
+- intercept these commands before they reach the LLM
+- validate against `provider.Capabilities.SupportedInteractiveModes`
+- reject unsupported switches immediately with a local reply
+- preserve the same conversation history across the switch
+- never run the microphone loop and text REPL at the same time
+
+Examples:
+
+- `openai-api`
+  - starts in voice mode
+  - `to text mode` switches into text mode
+  - `/mode:voice` switches back into voice mode
+- `openai-codex`
+  - starts in text mode
+  - `/mode:voice` returns a local error because voice is unsupported
 
 ### Speech separation
 
-Do not bind speech services to the LLM provider name.
+Do not bind scripted execution to interactive mode, and do not assume every
+provider can create every audio component.
 
 Instead:
 
-- LLM provider selection decides how chat turns are produced.
-- launch mode decides whether audio services are needed at all.
-- transcription and TTS each decide independently whether they are available.
+- provider capabilities decide which interactive modes are valid.
+- interactive mode decides whether audio services are needed at all.
+- scripted execution bypasses interactive audio requirements entirely.
+- provider-owned audio factories decide whether transcription or TTS are
+  available for that provider.
 
 Initial rule set:
 
 - text mode:
-  - should work without `OPENAI_API_KEY`
+  - should work without `OPENAI_API_KEY` when the selected provider supports
+    text-only operation
   - should not initialize microphone capture, Whisper transcription, or TTS
 - scripted mode:
   - should work with subscription auth and no `OPENAI_API_KEY`
 - voice mode:
   - is supported only for providers that explicitly allow it
+  - should initialize audio services only after the provider and active mode
+    say voice is valid
   - for `openai-api`, may still require `OPENAI_API_KEY` for Whisper/TTS in
     the first release
   - should fail with a precise message when the selected provider does not
     support voice mode
   - should fail with a separate precise message when the provider supports
-    voice mode but speech services are unavailable without API credentials
+    voice mode but its audio services are unavailable
 
 This avoids the current trap where a user could think ChatGPT-subscription mode
 is supported, then still fail at startup because voice mode assumes API-backed
@@ -366,8 +470,9 @@ The happy path should look like this:
 1. User chooses `ChatGPT / Codex sign-in` in `face` or `.env`.
 2. `brain` detects no local auth profile.
 3. User is prompted to complete a local sign-in or import flow.
-4. User launches `brain --text` or runs scripted commands.
-5. `brain` stores a local profile id and starts using that provider.
+4. User launches `brain`.
+5. `brain` resolves the provider and starts in its default interactive mode.
+6. `brain` stores a local profile id and starts using that provider.
 
 Avoid:
 
@@ -405,24 +510,36 @@ If the answer to 1-3 is weak, stop and do not start a large implementation.
 - Replace the hard failure in `AppConfig.Load()` with real provider config.
 - Add new provider-specific config fields.
 - Keep backward-compatible alias parsing for `chatgpt` / `chatgpt-web`.
+- Replace the switch-based provider construction with a provider registry or
+  catalog that returns one `ILlmProvider`.
 - Update validation messages so they explain which credential is missing for
   which subsystem.
 
-### Phase 2: Launch-mode split
+### Phase 2: Provider capability model
 
-- Replace the current implicit `scripted` vs `voice` split with an explicit
-  launch mode:
+- Add `LlmProviderCapabilities`.
+- Make each provider class declare:
+  - supported interactive modes
+  - default interactive mode
+  - scripted support
+  - runtime mode-switch support
+- Use provider capabilities as the only source of truth for startup and `face`
+  display.
+
+### Phase 3: Interactive mode controller
+
+- Replace the current implicit `scripted` vs `voice` split with:
+  - interactive session state
+  - scripted execution state
+- Add an active interactive mode controller with exactly one current mode:
   - `Voice`
   - `Text`
-  - `Scripted`
-- Add `--text` to `ConsoleMode`.
-- Split `Program.cs` startup into separate mode entry points instead of treating
-  every non-scripted run as voice mode.
-- Add provider x launch-mode validation before audio initialization.
+- Start normal interactive sessions in `provider.Capabilities.DefaultInteractiveMode`.
+- Add provider x interactive-mode validation before audio initialization.
 
-### Phase 3: `ChatGptSubscriptionClient`
+### Phase 4: `ChatGptSubscriptionClient`
 
-- Add a new `ILlmClient` implementation.
+- Add a new `ILlmClient` implementation behind the subscription provider.
 - Map:
   - `AgentMessage.User`
   - `AgentMessage.Summary`
@@ -434,14 +551,14 @@ If the answer to 1-3 is weak, stop and do not start a large implementation.
 - Add provider-specific retry/error parsing instead of reusing OpenAI API
   assumptions blindly.
 
-### Phase 4: Auth store and login flow
+### Phase 5: Auth store and login flow
 
 - Add a local auth-profile abstraction.
 - Implement load/save/refresh/logout behavior.
 - Add a minimal sign-in bootstrap flow or import path.
 - Ensure logs and debug traces redact provider credentials.
 
-### Phase 5: Text-mode interaction loop
+### Phase 6: Text-mode interaction loop
 
 - Add an interactive console text loop that reuses the normal agent/tool flow.
 - Support at least:
@@ -450,28 +567,44 @@ If the answer to 1-3 is weak, stop and do not start a large implementation.
   - `/reset` to clear local history if that fits the current interaction model
 - Make sure text mode still publishes useful status to `face`.
 
-### Phase 6: Voice/speech behavior cleanup
+### Phase 7: Runtime mode-switch commands
 
-- Split LLM auth availability from speech-service availability.
+- Intercept local commands such as:
+  - `/mode:voice`
+  - `/mode:text`
+  - `to text mode`
+  - `switch to text mode`
+- Handle supported switches entirely in runtime code before the LLM turn
+  begins.
+- Reject unsupported switches with a local response that references provider
+  capabilities.
+- Tear down and initialize audio/text-loop state cleanly when switching.
+
+### Phase 8: Voice/speech behavior cleanup
+
+- Split interactive-mode selection from speech-service availability.
 - Keep text mode and scripted mode working without API speech credentials.
 - Make voice-mode startup errors precise and actionable.
 - For now, keep voice mode limited to providers that explicitly support it.
 
-### Phase 7: `face` settings support
+### Phase 9: `face` settings support
 
 - Update the provider UI wording.
-- Show whether the selected provider supports voice mode, text mode, or both.
+- Show provider capabilities directly:
+  - supports voice
+  - supports text
+  - supports scripted mode
+  - default interactive mode
 - Add subscription-auth status text.
 - Add buttons or instructions for sign-in, import, and logout if the UX can
   support them cleanly.
 - Avoid showing irrelevant API-key warnings when the selected provider is not
   API-based.
 
-### Phase 8: Docs and cleanup
+### Phase 10: Docs and cleanup
 
 - Update `src/head/brain/README.md`.
 - Update `src/head/brain/.env.example`.
-- Update CLI help text to describe `--text`.
 - Remove or rename the stale browser-specific config placeholders if they are
   not part of the chosen implementation.
 - Update status docs after the provider decision lands.
@@ -480,21 +613,28 @@ If the answer to 1-3 is weak, stop and do not start a large implementation.
 
 ### Unit tests
 
-- launch-mode parsing and validation
+- provider capability declarations
+- provider registry / resolution
 - `AppConfig` provider parsing and validation
-- provider x launch-mode compatibility checks
+- provider x interactive-mode compatibility checks
+- mode-switch command interception
 - provider-specific missing-credential errors
 - auth-profile load/save/redaction behavior
 - request/response translation for text, image, and tool-call flows
-  - provider-specific retry classification
+- provider-specific retry classification
 
 ### Integration tests
 
+- provider-default interactive startup:
+  - `openai-api` -> voice
+  - `openai-codex` -> text
 - interactive text mode with `openai-api`
 - interactive text mode with subscription auth
+- runtime switch from voice to text for a dual-mode provider
+- runtime rejection of `/mode:voice` for a text-only provider
 - scripted mode with `openai-api`
 - scripted mode with subscription auth
-- clean rejection for subscription auth in voice mode
+- clean rejection when a text-only provider is asked to enter voice mode
 - fallback behavior when subscription auth is missing or expired
 - clear failure behavior when voice mode lacks speech credentials
 
@@ -502,10 +642,12 @@ If the answer to 1-3 is weak, stop and do not start a large implementation.
 
 - sign in from a clean machine state
 - restart `brain` and confirm auth profile reuse
-- start `brain --text` and complete a few real turns
+- start `brain` with each provider and verify it selects the right default
+  interactive mode
+- switch from voice to text and back on a dual-mode provider
 - run at least one real scripted scenario with tool calls
-- confirm `brain` rejects a default voice launch for the subscription provider
-  with a helpful error
+- confirm a text-only provider rejects `/mode:voice` with a helpful local
+  response
 - verify that `face` shows the right provider and setup state
 
 ## Risks
@@ -519,15 +661,19 @@ If the answer to 1-3 is weak, stop and do not start a large implementation.
   generic assistant conversations.
 - Adding text mode introduces one more interaction path to keep aligned with
   voice and scripted behavior.
+- Runtime mode switching adds lifecycle complexity around microphone, TTS, and
+  console-loop ownership.
 
 ## Open Questions
 
 - Should the final provider name be `openai-codex`, `chatgpt-subscription`, or
   something else?
-- Should `brain.exe` with a text-only provider hard-fail, or should it default
-  into text mode automatically despite the recommendation above?
+- Should natural-language mode switching be limited to a tight phrase list such
+  as `to text mode`, or should we recognize a broader family of phrasings?
 - What should text-mode reset behavior be: no reset command, `/reset`, or full
   session restart only?
+- Should the active interactive mode persist across restart for dual-mode
+  providers, or always reset to provider default?
 - Should `face` own the interactive sign-in entry point, or should it remain a
   `brain` CLI helper flow?
 - Should we import existing Codex login state if present, or require a fresh
@@ -538,12 +684,12 @@ If the answer to 1-3 is weak, stop and do not start a large implementation.
 ## Rollout Recommendation
 
 1. Review this design and choose the provider naming.
-2. Agree on the launch-mode split: `voice`, `text`, and `scripted`.
+2. Agree on the provider capability model and provider interface.
 3. Run the transport/auth spike before any major UI work.
-4. If the spike is good enough, land provider plumbing plus text-mode support
+4. If the spike is good enough, land provider plumbing and capability metadata
    first.
-5. Add `face` auth UX after the backend contract is proven.
-6. Keep voice-mode promises narrow and explicit.
+5. Add interactive mode control and local mode-switch commands next.
+6. Add `face` auth UX after the backend contract is proven.
 
 ## Sources
 
@@ -557,11 +703,3 @@ Verified on 2026-04-18:
   - https://help.openai.com/en/articles/11369540-codex-in-chatgpt-faq
 - OpenAI Developers: Codex CLI
   - https://developers.openai.com/codex/cli
-- OpenClaw provider docs: OpenAI
-  - https://github.com/openclaw/openclaw/blob/main/docs/providers/openai.md
-
-Implementation-risk evidence reviewed on 2026-04-18:
-
-- OpenClaw issue showing `openai-codex` routing through `chatgpt.com` and
-  hitting Cloudflare challenge failures:
-  - https://github.com/openclaw/openclaw/issues/66633
