@@ -276,6 +276,7 @@ internal static class AgentRunner
                     "describe_window_compact",
                     new Dictionary<string, object?>
                     {
+                        ["includeImage"] = DebugTrace.IsEnabled,
                     });
                 if (!compactResult.IsError &&
                     !string.IsNullOrWhiteSpace(compactResult.Text))
@@ -311,6 +312,7 @@ internal static class AgentRunner
                     "describe_window_focus_compact",
                     new Dictionary<string, object?>
                     {
+                        ["includeImage"] = DebugTrace.IsEnabled,
                     });
                 if (!compactResult.IsError &&
                     !string.IsNullOrWhiteSpace(compactResult.Text))
@@ -341,6 +343,51 @@ internal static class AgentRunner
         {
             var preparedArgs = PrepareDesktopToolArguments(toolName, args);
             return await mcpManager.CallToolAsync(toolName, preparedArgs, cancellationToken);
+        }
+
+        async Task CaptureDebugWindowScreenshotAsync(
+            string eventName,
+            string toolName,
+            string? preActionSnapshotText,
+            string? postActionSnapshotText)
+        {
+            if (!ShouldCapturePostActionDebugScreenshot(toolName, DebugTrace.IsEnabled, availableToolNames))
+            {
+                return;
+            }
+
+            try
+            {
+                var debugScreenshotStopwatch = Stopwatch.StartNew();
+                var debugScreenshot = await CallToolWithDesktopSessionAsync(
+                    "capture_window_screenshot",
+                    new Dictionary<string, object?>());
+                DebugTrace.WriteStructuredEvent(
+                    eventName,
+                    new Dictionary<string, object?>
+                    {
+                        ["turn"] = turnId,
+                        ["tool"] = toolName,
+                        ["elapsedMs"] = (int)Math.Round(debugScreenshotStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
+                        ["isError"] = debugScreenshot.IsError,
+                        ["screenshotWindow"] = DescribePrimaryWindowFromToolOutput(debugScreenshot.Text),
+                        ["images"] = debugScreenshot.Images.Count,
+                        ["sharedWithModel"] = false,
+                        ["treeUnchangedOrSparse"] = ShouldCaptureScreenshotAfterAction(preActionSnapshotText, postActionSnapshotText),
+                        ["resultPreview"] = DebugTrace.Preview(debugScreenshot.Text, 700),
+                    });
+            }
+            catch (Exception ex)
+            {
+                DebugTrace.WriteStructuredEvent(
+                    eventName + "_failed",
+                    new Dictionary<string, object?>
+                    {
+                        ["turn"] = turnId,
+                        ["tool"] = toolName,
+                        ["error"] = DebugTrace.Preview(ex.ToString(), 700),
+                    });
+            }
         }
 
         async Task<bool> MaybeContinueNetflixProfileSelectionAsync(string assistantResponseText)
@@ -382,25 +429,13 @@ internal static class AgentRunner
                 messages.Add(new AgentMessage.User(
                     $"Fresh post-action UI snapshot after internally invoking the requested Netflix profile:\n{currentUiElementContext}"));
             }
-
-            if (ShouldCaptureScreenshotAfterAction(preActionSnapshot, postActionSnapshot.Text))
-            {
-                var screenshot = await CallToolWithDesktopSessionAsync(
-                    "capture_window_screenshot",
-                    new Dictionary<string, object?>());
-                Display.ToolResult("capture_window_screenshot", screenshot.Text, screenshot.Images.Count);
-                if (screenshot.Images.Count > 0)
-                {
-                    messages.Add(new AgentMessage.VisualContext(
-                        "Fresh screenshot evidence after internally invoking the requested Netflix profile. Treat this as the source of truth for the visible screen.",
-                        screenshot.Images));
-                }
-            }
-            else
-            {
-                messages.Add(new AgentMessage.User(
-                    "The refreshed UI Automation tree already changed after the internal Netflix profile selection, so no extra screenshot was captured. Use the newest tree as the source of truth."));
-            }
+            await CaptureDebugWindowScreenshotAsync(
+                "agent.netflix_profile_followup_debug_screenshot",
+                "invoke_window_element",
+                preActionSnapshot,
+                postActionSnapshot.Text);
+            messages.Add(new AgentMessage.User(
+                "Use the newest compact UI snapshot as the source of truth for the current screen. Any screenshot captured during this internal follow-through is retained only for debugging."));
 
             return true;
         }
@@ -468,25 +503,13 @@ internal static class AgentRunner
                 messages.Add(new AgentMessage.User(
                     $"Fresh post-action UI snapshot after internally entering the remaining Netflix PIN digits:\n{currentUiElementContext}"));
             }
-
-            if (ShouldCaptureScreenshotAfterAction(preActionSnapshot, postActionSnapshot.Text))
-            {
-                var screenshot = await CallToolWithDesktopSessionAsync(
-                    "capture_window_screenshot",
-                    new Dictionary<string, object?>());
-                Display.ToolResult("capture_window_screenshot", screenshot.Text, screenshot.Images.Count);
-                if (screenshot.Images.Count > 0)
-                {
-                    messages.Add(new AgentMessage.VisualContext(
-                        "Fresh screenshot evidence after internally entering the remaining Netflix PIN digits. Treat this as the source of truth for the visible screen.",
-                        screenshot.Images));
-                }
-            }
-            else
-            {
-                messages.Add(new AgentMessage.User(
-                    "The refreshed UI Automation tree already changed after the internal Netflix PIN entry, so no extra screenshot was captured. Use the newest tree as the source of truth."));
-            }
+            await CaptureDebugWindowScreenshotAsync(
+                "agent.netflix_pin_followup_debug_screenshot",
+                "type_window_text",
+                preActionSnapshot,
+                postActionSnapshot.Text);
+            messages.Add(new AgentMessage.User(
+                "Use the newest compact UI snapshot as the source of truth for the current screen. Any screenshot captured during this internal follow-through is retained only for debugging."));
 
             return true;
         }
@@ -1679,12 +1702,6 @@ internal static class AgentRunner
                             followUpEvidence.Add(new AgentMessage.User(
                                 $"Fresh post-action UI snapshot after tool \"{executableToolName}\" supersedes any older pre-action UI tree for the current screen. Use this newest snapshot as the source of truth before deciding what happened next:\n{currentUiElementContext}"));
                         }
-                        if (postActionSnapshot.Images.Count > 0)
-                        {
-                            followUpEvidence.Add(new AgentMessage.VisualContext(
-                                "Post-action visual evidence for the current selected window. Use it only if you actually have image content available.",
-                                postActionSnapshot.Images));
-                        }
                         DebugTrace.WriteStructuredEvent(
                             "agent.desktop_followup_snapshot",
                             new Dictionary<string, object?>
@@ -1704,12 +1721,8 @@ internal static class AgentRunner
                                 ["tool"] = executableToolName,
                                 ["actionReportedWindow"] = DescribePrimaryWindowFromToolOutput(toolOutput.Text),
                                 ["snapshotWindow"] = DescribePrimaryWindowFromToolOutput(postActionSnapshot.Text),
-                                ["sourceOfTruth"] = postActionSnapshot.Images.Count > 0 ? "uia_plus_screenshot" : "uia_tree",
+                                ["sourceOfTruth"] = "uia_tree",
                             });
-
-                        var shouldCaptureFollowUpScreenshot = ShouldCaptureScreenshotAfterAction(
-                            preActionUiTreeSnapshot,
-                            postActionSnapshot.Text);
 
                         if (!string.IsNullOrWhiteSpace(requestedLaunchAppName) &&
                             ShouldAskToFallbackToWebsite(
@@ -1732,40 +1745,13 @@ internal static class AgentRunner
                         }
 
                         if (forcedReply is null &&
-                            shouldCaptureFollowUpScreenshot &&
                             ShouldCapturePostActionDebugScreenshot(executableToolName, DebugTrace.IsEnabled, availableToolNames))
                         {
-                            try
-                            {
-                                var debugScreenshotStopwatch = Stopwatch.StartNew();
-                                var debugScreenshot = await CallToolWithDesktopSessionAsync(
-                                    "capture_window_screenshot",
-                                    new Dictionary<string, object?>());
-                                DebugTrace.WriteStructuredEvent(
-                                    "agent.desktop_followup_debug_screenshot",
-                                    new Dictionary<string, object?>
-                                    {
-                                        ["turn"] = turnId,
-                                        ["tool"] = executableToolName,
-                                        ["elapsedMs"] = (int)Math.Round(debugScreenshotStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
-                                        ["isError"] = debugScreenshot.IsError,
-                                        ["screenshotWindow"] = DescribePrimaryWindowFromToolOutput(debugScreenshot.Text),
-                                        ["images"] = debugScreenshot.Images.Count,
-                                        ["sharedWithModel"] = false,
-                                        ["resultPreview"] = DebugTrace.Preview(debugScreenshot.Text, 700),
-                                    });
-                            }
-                            catch (Exception ex)
-                            {
-                                DebugTrace.WriteStructuredEvent(
-                                    "agent.desktop_followup_debug_screenshot_failed",
-                                    new Dictionary<string, object?>
-                                {
-                                    ["turn"] = turnId,
-                                    ["tool"] = executableToolName,
-                                    ["error"] = DebugTrace.Preview(ex.ToString(), 700),
-                                    });
-                            }
+                            await CaptureDebugWindowScreenshotAsync(
+                                "agent.desktop_followup_debug_screenshot",
+                                executableToolName,
+                                preActionUiTreeSnapshot,
+                                postActionSnapshot.Text);
                         }
 
                         if (forcedReply is null &&
@@ -2671,7 +2657,7 @@ internal static class AgentRunner
         var extraEvidence = new List<AgentMessage>
         {
             new AgentMessage.User(
-                "Your first draft sounded uncertain about the current visible state. Wait 1 more second, then use the new UI Automation snapshot below before answering. Only rely on a follow-up screenshot if one is also provided because the refreshed tree stayed unchanged or was still too sparse.")
+                "Your first draft sounded uncertain about the current visible state. Wait 1 more second, then use the new UI Automation snapshot below before answering.")
         };
 
         await Task.Delay(1000, cancellationToken);
@@ -2694,7 +2680,10 @@ internal static class AgentRunner
                     "describe_window_compact",
                     PrepareToolArgumentsForDesktopSession(
                         "describe_window_compact",
-                        new Dictionary<string, object?>(),
+                        new Dictionary<string, object?>
+                        {
+                            ["includeImage"] = DebugTrace.IsEnabled,
+                        },
                         desktopSession),
                     cancellationToken);
                 if (!compactResult.IsError &&
@@ -2709,12 +2698,6 @@ internal static class AgentRunner
             }
             extraEvidence.Add(new AgentMessage.User(
                 $"Second-pass visible UI snapshot after waiting 1 more second:\n{compactRetrySnapshot}"));
-            if (retrySnapshot.Images.Count > 0)
-            {
-                extraEvidence.Add(new AgentMessage.VisualContext(
-                    "Second-pass visual evidence returned with the UI snapshot. Use it if actual image content is present.",
-                    retrySnapshot.Images));
-            }
             DebugTrace.WriteStructuredEvent(
                 "agent.additional_desktop_evidence_snapshot",
                 new Dictionary<string, object?>
@@ -2725,7 +2708,8 @@ internal static class AgentRunner
                     ["images"] = retrySnapshot.Images.Count,
                     ["resultPreview"] = DebugTrace.Preview(retrySnapshot.Text, 700),
                 });
-            if (ShouldCaptureScreenshotAfterAction(priorUiTreeSnapshot, retrySnapshot.Text))
+            if (DebugTrace.IsEnabled &&
+                ShouldCaptureScreenshotAfterAction(priorUiTreeSnapshot, retrySnapshot.Text))
             {
                 try
                 {
@@ -2738,14 +2722,6 @@ internal static class AgentRunner
                             desktopSession),
                         cancellationToken);
                     Display.ToolResult("capture_window_screenshot", screenshot.Text, screenshot.Images.Count);
-                    extraEvidence.Add(new AgentMessage.User(
-                        "Second-pass screenshot capture ran because the refreshed UI Automation tree still looked unchanged or too sparse to settle the visible state confidently."));
-                    if (screenshot.Images.Count > 0)
-                    {
-                        extraEvidence.Add(new AgentMessage.VisualContext(
-                            "Second-pass screenshot evidence after waiting 1 more second. Treat this as the source of truth for the visible screen.",
-                            screenshot.Images));
-                    }
                     DebugTrace.WriteStructuredEvent(
                         "agent.additional_desktop_evidence_screenshot",
                         new Dictionary<string, object?>
@@ -2754,13 +2730,12 @@ internal static class AgentRunner
                             ["elapsedMs"] = (int)Math.Round(screenshotStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
                             ["window"] = DescribePrimaryWindowFromToolOutput(screenshot.Text),
                             ["images"] = screenshot.Images.Count,
+                            ["sharedWithModel"] = false,
                             ["resultPreview"] = DebugTrace.Preview(screenshot.Text, 700),
                         });
                 }
                 catch (Exception ex)
                 {
-                    extraEvidence.Add(new AgentMessage.User(
-                        $"Second-pass screenshot capture after waiting 1 more second was unavailable: {ex.Message}"));
                     DebugTrace.WriteStructuredEvent(
                         "agent.additional_desktop_evidence_screenshot_failed",
                         new Dictionary<string, object?>
@@ -2769,11 +2744,6 @@ internal static class AgentRunner
                             ["error"] = DebugTrace.Preview(ex.ToString(), 700),
                         });
                 }
-            }
-            else
-            {
-                extraEvidence.Add(new AgentMessage.User(
-                    "No follow-up screenshot was captured because the refreshed UI Automation tree already changed and remains the stronger evidence source."));
             }
         }
         catch (Exception ex)
