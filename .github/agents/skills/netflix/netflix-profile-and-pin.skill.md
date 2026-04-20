@@ -3,6 +3,10 @@ id: netflix-profile-and-pin
 group: netflix
 priority: 400
 summary: "Handle Netflix profile selection and profile-lock PIN flows."
+affordances:
+  - named_choice_continuation
+  - discrete_slot_text_entry
+  - discrete_slot_text_rewrite
 preferred_tools:
   - cognition/describe_window
   - cognition/capture_window_screenshot

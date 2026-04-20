@@ -282,11 +282,11 @@ internal static class DebugTrace
             {
                 ["id"] = toolCall.Id,
                 ["name"] = toolCall.Name,
-                ["argumentsPreview"] = Preview(toolCall.Arguments, 600),
+                ["argumentsPreview"] = PreviewToolArguments(toolCall.Name, toolCall.Arguments, 600),
             };
 
             lines.Add(
-                $"toolCall id={toolCall.Id}, name={toolCall.Name}, arguments={Preview(toolCall.Arguments, 600)}");
+                $"toolCall id={toolCall.Id}, name={toolCall.Name}, arguments={PreviewToolArguments(toolCall.Name, toolCall.Arguments, 600)}");
             toolCalls.Add(toolCallData);
         }
 
@@ -301,6 +301,47 @@ internal static class DebugTrace
                 ["textPreview"] = Preview(result.Text, 1200),
                 ["toolCalls"] = toolCalls,
             });
+    }
+
+    internal static string PreviewToolArguments(string toolName, string? argumentsJson, int maxLength = 600)
+    {
+        if (!string.Equals(toolName, "type_window_text", StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(argumentsJson))
+        {
+            return Preview(argumentsJson, maxLength);
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(argumentsJson);
+            if (document.RootElement.ValueKind != JsonValueKind.Object ||
+                !document.RootElement.TryGetProperty("text", out var textElement) ||
+                textElement.ValueKind != JsonValueKind.String)
+            {
+                return Preview(argumentsJson, maxLength);
+            }
+
+            var value = textElement.GetString();
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return Preview(argumentsJson, maxLength);
+            }
+
+            var trimmed = value.Trim();
+            if (trimmed.Length < 2 ||
+                trimmed.Length > 12 ||
+                trimmed.Any(char.IsWhiteSpace) ||
+                trimmed.Any(character => !char.IsLetterOrDigit(character)))
+            {
+                return Preview(argumentsJson, maxLength);
+            }
+
+            return Preview("""{"text":"[type_window_text redacted]"}""", maxLength);
+        }
+        catch
+        {
+            return Preview(argumentsJson, maxLength);
+        }
     }
 
     internal static string Preview(string? text, int maxLength = 400)

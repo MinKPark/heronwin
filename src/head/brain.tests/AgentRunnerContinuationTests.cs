@@ -7,7 +7,7 @@ namespace HeronWin.Brain.Tests;
 public sealed class AgentRunnerContinuationTests
 {
     [Fact]
-    public void TryBuildNetflixPinContinuation_ReturnsFalse_WhenFreshHomeSnapshotWinsOverStalePinTree()
+    public void TryBuildDiscreteSlotTextContinuation_ReturnsFalse_WhenFreshHomeSnapshotWinsOverStalePinTree()
     {
         var stalePinTreeSnapshot =
             """
@@ -63,7 +63,7 @@ public sealed class AgentRunnerContinuationTests
             """;
 
         var actionableUiTreeContext = AgentRunner.GetCurrentUiTreeContext(freshHomeSnapshot, stalePinTreeSnapshot);
-        var actual = AgentRunner.TryBuildNetflixPinContinuation(
+        var actual = AgentRunner.TryBuildDiscreteSlotTextContinuation(
             "If Netflix asks for a profile passcode, type 3579 one digit at a time.",
             actionableUiTreeContext,
             recentFocusContext: null,
@@ -73,9 +73,9 @@ public sealed class AgentRunnerContinuationTests
 
         Assert.Equal(freshHomeSnapshot, actionableUiTreeContext);
         Assert.False(actual);
-        Assert.Equal("pin_prompt_not_visible", skipReason);
+        Assert.Equal("discrete_slot_surface_not_visible", skipReason);
         Assert.Equal("Home - Netflix - Microsoft Edge", surfaceSummary["window"]);
-        Assert.False((bool)surfaceSummary["pinPromptVisible"]!);
+        Assert.False((bool)surfaceSummary["discreteSlotPromptVisible"]!);
     }
 
     [Fact]
@@ -182,14 +182,14 @@ public sealed class AgentRunnerContinuationTests
                 if (!root.TryGetProperty("data", out var dataElement) ||
                     dataElement.ValueKind != JsonValueKind.Object ||
                     !dataElement.TryGetProperty("policyName", out var policyNameElement) ||
-                    !string.Equals(policyNameElement.GetString(), "netflix_pin_entry", StringComparison.Ordinal))
+                    !string.Equals(policyNameElement.GetString(), "netflix_discrete_slot_text_entry", StringComparison.Ordinal))
                 {
                     continue;
                 }
 
                 if (string.Equals(category, "agent.internal_continuation_skipped", StringComparison.Ordinal) &&
                     dataElement.TryGetProperty("skipReason", out var skipReasonElement) &&
-                    string.Equals(skipReasonElement.GetString(), "pin_prompt_not_visible", StringComparison.Ordinal))
+                    string.Equals(skipReasonElement.GetString(), "discrete_slot_surface_not_visible", StringComparison.Ordinal))
                 {
                     skipEventFound = true;
                 }
@@ -388,14 +388,14 @@ public sealed class AgentRunnerContinuationTests
                 }
 
                 if (!dataElement.TryGetProperty("policyName", out var policyNameElement) ||
-                    !string.Equals(policyNameElement.GetString(), "netflix_pin_entry", StringComparison.Ordinal))
+                    !string.Equals(policyNameElement.GetString(), "netflix_discrete_slot_text_entry", StringComparison.Ordinal))
                 {
                     continue;
                 }
 
                 if (string.Equals(category, "agent.internal_continuation_skipped", StringComparison.Ordinal) &&
                     dataElement.TryGetProperty("skipReason", out var skipReasonElement) &&
-                    string.Equals(skipReasonElement.GetString(), "pin_prompt_not_visible", StringComparison.Ordinal))
+                    string.Equals(skipReasonElement.GetString(), "discrete_slot_surface_not_visible", StringComparison.Ordinal))
                 {
                     skipEventFound = true;
                 }
@@ -421,7 +421,26 @@ public sealed class AgentRunnerContinuationTests
             SystemPrompt: "test prompt",
             SourceDescription: "unit test",
             UsesFallbackDefinition: true,
-            ActiveSkills: []);
+            ActiveSkills:
+            [
+                new AgentSkillPrompt(
+                    "netflix-profile-and-pin",
+                    "skills/netflix/netflix-profile-and-pin.skill.md",
+                    "# Skill",
+                    new AgentSkillMetadata(
+                        "netflix-profile-and-pin",
+                        Summary: null,
+                        PreferredTools: [],
+                        AppliesWhen: [],
+                        Group: "netflix",
+                        Priority: 100,
+                        Activation: new AgentSkillActivation([], [], [], [], [], [], [], []),
+                        Affordances:
+                        [
+                            "discrete_slot_text_entry",
+                            "discrete_slot_text_rewrite",
+                        ]))
+            ]);
 
     private static ToolDefinition CreateToolDefinition(string name)
     {

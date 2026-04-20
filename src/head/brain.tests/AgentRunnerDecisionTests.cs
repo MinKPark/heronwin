@@ -776,7 +776,7 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
-    public void TryFindNetflixProfileSelectionTargetPath_ReturnsExactInvokableProfile()
+    public void TryFindVisibleNamedChoiceTargetPath_ReturnsExactInvokableProfile()
     {
         var snapshot =
             """
@@ -824,7 +824,7 @@ public sealed class AgentRunnerDecisionTests
             }
             """;
 
-        var actual = AgentRunner.TryFindNetflixProfileSelectionTargetPath(
+        var actual = AgentRunner.TryFindVisibleNamedChoiceTargetPath(
             "If Netflix is showing the profile selection screen, select the profile named Min.",
             snapshot,
             out var matchedPath);
@@ -834,7 +834,7 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
-    public void TryFindNetflixProfileSelectionTargetPath_PrefersExactProfileNameOverGenericProfileControls()
+    public void TryFindVisibleNamedChoiceTargetPath_PrefersExactProfileNameOverGenericProfileControls()
     {
         var snapshot =
             """
@@ -908,7 +908,7 @@ public sealed class AgentRunnerDecisionTests
             }
             """;
 
-        var actual = AgentRunner.TryFindNetflixProfileSelectionTargetPath(
+        var actual = AgentRunner.TryFindVisibleNamedChoiceTargetPath(
             "If Netflix is showing the profile selection screen, select the profile named Min.",
             snapshot,
             out var matchedPath);
@@ -918,7 +918,7 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
-    public void TryFindNetflixProfileSelectionTargetPath_ReturnsFalse_WhenProfilePickerIsAbsent()
+    public void TryFindVisibleNamedChoiceTargetPath_ReturnsFalse_WhenProfilePickerIsAbsent()
     {
         var snapshot =
             """
@@ -939,7 +939,7 @@ public sealed class AgentRunnerDecisionTests
             }
             """;
 
-        var actual = AgentRunner.TryFindNetflixProfileSelectionTargetPath(
+        var actual = AgentRunner.TryFindVisibleNamedChoiceTargetPath(
             "Select the profile named Min.",
             snapshot,
             out _);
@@ -948,7 +948,7 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
-    public void TryFindNetflixProfileSelectionTargetPath_ReturnsFalse_ForPassiveProfileVisibilityRequest()
+    public void TryFindVisibleNamedChoiceTargetPath_ReturnsFalse_ForPassiveProfileVisibilityRequest()
     {
         var snapshot =
             """
@@ -996,7 +996,7 @@ public sealed class AgentRunnerDecisionTests
             }
             """;
 
-        var actual = AgentRunner.TryFindNetflixProfileSelectionTargetPath(
+        var actual = AgentRunner.TryFindVisibleNamedChoiceTargetPath(
             "Open Netflix and stop when the profile selection screen is visible.",
             snapshot,
             out _);
@@ -1005,7 +1005,7 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
-    public void TryBuildRemainingNetflixPinDigits_ReturnsRemainingDigits_FromFocusedOrdinal()
+    public void TryBuildRemainingDiscreteSlotText_ReturnsRemainingText_FromFocusedOrdinal()
     {
         var windowSnapshot =
             """
@@ -1048,7 +1048,7 @@ public sealed class AgentRunnerDecisionTests
             }
             """;
 
-        var actual = AgentRunner.TryBuildRemainingNetflixPinDigits(
+        var actual = AgentRunner.TryBuildRemainingDiscreteSlotText(
             "If Netflix asks for a profile passcode, type 3579 one digit at a time.",
             windowSnapshot,
             focusSnapshot,
@@ -1059,9 +1059,9 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
-    public void ShouldRefreshNetflixPinFocusBeforeContinuation_ReturnsTrue_WhenPinWindowHasNoFocusedOrdinal()
+    public void ShouldRefreshDiscreteSlotFocusBeforeContinuation_ReturnsTrue_WhenPinWindowHasNoFocusedOrdinal()
     {
-        var actual = AgentRunner.ShouldRefreshNetflixPinFocusBeforeContinuation(
+        var actual = AgentRunner.ShouldRefreshDiscreteSlotFocusBeforeContinuation(
             """
             {
               "Window": {
@@ -1095,9 +1095,9 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
-    public void ShouldRefreshNetflixPinFocusBeforeContinuation_ReturnsFalse_WhenFocusedOrdinalIsKnown()
+    public void ShouldRefreshDiscreteSlotFocusBeforeContinuation_ReturnsFalse_WhenFocusedOrdinalIsKnown()
     {
-        var actual = AgentRunner.ShouldRefreshNetflixPinFocusBeforeContinuation(
+        var actual = AgentRunner.ShouldRefreshDiscreteSlotFocusBeforeContinuation(
             """
             {
               "Window": {
@@ -1139,9 +1139,9 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
-    public void TryBuildRemainingNetflixPinDigits_ReturnsFalse_WhenPinDigitsAreAbsent()
+    public void TryBuildRemainingDiscreteSlotText_ReturnsFalse_WhenPinDigitsAreAbsent()
     {
-        var actual = AgentRunner.TryBuildRemainingNetflixPinDigits(
+        var actual = AgentRunner.TryBuildRemainingDiscreteSlotText(
             "If Netflix asks for a profile passcode, type it one digit at a time.",
             """{"Window":{"Title":"Netflix"}}""",
             """{"Window":{"Title":"Netflix"}}""",
@@ -1151,9 +1151,9 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
-    public void TryBuildRemainingNetflixPinDigits_ReturnsFalse_ForManageProfileLockSettingsPage()
+    public void TryBuildRemainingDiscreteSlotText_ReturnsFalse_ForManageProfileLockSettingsPage()
     {
-        var actual = AgentRunner.TryBuildRemainingNetflixPinDigits(
+        var actual = AgentRunner.TryBuildRemainingDiscreteSlotText(
             "If Netflix asks for a profile passcode, type 3579 one digit at a time.",
             """
             {
@@ -1380,7 +1380,7 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
-    public void TryExtractStructuredNetflixPinDigits_ReturnsTrue_ForNetflixPinFocusAndMultiDigitText()
+    public void TryExtractStructuredDiscreteSlotText_ReturnsTrue_ForNetflixPinFocusAndMultiDigitText()
     {
         var focusSnapshot =
             """
@@ -1402,7 +1402,7 @@ public sealed class AgentRunnerDecisionTests
             }
             """;
 
-        var actual = AgentRunner.TryExtractStructuredNetflixPinDigits(
+        var actual = AgentRunner.TryExtractStructuredDiscreteSlotText(
             "type_window_text",
             new Dictionary<string, object?> { ["text"] = "3579" },
             recentWindowContext: null,
@@ -1414,7 +1414,7 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
-    public void TryExtractStructuredNetflixPinDigits_ReturnsFalse_ForSingleDigitOrNonPinFocus()
+    public void TryExtractStructuredDiscreteSlotText_ReturnsFalse_ForSingleDigitOrNonPinFocus()
     {
         var focusSnapshot =
             """
@@ -1436,7 +1436,7 @@ public sealed class AgentRunnerDecisionTests
             }
             """;
 
-        var actual = AgentRunner.TryExtractStructuredNetflixPinDigits(
+        var actual = AgentRunner.TryExtractStructuredDiscreteSlotText(
             "type_window_text",
             new Dictionary<string, object?> { ["text"] = "3" },
             recentWindowContext: null,

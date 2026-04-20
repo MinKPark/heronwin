@@ -104,8 +104,8 @@ internal static class AgentRunner
         var additionalDesktopEvidenceAttempts = 0;
         const int maxAdditionalDesktopEvidenceAttempts = 2;
         var llmAttempt = 0;
-        var attemptedNetflixProfileSelectionAutoFollowThrough = false;
-        var attemptedNetflixPinAutoFollowThrough = false;
+        var attemptedNamedChoiceAutoFollowThrough = false;
+        var attemptedDiscreteSlotAutoFollowThrough = false;
         var internalContinuationSequence = 0;
         string? recentListWindowsOutput = desktopSession.RecentListWindowsOutput;
         string? recentWindowContext = desktopSession.RecentWindowContext;
@@ -269,6 +269,7 @@ internal static class AgentRunner
             string triggerReason,
             string assistantResponseText,
             string? userIntentSummary,
+            IReadOnlyList<string>? affordances = null,
             object? surfaceSummary = null,
             object? targetSummary = null,
             object? plannedSteps = null,
@@ -279,7 +280,12 @@ internal static class AgentRunner
             string? skipReason = null,
             string? abortReason = null,
             string? preActionWindow = null,
-            string? postActionWindow = null)
+            string? postActionWindow = null,
+            bool? preflightRefreshPerformed = null,
+            bool? preflightInvalidatedStoredEvidence = null,
+            int? slotOrdinal = null,
+            int? remainingCharacterCount = null,
+            int? inputLength = null)
         {
             DebugTrace.WriteStructuredEvent(
                 category,
@@ -293,6 +299,7 @@ internal static class AgentRunner
                     ["userTextPreview"] = DebugTrace.Preview(userText, 500),
                     ["assistantReplyPreview"] = DebugTrace.Preview(assistantResponseText, 400),
                     ["userIntentSummary"] = userIntentSummary,
+                    ["affordances"] = affordances,
                     ["surfaceSummary"] = surfaceSummary,
                     ["targetSummary"] = targetSummary,
                     ["plannedSteps"] = plannedSteps,
@@ -304,96 +311,171 @@ internal static class AgentRunner
                     ["abortReason"] = abortReason,
                     ["preActionWindow"] = preActionWindow,
                     ["postActionWindow"] = postActionWindow,
+                    ["preflightRefreshPerformed"] = preflightRefreshPerformed,
+                    ["preflightInvalidatedStoredEvidence"] = preflightInvalidatedStoredEvidence,
+                    ["slotOrdinal"] = slotOrdinal,
+                    ["remainingCharacterCount"] = remainingCharacterCount,
+                    ["inputLength"] = inputLength,
                 });
         }
 
-        async Task<bool> MaybeContinueNetflixProfileSelectionAsync(string assistantResponseText)
+        static string BuildAffordancePolicyName(string group, string affordance)
         {
-            var continuationId = CreateInternalContinuationId("netflix_profile_selection");
-            var actionableUiTreeContext = ResolveActionableUiTreeContext();
-            var hasProfileContinuationTarget = TryBuildNetflixProfileSelectionContinuation(
-                userText,
-                actionableUiTreeContext,
-                out var profileTargetPath,
-                out var profileSkipReason,
-                out var profileSurfaceSummary,
-                out var profileTargetSummary);
-            var profilePlannedSteps = hasProfileContinuationTarget
-                ? new object[]
+            var normalizedGroup = NormalizeForNameMatching(group).Trim();
+            if (string.IsNullOrWhiteSpace(normalizedGroup))
+            {
+                return affordance;
+            }
+
+            return normalizedGroup.Replace(' ', '_') + "_" + affordance;
+        }
+
+        bool TryResolveActiveSkillAffordance(
+            string affordance,
+            out AgentSkillPrompt skill,
+            out string policyName,
+            out string[] affordances)
+        {
+            foreach (var candidate in composedPrompt.ActiveSkills)
+            {
+                if (!candidate.Metadata.Affordances.Contains(affordance, StringComparer.OrdinalIgnoreCase))
                 {
+                    continue;
+                }
+
+                skill = candidate;
+                policyName = BuildAffordancePolicyName(candidate.Metadata.Group, affordance);
+                affordances = candidate.Metadata.Affordances.ToArray();
+                return true;
+            }
+
+            skill = default!;
+            policyName = string.Empty;
+            affordances = [];
+            return false;
+        }
+
+        static object[]? BuildSingleStepPlan(string stepAction, object? stepTargetSummary)
+            => stepTargetSummary is null
+                ? null
+                : [
                     new Dictionary<string, object?>
                     {
                         ["stepIndex"] = 1,
-                        ["stepAction"] = "invoke_window_element",
-                        ["stepTargetSummary"] = profileTargetSummary,
+                        ["stepAction"] = stepAction,
+                        ["stepTargetSummary"] = stepTargetSummary,
                     }
-                }
-                : null;
+                ];
+
+        async Task<string> CapturePostContinuationWindowSnapshotAsync(string actionSummary)
+        {
+            var postActionSnapshot = await CallToolWithDesktopSessionAsync(
+                "describe_window",
+                BuildWindowSnapshotArguments(debugMode: DebugTrace.IsEnabled));
+            Display.ToolResult("describe_window", postActionSnapshot.Text, postActionSnapshot.Images.Count);
+            RememberRecentWindowSnapshot(postActionSnapshot.Text, "describe_window");
+            if (!string.IsNullOrWhiteSpace(currentUiElementContext))
+            {
+                messages.Add(new AgentMessage.User(
+                    $"Fresh post-action UI snapshot after internally {actionSummary}:\n{currentUiElementContext}"));
+            }
+
+            messages.Add(new AgentMessage.User(
+                "Use the newest compact UI snapshot as the source of truth for the current screen. Any debug-only evidence attached to that snapshot is for inspection, not for the model's answer."));
+            return postActionSnapshot.Text;
+        }
+
+        async Task<bool> MaybeContinueNamedChoiceAsync(string assistantResponseText)
+        {
+            if (!TryResolveActiveSkillAffordance(
+                    "named_choice_continuation",
+                    out _,
+                    out var policyName,
+                    out var affordances))
+            {
+                return false;
+            }
+
+            var continuationId = CreateInternalContinuationId(policyName);
+            var actionableUiTreeContext = ResolveActionableUiTreeContext();
+            var preActionWindow = DescribePrimaryWindowFromToolOutput(actionableUiTreeContext);
+            var hasTarget = TryBuildVisibleNamedChoiceContinuation(
+                userText,
+                actionableUiTreeContext,
+                out var targetPath,
+                out var skipReason,
+                out var surfaceSummary,
+                out var targetSummary);
+            var plannedSteps = BuildSingleStepPlan("invoke_window_element", targetSummary);
 
             WriteInternalContinuationEvent(
                 "agent.internal_continuation_considered",
                 continuationId,
-                "netflix_profile_selection",
-                "select_named_target",
-                "assistant_reply_stopped_before_named_profile_activation",
+                policyName,
+                "select_visible_named_choice",
+                "assistant_reply_stopped_before_named_choice_activation",
                 assistantResponseText,
-                "select_exact_visible_profile_named_in_user_text",
-                surfaceSummary: profileSurfaceSummary,
-                targetSummary: profileTargetSummary,
-                plannedSteps: profilePlannedSteps,
-                preActionWindow: DescribePrimaryWindowFromToolOutput(actionableUiTreeContext));
+                "select_exact_visible_named_choice_from_user_text",
+                affordances,
+                surfaceSummary: surfaceSummary,
+                targetSummary: targetSummary,
+                plannedSteps: plannedSteps,
+                preActionWindow: preActionWindow);
 
-            if (attemptedNetflixProfileSelectionAutoFollowThrough)
+            if (attemptedNamedChoiceAutoFollowThrough)
             {
                 WriteInternalContinuationEvent(
                     "agent.internal_continuation_skipped",
                     continuationId,
-                    "netflix_profile_selection",
-                    "select_named_target",
-                    "assistant_reply_stopped_before_named_profile_activation",
+                    policyName,
+                    "select_visible_named_choice",
+                    "assistant_reply_stopped_before_named_choice_activation",
                     assistantResponseText,
-                    "select_exact_visible_profile_named_in_user_text",
-                    surfaceSummary: profileSurfaceSummary,
-                    targetSummary: profileTargetSummary,
-                    plannedSteps: profilePlannedSteps,
+                    "select_exact_visible_named_choice_from_user_text",
+                    affordances,
+                    surfaceSummary: surfaceSummary,
+                    targetSummary: targetSummary,
+                    plannedSteps: plannedSteps,
                     skipReason: "already_attempted_this_turn",
-                    preActionWindow: DescribePrimaryWindowFromToolOutput(actionableUiTreeContext));
+                    preActionWindow: preActionWindow);
                 return false;
             }
 
-            if (!hasProfileContinuationTarget)
+            if (!hasTarget)
             {
                 WriteInternalContinuationEvent(
                     "agent.internal_continuation_skipped",
                     continuationId,
-                    "netflix_profile_selection",
-                    "select_named_target",
-                    "assistant_reply_stopped_before_named_profile_activation",
+                    policyName,
+                    "select_visible_named_choice",
+                    "assistant_reply_stopped_before_named_choice_activation",
                     assistantResponseText,
-                    "select_exact_visible_profile_named_in_user_text",
-                    surfaceSummary: profileSurfaceSummary,
-                    targetSummary: profileTargetSummary,
-                    plannedSteps: profilePlannedSteps,
-                    skipReason: profileSkipReason,
-                    preActionWindow: DescribePrimaryWindowFromToolOutput(actionableUiTreeContext));
+                    "select_exact_visible_named_choice_from_user_text",
+                    affordances,
+                    surfaceSummary: surfaceSummary,
+                    targetSummary: targetSummary,
+                    plannedSteps: plannedSteps,
+                    skipReason: skipReason,
+                    preActionWindow: preActionWindow);
                 return false;
             }
 
-            attemptedNetflixProfileSelectionAutoFollowThrough = true;
+            attemptedNamedChoiceAutoFollowThrough = true;
             WriteInternalContinuationEvent(
                 "agent.internal_continuation_started",
                 continuationId,
-                "netflix_profile_selection",
-                "select_named_target",
-                "assistant_reply_stopped_before_named_profile_activation",
+                policyName,
+                "select_visible_named_choice",
+                "assistant_reply_stopped_before_named_choice_activation",
                 assistantResponseText,
-                "select_exact_visible_profile_named_in_user_text",
-                surfaceSummary: profileSurfaceSummary,
-                targetSummary: profileTargetSummary,
-                plannedSteps: profilePlannedSteps,
-                preActionWindow: DescribePrimaryWindowFromToolOutput(actionableUiTreeContext));
+                "select_exact_visible_named_choice_from_user_text",
+                affordances,
+                surfaceSummary: surfaceSummary,
+                targetSummary: targetSummary,
+                plannedSteps: plannedSteps,
+                preActionWindow: preActionWindow);
 
-            var invokeArgs = new Dictionary<string, object?> { ["elementPath"] = profileTargetPath };
+            var invokeArgs = new Dictionary<string, object?> { ["elementPath"] = targetPath };
             var invokeArgsText = JsonSerializer.Serialize(invokeArgs, JsonSerializerOptionsCache.Default);
             Display.ToolCall("invoke_window_element", invokeArgsText);
             var invokeResult = await CallToolWithDesktopSessionAsync("invoke_window_element", invokeArgs);
@@ -411,20 +493,21 @@ internal static class AgentRunner
                     ? "agent.internal_continuation_aborted"
                     : "agent.internal_continuation_step_completed",
                 continuationId,
-                "netflix_profile_selection",
-                "select_named_target",
-                "assistant_reply_stopped_before_named_profile_activation",
+                policyName,
+                "select_visible_named_choice",
+                "assistant_reply_stopped_before_named_choice_activation",
                 assistantResponseText,
-                "select_exact_visible_profile_named_in_user_text",
-                surfaceSummary: profileSurfaceSummary,
-                targetSummary: profileTargetSummary,
-                plannedSteps: profilePlannedSteps,
+                "select_exact_visible_named_choice_from_user_text",
+                affordances,
+                surfaceSummary: surfaceSummary,
+                targetSummary: targetSummary,
+                plannedSteps: plannedSteps,
                 stepIndex: 1,
                 stepAction: "invoke_window_element",
-                stepTargetSummary: profileTargetSummary,
+                stepTargetSummary: targetSummary,
                 result: DebugTrace.Preview(invokeResult.Text, 500),
                 abortReason: invokeResult.IsError ? "invoke_window_element_failed" : null,
-                preActionWindow: DescribePrimaryWindowFromToolOutput(actionableUiTreeContext),
+                preActionWindow: preActionWindow,
                 postActionWindow: DescribePrimaryWindowFromToolOutput(invokeResult.Text));
 
             if (invokeResult.IsError)
@@ -434,223 +517,266 @@ internal static class AgentRunner
 
             messages.Add(new AgentMessage.Assistant(assistantResponseText));
             messages.Add(new AgentMessage.User(
-                "Internal follow-through: the user explicitly asked to select the visible Netflix profile, and the current UI still exposed one exact matching profile target. That target was invoked internally because the prior draft stopped before completing the requested activation. Use the fresh post-action evidence below as the source of truth."));
+                "Internal follow-through: the user made an explicit activation request, and the current UI still exposed one exact visible named target. That target was invoked internally because the prior draft stopped before completing the requested activation. Use the fresh post-action evidence below as the source of truth."));
 
-            var postActionSnapshot = await CallToolWithDesktopSessionAsync(
-                "describe_window",
-                BuildWindowSnapshotArguments(debugMode: DebugTrace.IsEnabled));
-            Display.ToolResult("describe_window", postActionSnapshot.Text, postActionSnapshot.Images.Count);
-            RememberRecentWindowSnapshot(postActionSnapshot.Text, "describe_window");
-            if (!string.IsNullOrWhiteSpace(currentUiElementContext))
-            {
-                messages.Add(new AgentMessage.User(
-                    $"Fresh post-action UI snapshot after internally invoking the requested Netflix profile:\n{currentUiElementContext}"));
-            }
-            messages.Add(new AgentMessage.User(
-                "Use the newest compact UI snapshot as the source of truth for the current screen. Any debug-only evidence attached to that snapshot is for inspection, not for the model's answer."));
-
+            var postActionSnapshotText = await CapturePostContinuationWindowSnapshotAsync("invoking the requested named choice");
             WriteInternalContinuationEvent(
                 "agent.internal_continuation_completed",
                 continuationId,
-                "netflix_profile_selection",
-                "select_named_target",
-                "assistant_reply_stopped_before_named_profile_activation",
+                policyName,
+                "select_visible_named_choice",
+                "assistant_reply_stopped_before_named_choice_activation",
                 assistantResponseText,
-                "select_exact_visible_profile_named_in_user_text",
-                surfaceSummary: profileSurfaceSummary,
-                targetSummary: profileTargetSummary,
-                plannedSteps: profilePlannedSteps,
-                preActionWindow: DescribePrimaryWindowFromToolOutput(actionableUiTreeContext),
-                postActionWindow: DescribePrimaryWindowFromToolOutput(postActionSnapshot.Text));
+                "select_exact_visible_named_choice_from_user_text",
+                affordances,
+                surfaceSummary: surfaceSummary,
+                targetSummary: targetSummary,
+                plannedSteps: plannedSteps,
+                preActionWindow: preActionWindow,
+                postActionWindow: DescribePrimaryWindowFromToolOutput(postActionSnapshotText));
 
             return true;
         }
 
-        async Task<bool> MaybeContinueNetflixPinEntryAsync(string assistantResponseText)
+        async Task<bool> MaybeContinueDiscreteSlotTextEntryAsync(string assistantResponseText)
         {
-            var continuationId = CreateInternalContinuationId("netflix_pin_entry");
-            var actionableUiTreeContext = ResolveActionableUiTreeContext();
-            var preContinuationWindow = DescribePrimaryWindowFromToolOutput(actionableUiTreeContext);
-            var pinWindowVisible = SnapshotLooksLikeNetflixPinWindow(actionableUiTreeContext);
-            var pinFocusVisible = SnapshotLooksLikeNetflixPinFocus(recentFocusContext);
-            var focusedOrdinalBeforeRefresh = TryExtractNetflixPinInputOrdinal(recentFocusContext, out var extractedFocusedOrdinal)
-                ? extractedFocusedOrdinal
-                : (int?)null;
-            var initialPinSurfaceSummary = new Dictionary<string, object?>
+            if (!TryResolveActiveSkillAffordance(
+                    "discrete_slot_text_entry",
+                    out _,
+                    out var policyName,
+                    out var affordances))
             {
-                ["pinPromptVisible"] = pinWindowVisible || pinFocusVisible,
-                ["pinWindowVisible"] = pinWindowVisible,
-                ["pinFocusVisible"] = pinFocusVisible,
-                ["focusedOrdinal"] = focusedOrdinalBeforeRefresh,
+                return false;
+            }
+
+            var continuationId = CreateInternalContinuationId(policyName);
+            var actionableUiTreeContext = ResolveActionableUiTreeContext();
+            var preActionWindow = DescribePrimaryWindowFromToolOutput(actionableUiTreeContext);
+            var slotWindowVisible = SnapshotLooksLikeDiscreteSlotTextWindow(actionableUiTreeContext);
+            var slotFocusVisible = SnapshotLooksLikeDiscreteSlotTextFocus(recentFocusContext);
+            var slotOrdinalBeforeRefresh = TryExtractDiscreteSlotInputOrdinal(recentFocusContext, out var extractedSlotOrdinal)
+                ? extractedSlotOrdinal
+                : (int?)null;
+            var initialSurfaceSummary = new Dictionary<string, object?>
+            {
+                ["discreteSlotPromptVisible"] = slotWindowVisible || slotFocusVisible,
+                ["windowSurfaceVisible"] = slotWindowVisible,
+                ["focusSurfaceVisible"] = slotFocusVisible,
+                ["slotOrdinal"] = slotOrdinalBeforeRefresh,
+                ["window"] = preActionWindow,
             };
 
             WriteInternalContinuationEvent(
                 "agent.internal_continuation_considered",
                 continuationId,
-                "netflix_pin_entry",
-                "enter_sequential_text",
-                "assistant_reply_stopped_before_pin_completion",
+                policyName,
+                "enter_remaining_discrete_text",
+                "assistant_reply_stopped_before_discrete_text_completion",
                 assistantResponseText,
-                "enter_remaining_profile_pin_digits_provided_by_user",
-                surfaceSummary: initialPinSurfaceSummary,
-                preActionWindow: preContinuationWindow);
+                "enter_remaining_discrete_text_provided_by_user",
+                affordances,
+                surfaceSummary: initialSurfaceSummary,
+                preActionWindow: preActionWindow,
+                slotOrdinal: slotOrdinalBeforeRefresh);
 
-            if (attemptedNetflixPinAutoFollowThrough)
+            if (attemptedDiscreteSlotAutoFollowThrough)
             {
                 WriteInternalContinuationEvent(
                     "agent.internal_continuation_skipped",
                     continuationId,
-                    "netflix_pin_entry",
-                    "enter_sequential_text",
-                    "assistant_reply_stopped_before_pin_completion",
+                    policyName,
+                    "enter_remaining_discrete_text",
+                    "assistant_reply_stopped_before_discrete_text_completion",
                     assistantResponseText,
-                    "enter_remaining_profile_pin_digits_provided_by_user",
-                    surfaceSummary: initialPinSurfaceSummary,
+                    "enter_remaining_discrete_text_provided_by_user",
+                    affordances,
+                    surfaceSummary: initialSurfaceSummary,
                     skipReason: "already_attempted_this_turn",
-                    preActionWindow: preContinuationWindow);
+                    preActionWindow: preActionWindow,
+                    slotOrdinal: slotOrdinalBeforeRefresh);
                 return false;
             }
 
             var effectiveFocusContext = recentFocusContext;
-            if (ShouldRefreshNetflixPinFocusBeforeContinuation(actionableUiTreeContext, effectiveFocusContext))
+            var preflightRefreshPerformed = false;
+            var preflightInvalidatedStoredEvidence = false;
+            if (ShouldRefreshDiscreteSlotFocusBeforeContinuation(actionableUiTreeContext, effectiveFocusContext) &&
+                availableToolNames.Contains("describe_window_focus"))
             {
+                preflightRefreshPerformed = true;
                 var focusSnapshot = await CallToolWithDesktopSessionAsync(
                     "describe_window_focus",
                     BuildFocusSnapshotArguments(debugMode: DebugTrace.IsEnabled));
                 Display.ToolResult("describe_window_focus", focusSnapshot.Text, focusSnapshot.Images.Count);
-                if (!focusSnapshot.IsError)
+                if (focusSnapshot.IsError)
                 {
+                    DebugTrace.WriteStructuredEvent(
+                        "agent.internal_continuation_preflight_focus_snapshot_failed",
+                        new Dictionary<string, object?>
+                        {
+                            ["turn"] = turnId,
+                            ["continuationId"] = continuationId,
+                            ["policyName"] = policyName,
+                            ["affordances"] = affordances,
+                            ["assistantReplyPreview"] = DebugTrace.Preview(assistantResponseText, 400),
+                            ["preActionWindow"] = preActionWindow,
+                            ["error"] = DebugTrace.Preview(focusSnapshot.Text, 700),
+                        });
+                }
+                else
+                {
+                    preflightInvalidatedStoredEvidence = !string.IsNullOrWhiteSpace(recentFocusContext);
                     RememberRecentFocusSnapshot(focusSnapshot.Text);
                     effectiveFocusContext = recentFocusContext;
+                    DebugTrace.WriteStructuredEvent(
+                        "agent.internal_continuation_preflight_focus_snapshot",
+                        new Dictionary<string, object?>
+                        {
+                            ["turn"] = turnId,
+                            ["continuationId"] = continuationId,
+                            ["policyName"] = policyName,
+                            ["affordances"] = affordances,
+                            ["assistantReplyPreview"] = DebugTrace.Preview(assistantResponseText, 400),
+                            ["preActionWindow"] = preActionWindow,
+                            ["focusedElement"] = DescribeFocusedElementFromToolOutput(focusSnapshot.Text),
+                            ["invalidatedStoredFocusContext"] = preflightInvalidatedStoredEvidence,
+                            ["resultPreview"] = DebugTrace.Preview(focusSnapshot.Text, 700),
+                        });
                 }
             }
 
-            var hasRemainingDigits = TryBuildNetflixPinContinuation(
+            var hasRemainingText = TryBuildDiscreteSlotTextContinuation(
                 userText,
                 actionableUiTreeContext,
                 effectiveFocusContext,
-                out var remainingDigits,
-                out var pinSkipReason,
-                out var pinSurfaceSummary);
-            var pinTargetSummary = hasRemainingDigits
+                out var remainingText,
+                out var skipReason,
+                out var surfaceSummary);
+            var slotOrdinal = surfaceSummary.TryGetValue("slotOrdinal", out var slotOrdinalValue) && slotOrdinalValue is int ordinalValue
+                ? ordinalValue
+                : surfaceSummary.TryGetValue("slotOrdinal", out slotOrdinalValue) && slotOrdinalValue is JsonElement ordinalElement && ordinalElement.TryGetInt32(out var ordinalFromJson)
+                    ? ordinalFromJson
+                    : (int?)null;
+            var targetSummary = hasRemainingText
                 ? new Dictionary<string, object?>
                 {
-                    ["inputKind"] = "sequential_single_character_boxes",
-                    ["remainingDigitCount"] = remainingDigits.Length,
+                    ["inputKind"] = "sequential_discrete_text_slots",
+                    ["remainingCharacterCount"] = remainingText.Length,
+                    ["inputLength"] = remainingText.Length,
                 }
                 : null;
-            var pinPlannedSteps = hasRemainingDigits
-                ? new object[]
-                {
-                    new Dictionary<string, object?>
-                    {
-                        ["stepIndex"] = 1,
-                        ["stepAction"] = "type_window_text",
-                        ["stepTargetSummary"] = pinTargetSummary,
-                    }
-                }
-                : null;
+            var plannedSteps = BuildSingleStepPlan("type_window_text", targetSummary);
 
-            if (!hasRemainingDigits)
+            if (!hasRemainingText)
             {
                 WriteInternalContinuationEvent(
                     "agent.internal_continuation_skipped",
                     continuationId,
-                    "netflix_pin_entry",
-                    "enter_sequential_text",
-                    "assistant_reply_stopped_before_pin_completion",
+                    policyName,
+                    "enter_remaining_discrete_text",
+                    "assistant_reply_stopped_before_discrete_text_completion",
                     assistantResponseText,
-                    "enter_remaining_profile_pin_digits_provided_by_user",
-                    surfaceSummary: pinSurfaceSummary,
-                    targetSummary: pinTargetSummary,
-                    plannedSteps: pinPlannedSteps,
-                    skipReason: pinSkipReason,
-                    preActionWindow: preContinuationWindow);
+                    "enter_remaining_discrete_text_provided_by_user",
+                    affordances,
+                    surfaceSummary: surfaceSummary,
+                    targetSummary: targetSummary,
+                    plannedSteps: plannedSteps,
+                    skipReason: skipReason,
+                    preActionWindow: preActionWindow,
+                    preflightRefreshPerformed: preflightRefreshPerformed,
+                    preflightInvalidatedStoredEvidence: preflightInvalidatedStoredEvidence,
+                    slotOrdinal: slotOrdinal);
                 return false;
             }
 
-            attemptedNetflixPinAutoFollowThrough = true;
+            attemptedDiscreteSlotAutoFollowThrough = true;
             WriteInternalContinuationEvent(
                 "agent.internal_continuation_started",
                 continuationId,
-                "netflix_pin_entry",
-                "enter_sequential_text",
-                "assistant_reply_stopped_before_pin_completion",
+                policyName,
+                "enter_remaining_discrete_text",
+                "assistant_reply_stopped_before_discrete_text_completion",
                 assistantResponseText,
-                "enter_remaining_profile_pin_digits_provided_by_user",
-                surfaceSummary: pinSurfaceSummary,
-                targetSummary: pinTargetSummary,
-                plannedSteps: pinPlannedSteps,
-                preActionWindow: preContinuationWindow);
+                "enter_remaining_discrete_text_provided_by_user",
+                affordances,
+                surfaceSummary: surfaceSummary,
+                targetSummary: targetSummary,
+                plannedSteps: plannedSteps,
+                preActionWindow: preActionWindow,
+                preflightRefreshPerformed: preflightRefreshPerformed,
+                preflightInvalidatedStoredEvidence: preflightInvalidatedStoredEvidence,
+                slotOrdinal: slotOrdinal,
+                remainingCharacterCount: remainingText.Length,
+                inputLength: remainingText.Length);
 
-            Display.ToolCall("type_window_text", """{"text":"[remaining Netflix PIN digits redacted]"}""");
-            var pinResult = await ExecuteStructuredNetflixPinEntryAsync(
+            Display.ToolCall("type_window_text", """{"text":"[discrete text entry redacted]"}""");
+            var entryResult = await ExecuteSequentialDiscreteTextEntryAsync(
                 turnId,
-                $"internal-netflix-pin-{llmAttempt}",
-                remainingDigits,
+                $"internal-discrete-text-{llmAttempt}",
+                remainingText,
                 mcpManager,
                 desktopSession,
                 cancellationToken);
-            Display.ToolResult("type_window_text", pinResult.Text, pinResult.Images.Count);
+            Display.ToolResult("type_window_text", entryResult.Text, entryResult.Images.Count);
             usedAnyTools = true;
             performedDesktopAction = true;
             lastCompletedToolNameInTurn = "type_window_text";
 
             WriteInternalContinuationEvent(
-                pinResult.IsError
+                entryResult.IsError
                     ? "agent.internal_continuation_aborted"
                     : "agent.internal_continuation_step_completed",
                 continuationId,
-                "netflix_pin_entry",
-                "enter_sequential_text",
-                "assistant_reply_stopped_before_pin_completion",
+                policyName,
+                "enter_remaining_discrete_text",
+                "assistant_reply_stopped_before_discrete_text_completion",
                 assistantResponseText,
-                "enter_remaining_profile_pin_digits_provided_by_user",
-                surfaceSummary: pinSurfaceSummary,
-                targetSummary: pinTargetSummary,
-                plannedSteps: pinPlannedSteps,
+                "enter_remaining_discrete_text_provided_by_user",
+                affordances,
+                surfaceSummary: surfaceSummary,
+                targetSummary: targetSummary,
+                plannedSteps: plannedSteps,
                 stepIndex: 1,
                 stepAction: "type_window_text",
-                stepTargetSummary: pinTargetSummary,
-                result: DebugTrace.Preview(pinResult.Text, 500),
-                abortReason: pinResult.IsError ? "structured_pin_entry_failed" : null,
-                preActionWindow: preContinuationWindow);
+                stepTargetSummary: targetSummary,
+                result: DebugTrace.Preview(entryResult.Text, 500),
+                abortReason: entryResult.IsError ? "sequential_discrete_text_entry_failed" : null,
+                preActionWindow: preActionWindow,
+                preflightRefreshPerformed: preflightRefreshPerformed,
+                preflightInvalidatedStoredEvidence: preflightInvalidatedStoredEvidence,
+                slotOrdinal: slotOrdinal,
+                remainingCharacterCount: remainingText.Length,
+                inputLength: remainingText.Length);
 
-            if (pinResult.IsError)
+            if (entryResult.IsError)
             {
                 return false;
             }
 
             messages.Add(new AgentMessage.Assistant(assistantResponseText));
             messages.Add(new AgentMessage.User(
-                "Internal follow-through: the user already provided the Netflix PIN for this turn, and the profile-lock gate remained visible after only a partial entry. The remaining PIN digits were entered internally one at a time. Use the fresh post-action evidence below as the source of truth."));
+                "Internal follow-through: the user had already provided the remaining code value for a visible structured entry surface, and the prior draft stopped before finishing entry. The remaining characters were entered internally one at a time. Use the fresh post-action evidence below as the source of truth."));
 
-            var postActionSnapshot = await CallToolWithDesktopSessionAsync(
-                "describe_window",
-                BuildWindowSnapshotArguments(debugMode: DebugTrace.IsEnabled));
-            Display.ToolResult("describe_window", postActionSnapshot.Text, postActionSnapshot.Images.Count);
-            RememberRecentWindowSnapshot(postActionSnapshot.Text, "describe_window");
-            if (!string.IsNullOrWhiteSpace(currentUiElementContext))
-            {
-                messages.Add(new AgentMessage.User(
-                    $"Fresh post-action UI snapshot after internally entering the remaining Netflix PIN digits:\n{currentUiElementContext}"));
-            }
-            messages.Add(new AgentMessage.User(
-                "Use the newest compact UI snapshot as the source of truth for the current screen. Any debug-only evidence attached to that snapshot is for inspection, not for the model's answer."));
-
+            var postActionSnapshotText = await CapturePostContinuationWindowSnapshotAsync("entering the remaining structured text one character at a time");
             WriteInternalContinuationEvent(
                 "agent.internal_continuation_completed",
                 continuationId,
-                "netflix_pin_entry",
-                "enter_sequential_text",
-                "assistant_reply_stopped_before_pin_completion",
+                policyName,
+                "enter_remaining_discrete_text",
+                "assistant_reply_stopped_before_discrete_text_completion",
                 assistantResponseText,
-                "enter_remaining_profile_pin_digits_provided_by_user",
-                surfaceSummary: pinSurfaceSummary,
-                targetSummary: pinTargetSummary,
-                plannedSteps: pinPlannedSteps,
-                preActionWindow: preContinuationWindow,
-                postActionWindow: DescribePrimaryWindowFromToolOutput(postActionSnapshot.Text));
+                "enter_remaining_discrete_text_provided_by_user",
+                affordances,
+                surfaceSummary: surfaceSummary,
+                targetSummary: targetSummary,
+                plannedSteps: plannedSteps,
+                preActionWindow: preActionWindow,
+                postActionWindow: DescribePrimaryWindowFromToolOutput(postActionSnapshotText),
+                preflightRefreshPerformed: preflightRefreshPerformed,
+                preflightInvalidatedStoredEvidence: preflightInvalidatedStoredEvidence,
+                slotOrdinal: slotOrdinal,
+                remainingCharacterCount: remainingText.Length,
+                inputLength: remainingText.Length);
 
             return true;
         }
@@ -827,12 +953,12 @@ internal static class AgentRunner
 
                 await RefreshCurrentWindowEvidenceBeforeInternalContinuationAsync(responseText);
 
-                if (await MaybeContinueNetflixProfileSelectionAsync(responseText))
+                if (await MaybeContinueNamedChoiceAsync(responseText))
                 {
                     continue;
                 }
 
-                if (await MaybeContinueNetflixPinEntryAsync(responseText))
+                if (await MaybeContinueDiscreteSlotTextEntryAsync(responseText))
                 {
                     continue;
                 }
@@ -854,7 +980,7 @@ internal static class AgentRunner
                         ["turn"] = turnId,
                         ["toolCallId"] = toolCall.Id,
                         ["tool"] = toolCall.Name,
-                        ["argumentsPreview"] = DebugTrace.Preview(toolCall.Arguments, 600),
+                        ["argumentsPreview"] = DebugTrace.PreviewToolArguments(toolCall.Name, toolCall.Arguments, 600),
                     });
                 object parsedArgs = new Dictionary<string, object?>();
                 try
@@ -1311,8 +1437,8 @@ internal static class AgentRunner
                             ["toolCallId"] = toolCall.Id,
                             ["tool"] = toolCall.Name,
                             ["reason"] = "recent_list_windows_handle_preferred",
-                            ["originalArgumentsPreview"] = DebugTrace.Preview(toolCall.Arguments, 600),
-                            ["rewrittenArgumentsPreview"] = DebugTrace.Preview(effectiveArgumentsText, 600),
+                            ["originalArgumentsPreview"] = DebugTrace.PreviewToolArguments(toolCall.Name, toolCall.Arguments, 600),
+                            ["rewrittenArgumentsPreview"] = DebugTrace.PreviewToolArguments(toolCall.Name, effectiveArgumentsText, 600),
                         });
                 }
 
@@ -1339,8 +1465,8 @@ internal static class AgentRunner
                             ["reason"] = executableToolName == "launch_application"
                                 ? "requested_app_launch_preferred_over_unrelated_window"
                                 : "requested_app_window_match_preferred",
-                            ["originalArgumentsPreview"] = DebugTrace.Preview(toolCall.Arguments, 600),
-                            ["rewrittenArgumentsPreview"] = DebugTrace.Preview(effectiveArgumentsText, 600),
+                            ["originalArgumentsPreview"] = DebugTrace.PreviewToolArguments(toolCall.Name, toolCall.Arguments, 600),
+                            ["rewrittenArgumentsPreview"] = DebugTrace.PreviewToolArguments(executableToolName, effectiveArgumentsText, 600),
                         });
                 }
 
@@ -1363,8 +1489,8 @@ internal static class AgentRunner
                             ["toolCallId"] = toolCall.Id,
                             ["tool"] = toolCall.Name,
                             ["reason"] = "browser_site_search_control_preferred",
-                            ["originalArgumentsPreview"] = DebugTrace.Preview(toolCall.Arguments, 600),
-                            ["rewrittenArgumentsPreview"] = DebugTrace.Preview(effectiveArgumentsText, 600),
+                            ["originalArgumentsPreview"] = DebugTrace.PreviewToolArguments(toolCall.Name, toolCall.Arguments, 600),
+                            ["rewrittenArgumentsPreview"] = DebugTrace.PreviewToolArguments(toolCall.Name, effectiveArgumentsText, 600),
                         });
                 }
 
@@ -1407,8 +1533,8 @@ internal static class AgentRunner
                                 ["toolCallId"] = toolCall.Id,
                                 ["tool"] = toolCall.Name,
                                 ["reason"] = "exact_named_visible_target_preferred",
-                                ["originalArgumentsPreview"] = DebugTrace.Preview(toolCall.Arguments, 600),
-                                ["rewrittenArgumentsPreview"] = DebugTrace.Preview(effectiveArgumentsText, 600),
+                                ["originalArgumentsPreview"] = DebugTrace.PreviewToolArguments(toolCall.Name, toolCall.Arguments, 600),
+                                ["rewrittenArgumentsPreview"] = DebugTrace.PreviewToolArguments(toolCall.Name, effectiveArgumentsText, 600),
                             });
                     }
                 }
@@ -1437,8 +1563,8 @@ internal static class AgentRunner
                             ["requestedTool"] = toolCall.Name,
                             ["executedTool"] = executableToolName,
                             ["elementPath"] = browserSearchFieldReplacementPath,
-                            ["originalArgumentsPreview"] = DebugTrace.Preview(toolCall.Arguments, 600),
-                            ["rewrittenArgumentsPreview"] = DebugTrace.Preview(effectiveArgumentsText, 600),
+                            ["originalArgumentsPreview"] = DebugTrace.PreviewToolArguments(toolCall.Name, toolCall.Arguments, 600),
+                            ["rewrittenArgumentsPreview"] = DebugTrace.PreviewToolArguments(executableToolName, effectiveArgumentsText, 600),
                         });
                 }
 
@@ -1462,8 +1588,8 @@ internal static class AgentRunner
                             ["toolCallId"] = toolCall.Id,
                             ["requestedTool"] = toolCall.Name,
                             ["executedTool"] = executableToolName,
-                            ["originalArgumentsPreview"] = DebugTrace.Preview(toolCall.Arguments, 600),
-                            ["rewrittenArgumentsPreview"] = DebugTrace.Preview(effectiveArgumentsText, 600),
+                            ["originalArgumentsPreview"] = DebugTrace.PreviewToolArguments(toolCall.Name, toolCall.Arguments, 600),
+                            ["rewrittenArgumentsPreview"] = DebugTrace.PreviewToolArguments(executableToolName, effectiveArgumentsText, 600),
                         });
                 }
 
@@ -1480,8 +1606,8 @@ internal static class AgentRunner
                             ["tool"] = toolCall.Name,
                             ["executedTool"] = executableToolName,
                             ["reason"] = "desktop_session_window_handle_injected",
-                            ["originalArgumentsPreview"] = DebugTrace.Preview(effectiveArgumentsText, 600),
-                            ["rewrittenArgumentsPreview"] = DebugTrace.Preview(preparedArgumentsText, 600),
+                            ["originalArgumentsPreview"] = DebugTrace.PreviewToolArguments(executableToolName, effectiveArgumentsText, 600),
+                            ["rewrittenArgumentsPreview"] = DebugTrace.PreviewToolArguments(executableToolName, preparedArgumentsText, 600),
                         });
                     executableArgs = preparedExecutableArgs;
                     effectiveArgumentsText = preparedArgumentsText;
@@ -1698,16 +1824,64 @@ internal static class AgentRunner
                     await MaybePrimeBrowserSearchFieldForReplacementTypingAsync("browser_site_search_field_typing");
                 }
 
-                var useStructuredNetflixPinEntry = TryExtractStructuredNetflixPinDigits(
-                    executableToolName,
-                    executableArgs,
-                    recentWindowContext,
-                    recentFocusContext,
-                    out var structuredNetflixPinDigits);
-                if (useStructuredNetflixPinEntry)
+                var discreteSlotRewriteAllowed = TryResolveActiveSkillAffordance(
+                    "discrete_slot_text_rewrite",
+                    out _,
+                    out var discreteSlotRewritePolicyName,
+                    out var discreteSlotRewriteAffordances);
+                var requestedDiscreteSlotText = TryGetStringArgument(executableArgs, "text");
+                var discreteSlotWindowVisible = SnapshotLooksLikeDiscreteSlotTextWindow(recentWindowContext);
+                var discreteSlotFocusVisible = SnapshotLooksLikeDiscreteSlotTextFocus(recentFocusContext);
+                var discreteSlotSurfaceDetected = discreteSlotWindowVisible || discreteSlotFocusVisible;
+                var discreteSlotOrdinal = TryExtractDiscreteSlotInputOrdinal(recentFocusContext, out var extractedDiscreteSlotOrdinal)
+                    ? extractedDiscreteSlotOrdinal
+                    : (int?)null;
+                var discreteSlotInputLength = TryExtractMultiCharacterDiscreteSlotText(requestedDiscreteSlotText, out var structuredDiscreteSlotText)
+                    ? structuredDiscreteSlotText.Length
+                    : (!string.IsNullOrWhiteSpace(requestedDiscreteSlotText)
+                        ? requestedDiscreteSlotText.Trim().Length
+                        : 0);
+                var useStructuredDiscreteSlotEntry = discreteSlotRewriteAllowed &&
+                                                     TryExtractStructuredDiscreteSlotText(
+                                                         executableToolName,
+                                                         executableArgs,
+                                                         recentWindowContext,
+                                                         recentFocusContext,
+                                                         out structuredDiscreteSlotText);
+                var discreteSlotRewriteSkipReason = useStructuredDiscreteSlotEntry
+                    ? null
+                    : !discreteSlotRewriteAllowed
+                        ? "affordance_not_enabled"
+                        : !string.Equals(executableToolName, "type_window_text", StringComparison.Ordinal)
+                            ? "unsupported_tool"
+                            : !TryExtractMultiCharacterDiscreteSlotText(requestedDiscreteSlotText, out _)
+                                ? "input_not_multi_character_discrete_text"
+                                : !discreteSlotSurfaceDetected
+                                    ? "discrete_slot_surface_not_visible"
+                                    : "rewrite_not_applicable";
+                DebugTrace.WriteStructuredEvent(
+                    "agent.discrete_slot_text_rewrite_evaluated",
+                    new Dictionary<string, object?>
+                    {
+                        ["turn"] = turnId,
+                        ["toolCallId"] = toolCall.Id,
+                        ["tool"] = toolCall.Name,
+                        ["policyName"] = discreteSlotRewriteAllowed ? discreteSlotRewritePolicyName : null,
+                        ["affordances"] = discreteSlotRewriteAllowed ? discreteSlotRewriteAffordances : null,
+                        ["preActionWindow"] = DescribePrimaryWindowFromToolOutput(actionableUiTreeContext),
+                        ["windowSurfaceVisible"] = discreteSlotWindowVisible,
+                        ["focusSurfaceVisible"] = discreteSlotFocusVisible,
+                        ["structuredSurfaceDetected"] = discreteSlotSurfaceDetected,
+                        ["slotOrdinal"] = discreteSlotOrdinal,
+                        ["inputLength"] = discreteSlotInputLength,
+                        ["rewriteApplied"] = useStructuredDiscreteSlotEntry,
+                        ["rewriteSkipReason"] = discreteSlotRewriteSkipReason,
+                    });
+                if (useStructuredDiscreteSlotEntry)
                 {
                     toolRewriteNote =
-                        "Internal Netflix PIN fallback entered the code one digit at a time because the visible profile lock uses separate single-character PIN boxes.";
+                        "Internal structured text fallback entered the code one character at a time because the visible prompt uses separate single-character entry boxes.";
+                    effectiveArgumentsText = """{"text":"[discrete slot text redacted]"}""";
                 }
 
                 var intermediateStep = ResolveToolStepNarration(
@@ -1728,11 +1902,11 @@ internal static class AgentRunner
                 ToolCallOutcome toolOutput;
                 try
                 {
-                    toolOutput = useStructuredNetflixPinEntry
-                        ? await ExecuteStructuredNetflixPinEntryAsync(
+                    toolOutput = useStructuredDiscreteSlotEntry
+                        ? await ExecuteSequentialDiscreteTextEntryAsync(
                             turnId,
                             toolCall.Id,
-                            structuredNetflixPinDigits,
+                            structuredDiscreteSlotText,
                             mcpManager,
                             desktopSession,
                             cancellationToken)
@@ -3634,35 +3808,35 @@ internal static class AgentRunner
         return true;
     }
 
-    internal static bool TryExtractStructuredNetflixPinDigits(
+    internal static bool TryExtractStructuredDiscreteSlotText(
         string toolName,
         IReadOnlyDictionary<string, object?> args,
         string? recentWindowContext,
         string? recentFocusContext,
-        out string digits)
+        out string text)
     {
-        digits = string.Empty;
+        text = string.Empty;
         if (!string.Equals(toolName, "type_window_text", StringComparison.Ordinal))
         {
             return false;
         }
 
-        var text = TryGetStringArgument(args, "text");
-        if (!TryExtractMultiDigitPinText(text, out digits))
+        var requestedText = TryGetStringArgument(args, "text");
+        if (!TryExtractMultiCharacterDiscreteSlotText(requestedText, out text))
         {
-            digits = string.Empty;
+            text = string.Empty;
             return false;
         }
 
-        var matchesPinContext =
-            SnapshotLooksLikeNetflixPinFocus(recentFocusContext)
-            || SnapshotLooksLikeNetflixPinWindow(recentWindowContext);
-        if (!matchesPinContext)
+        var matchesDiscreteSlotContext =
+            SnapshotLooksLikeDiscreteSlotTextFocus(recentFocusContext)
+            || SnapshotLooksLikeDiscreteSlotTextWindow(recentWindowContext);
+        if (!matchesDiscreteSlotContext)
         {
-            digits = string.Empty;
+            text = string.Empty;
         }
 
-        return matchesPinContext;
+        return matchesDiscreteSlotContext;
     }
 
     internal static bool TryRewriteGenericContainerActionToNamedTarget(
@@ -3829,51 +4003,59 @@ internal static class AgentRunner
             or "invoke_window_element"
             or "focus_window_element";
 
-    private static async Task<ToolCallOutcome> ExecuteStructuredNetflixPinEntryAsync(
+    private static async Task<ToolCallOutcome> ExecuteSequentialDiscreteTextEntryAsync(
         long turnId,
         string toolCallId,
-        string digits,
+        string text,
         McpClientManager mcpManager,
         DesktopSessionContext desktopSession,
         CancellationToken cancellationToken)
     {
         var lines = new List<string>
         {
-            $"Structured Netflix PIN entry used {digits.Length} separate digit inputs."
+            $"Structured discrete-slot text entry used {text.Length} separate character inputs."
         };
 
         DebugTrace.WriteStructuredEvent(
-            "agent.netflix_pin_entry.start",
+            "agent.discrete_slot_text_entry.start",
             new Dictionary<string, object?>
             {
                 ["turn"] = turnId,
                 ["toolCallId"] = toolCallId,
-                ["digitCount"] = digits.Length,
+                ["inputLength"] = text.Length,
             });
 
-        for (var index = 0; index < digits.Length; index += 1)
+        for (var index = 0; index < text.Length; index += 1)
         {
-            var digit = digits[index].ToString();
-            var inputArgs = new Dictionary<string, object?> { ["text"] = digit };
+            var inputArgs = new Dictionary<string, object?> { ["text"] = text[index].ToString() };
             var inputResult = await mcpManager.CallToolAsync(
                 "type_window_text",
                 PrepareToolArgumentsForDesktopSession("type_window_text", inputArgs, desktopSession),
                 cancellationToken);
             DebugTrace.WriteStructuredEvent(
-                "agent.netflix_pin_entry.digit_input",
+                "agent.discrete_slot_text_entry.character_input",
                 new Dictionary<string, object?>
                 {
                     ["turn"] = turnId,
                     ["toolCallId"] = toolCallId,
-                    ["digitIndex"] = index + 1,
-                    ["digit"] = digit,
+                    ["characterIndex"] = index + 1,
                     ["isError"] = inputResult.IsError,
                     ["resultPreview"] = DebugTrace.Preview(inputResult.Text, 500),
                 });
 
             if (inputResult.IsError)
             {
-                lines.Add($"Digit {index + 1} '{digit}' failed: {DebugTrace.Preview(inputResult.Text, 220)}");
+                DebugTrace.WriteStructuredEvent(
+                    "agent.discrete_slot_text_entry.aborted",
+                    new Dictionary<string, object?>
+                    {
+                        ["turn"] = turnId,
+                        ["toolCallId"] = toolCallId,
+                        ["characterIndex"] = index + 1,
+                        ["abortReason"] = "type_window_text_failed",
+                        ["resultPreview"] = DebugTrace.Preview(inputResult.Text, 500),
+                    });
+                lines.Add($"Character {index + 1} entry failed: {DebugTrace.Preview(inputResult.Text, 220)}");
                 return new ToolCallOutcome(string.Join(Environment.NewLine, lines), [], true);
             }
 
@@ -3886,13 +4068,12 @@ internal static class AgentRunner
                 cancellationToken);
             var focusSummary = DescribeFocusedElementFromToolOutput(focusResult.Text);
             DebugTrace.WriteStructuredEvent(
-                "agent.netflix_pin_entry.focus_verification",
+                "agent.discrete_slot_text_entry.focus_verification",
                 new Dictionary<string, object?>
                 {
                     ["turn"] = turnId,
                     ["toolCallId"] = toolCallId,
-                    ["digitIndex"] = index + 1,
-                    ["digit"] = digit,
+                    ["characterIndex"] = index + 1,
                     ["isError"] = focusResult.IsError,
                     ["focusedElement"] = focusSummary,
                     ["resultPreview"] = DebugTrace.Preview(focusResult.Text, 500),
@@ -3900,16 +4081,24 @@ internal static class AgentRunner
 
             if (focusResult.IsError)
             {
-                lines.Add($"Digit {index + 1} '{digit}' entered. Focus verification was unavailable.");
+                lines.Add($"Character {index + 1} entered. Focus verification was unavailable.");
                 continue;
             }
 
             lines.Add(
                 string.IsNullOrWhiteSpace(focusSummary)
-                    ? $"Digit {index + 1} '{digit}' entered."
-                    : $"Digit {index + 1} '{digit}' entered. Focus now: {focusSummary}.");
+                    ? $"Character {index + 1} entered."
+                    : $"Character {index + 1} entered. Focus now: {focusSummary}.");
         }
 
+        DebugTrace.WriteStructuredEvent(
+            "agent.discrete_slot_text_entry.completed",
+            new Dictionary<string, object?>
+            {
+                ["turn"] = turnId,
+                ["toolCallId"] = toolCallId,
+                ["inputLength"] = text.Length,
+            });
         return new ToolCallOutcome(string.Join(Environment.NewLine, lines), []);
     }
 
@@ -4193,12 +4382,12 @@ internal static class AgentRunner
                && UserRequestLooksLikeBrowserContentSearch(userText);
     }
 
-    internal static bool TryFindNetflixProfileSelectionTargetPath(
+    internal static bool TryFindVisibleNamedChoiceTargetPath(
         string userText,
         string? recentWindowContext,
         out string matchedPath)
     {
-        return TryBuildNetflixProfileSelectionContinuation(
+        return TryBuildVisibleNamedChoiceContinuation(
             userText,
             recentWindowContext,
             out matchedPath,
@@ -4207,7 +4396,7 @@ internal static class AgentRunner
             out _);
     }
 
-    internal static bool TryBuildNetflixProfileSelectionContinuation(
+    internal static bool TryBuildVisibleNamedChoiceContinuation(
         string userText,
         string? recentWindowContext,
         out string matchedPath,
@@ -4220,7 +4409,7 @@ internal static class AgentRunner
         targetSummary = null;
         surfaceSummary = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
-            ["profilePickerVisible"] = false,
+            ["namedChoiceSurfaceVisible"] = false,
             ["window"] = DescribePrimaryWindowFromToolOutput(recentWindowContext),
         };
 
@@ -4230,9 +4419,9 @@ internal static class AgentRunner
             return false;
         }
 
-        if (!UserRequestLooksLikeProfileSelection(userText))
+        if (!UserRequestLooksLikeActivation(userText))
         {
-            skipReason = "request_not_explicit_profile_selection";
+            skipReason = "request_not_explicit_named_choice_activation";
             return false;
         }
 
@@ -4245,21 +4434,15 @@ internal static class AgentRunner
                 return false;
             }
 
-            var profilePickerVisible = SnapshotContainsVisibleProfilePicker(elementTree);
-            surfaceSummary["profilePickerVisible"] = profilePickerVisible;
-            if (!profilePickerVisible)
-            {
-                skipReason = "profile_picker_not_visible";
-                return false;
-            }
+            surfaceSummary["namedChoiceSurfaceVisible"] = true;
 
-            if (!TryFindUniqueNamedActionTargetFromUserText(
+            if (!TryFindStrongUniqueNamedActionTargetFromUserText(
                     elementTree,
                     userText,
                     "invoke",
                     out matchedPath))
             {
-                skipReason = "no_exact_visible_profile_match";
+                skipReason = "no_exact_visible_named_choice_match";
                 return false;
             }
 
@@ -4278,100 +4461,100 @@ internal static class AgentRunner
         }
     }
 
-    internal static bool TryBuildRemainingNetflixPinDigits(
+    internal static bool TryBuildRemainingDiscreteSlotText(
         string userText,
         string? recentWindowContext,
         string? recentFocusContext,
-        out string remainingDigits)
+        out string remainingText)
     {
-        remainingDigits = string.Empty;
-        if (!TryExtractRequestedPinDigitsFromUserText(userText, out var fullDigits))
+        remainingText = string.Empty;
+        if (!TryExtractRequestedDiscreteSlotTextFromUserText(userText, out var fullText))
         {
             return false;
         }
 
-        var matchesPinContext =
-            SnapshotLooksLikeNetflixPinFocus(recentFocusContext)
-            || SnapshotLooksLikeNetflixPinWindow(recentWindowContext);
-        if (!matchesPinContext)
+        var matchesDiscreteSlotContext =
+            SnapshotLooksLikeDiscreteSlotTextFocus(recentFocusContext)
+            || SnapshotLooksLikeDiscreteSlotTextWindow(recentWindowContext);
+        if (!matchesDiscreteSlotContext)
         {
             return false;
         }
 
-        var nextDigitIndex = 0;
-        if (TryExtractNetflixPinInputOrdinal(recentFocusContext, out var focusedOrdinal) &&
+        var nextCharacterIndex = 0;
+        if (TryExtractDiscreteSlotInputOrdinal(recentFocusContext, out var focusedOrdinal) &&
             focusedOrdinal >= 1)
         {
-            nextDigitIndex = Math.Min(focusedOrdinal - 1, fullDigits.Length);
+            nextCharacterIndex = Math.Min(focusedOrdinal - 1, fullText.Length);
         }
 
-        if (nextDigitIndex >= fullDigits.Length)
+        if (nextCharacterIndex >= fullText.Length)
         {
             return false;
         }
 
-        remainingDigits = fullDigits[nextDigitIndex..];
-        return remainingDigits.Length > 0;
+        remainingText = fullText[nextCharacterIndex..];
+        return remainingText.Length > 0;
     }
 
-    internal static bool TryBuildNetflixPinContinuation(
+    internal static bool TryBuildDiscreteSlotTextContinuation(
         string userText,
         string? recentWindowContext,
         string? recentFocusContext,
-        out string remainingDigits,
+        out string remainingText,
         out string skipReason,
         out Dictionary<string, object?> surfaceSummary)
     {
-        remainingDigits = string.Empty;
-        var pinWindowVisible = SnapshotLooksLikeNetflixPinWindow(recentWindowContext);
-        var pinFocusVisible = SnapshotLooksLikeNetflixPinFocus(recentFocusContext);
-        var focusedOrdinal = TryExtractNetflixPinInputOrdinal(recentFocusContext, out var extractedFocusedOrdinal)
+        remainingText = string.Empty;
+        var discreteSlotWindowVisible = SnapshotLooksLikeDiscreteSlotTextWindow(recentWindowContext);
+        var discreteSlotFocusVisible = SnapshotLooksLikeDiscreteSlotTextFocus(recentFocusContext);
+        var focusedOrdinal = TryExtractDiscreteSlotInputOrdinal(recentFocusContext, out var extractedFocusedOrdinal)
             ? extractedFocusedOrdinal
             : (int?)null;
         surfaceSummary = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
-            ["pinPromptVisible"] = pinWindowVisible || pinFocusVisible,
-            ["pinWindowVisible"] = pinWindowVisible,
-            ["pinFocusVisible"] = pinFocusVisible,
-            ["focusedOrdinal"] = focusedOrdinal,
+            ["discreteSlotPromptVisible"] = discreteSlotWindowVisible || discreteSlotFocusVisible,
+            ["windowSurfaceVisible"] = discreteSlotWindowVisible,
+            ["focusSurfaceVisible"] = discreteSlotFocusVisible,
+            ["slotOrdinal"] = focusedOrdinal,
             ["window"] = DescribePrimaryWindowFromToolOutput(recentWindowContext),
         };
 
-        if (!TryExtractRequestedPinDigitsFromUserText(userText, out _))
+        if (!TryExtractRequestedDiscreteSlotTextFromUserText(userText, out _))
         {
-            skipReason = "no_pin_digits_in_user_text";
+            skipReason = "no_discrete_slot_text_in_user_text";
             return false;
         }
 
-        if (!(pinWindowVisible || pinFocusVisible))
+        if (!(discreteSlotWindowVisible || discreteSlotFocusVisible))
         {
-            skipReason = "pin_prompt_not_visible";
+            skipReason = "discrete_slot_surface_not_visible";
             return false;
         }
 
-        if (!TryBuildRemainingNetflixPinDigits(
+        if (!TryBuildRemainingDiscreteSlotText(
                 userText,
                 recentWindowContext,
                 recentFocusContext,
-                out remainingDigits))
+                out remainingText))
         {
             skipReason = focusedOrdinal is not null
-                ? "no_remaining_pin_digits"
-                : "remaining_pin_digits_unavailable";
+                ? "no_remaining_discrete_slot_text"
+                : "remaining_discrete_slot_text_unavailable";
             return false;
         }
 
-        surfaceSummary["remainingDigitCount"] = remainingDigits.Length;
+        surfaceSummary["remainingCharacterCount"] = remainingText.Length;
         skipReason = string.Empty;
         return true;
     }
 
-    internal static bool ShouldRefreshNetflixPinFocusBeforeContinuation(
+    internal static bool ShouldRefreshDiscreteSlotFocusBeforeContinuation(
         string? recentWindowContext,
         string? recentFocusContext)
     {
-        return SnapshotLooksLikeNetflixPinWindow(recentWindowContext) &&
-               !TryExtractNetflixPinInputOrdinal(recentFocusContext, out _);
+        return SnapshotLooksLikeDiscreteSlotTextWindow(recentWindowContext) &&
+               !TryExtractDiscreteSlotInputOrdinal(recentFocusContext, out _);
     }
 
     internal static bool ShouldBlockProcessLaunchForBrowserRequest(
@@ -4498,17 +4681,9 @@ internal static class AgentRunner
         }
     }
 
-    private static bool SnapshotLooksLikeNetflixPinFocus(string? snapshotText)
+    private static bool SnapshotLooksLikeDiscreteSlotTextFocus(string? snapshotText)
     {
-        if (string.IsNullOrWhiteSpace(snapshotText) ||
-            !TryGetWindowProperty(snapshotText, "window", out var window))
-        {
-            return false;
-        }
-
-        var title = TryGetJsonStringProperty(window, "title");
-        if (string.IsNullOrWhiteSpace(title) ||
-            !title.Contains("netflix", StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(snapshotText))
         {
             return false;
         }
@@ -4517,7 +4692,7 @@ internal static class AgentRunner
         {
             using var document = JsonDocument.Parse(snapshotText);
             return TryGetFocusedSnapshotElement(document.RootElement, out var focusedElement) &&
-                   ElementLooksLikeNetflixPinInput(focusedElement);
+                   ElementLooksLikeDiscreteTextSlot(focusedElement);
         }
         catch
         {
@@ -4525,17 +4700,9 @@ internal static class AgentRunner
         }
     }
 
-    private static bool SnapshotLooksLikeNetflixPinWindow(string? snapshotText)
+    private static bool SnapshotLooksLikeDiscreteSlotTextWindow(string? snapshotText)
     {
-        if (string.IsNullOrWhiteSpace(snapshotText) ||
-            !TryGetWindowProperty(snapshotText, "window", out var window))
-        {
-            return false;
-        }
-
-        var title = TryGetJsonStringProperty(window, "title");
-        if (string.IsNullOrWhiteSpace(title) ||
-            !title.Contains("netflix", StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(snapshotText))
         {
             return false;
         }
@@ -4543,8 +4710,19 @@ internal static class AgentRunner
         try
         {
             using var document = JsonDocument.Parse(snapshotText);
-            return TryGetSnapshotTree(document.RootElement, out var elementTree) &&
-                   ContainsMatchingElement(elementTree, ElementLooksLikeNetflixPinInputOrPrompt);
+            if (!TryGetSnapshotTree(document.RootElement, out var elementTree))
+            {
+                return false;
+            }
+
+            var discreteSlotCount = CountMatchingElements(elementTree, ElementLooksLikeDiscreteTextSlot);
+            if (discreteSlotCount >= 2)
+            {
+                return true;
+            }
+
+            var promptCueCount = CountMatchingElements(elementTree, ElementLooksLikeDiscreteTextPrompt);
+            return (discreteSlotCount >= 1 && promptCueCount >= 1) || promptCueCount >= 2;
         }
         catch
         {
@@ -4552,7 +4730,7 @@ internal static class AgentRunner
         }
     }
 
-    private static bool TryExtractNetflixPinInputOrdinal(string? focusSnapshotText, out int ordinal)
+    private static bool TryExtractDiscreteSlotInputOrdinal(string? focusSnapshotText, out int ordinal)
     {
         ordinal = 0;
         if (string.IsNullOrWhiteSpace(focusSnapshotText))
@@ -4568,17 +4746,35 @@ internal static class AgentRunner
                 return false;
             }
 
-            var name = TryGetJsonStringProperty(focusedElement, "name");
-            if (string.IsNullOrWhiteSpace(name))
+            if (!ElementLooksLikeDiscreteTextSlot(focusedElement))
             {
                 return false;
             }
 
-            var match = Regex.Match(
-                name,
-                @"input\s+(?<ordinal>\d+)",
-                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-            return match.Success && int.TryParse(match.Groups["ordinal"].Value, out ordinal);
+            foreach (var candidateText in new[]
+                     {
+                         TryGetJsonStringProperty(focusedElement, "name"),
+                         TryGetJsonStringProperty(focusedElement, "automationId"),
+                         TryGetJsonStringProperty(focusedElement, "className")
+                     })
+            {
+                if (string.IsNullOrWhiteSpace(candidateText))
+                {
+                    continue;
+                }
+
+                var match = Regex.Match(
+                    candidateText,
+                    @"(?:digit|slot|box|character|field|code|input)\s*(?<ordinal>\d+)",
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+                if (match.Success &&
+                    int.TryParse(match.Groups["ordinal"].Value, out ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
         catch
         {
@@ -4746,22 +4942,49 @@ internal static class AgentRunner
         return false;
     }
 
-    private static bool TryExtractMultiDigitPinText(string? text, out string digits)
+    private static int CountMatchingElements(
+        JsonElement element,
+        Func<JsonElement, bool> predicate)
     {
-        digits = string.Empty;
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return 0;
+        }
+
+        var count = predicate(element) ? 1 : 0;
+        if (!TryGetJsonProperty(element, "children", out var children) ||
+            children.ValueKind != JsonValueKind.Array)
+        {
+            return count;
+        }
+
+        foreach (var child in children.EnumerateArray())
+        {
+            count += CountMatchingElements(child, predicate);
+        }
+
+        return count;
+    }
+
+    private static bool TryExtractMultiCharacterDiscreteSlotText(string? text, out string value)
+    {
+        value = string.Empty;
         if (string.IsNullOrWhiteSpace(text))
         {
             return false;
         }
 
         var trimmed = text.Trim();
-        if (trimmed.Any(char.IsLetter))
+        if (trimmed.Length < 2 ||
+            trimmed.Length > 12 ||
+            trimmed.Any(char.IsWhiteSpace) ||
+            trimmed.Any(character => !char.IsLetterOrDigit(character)))
         {
             return false;
         }
 
-        digits = new string(trimmed.Where(char.IsDigit).ToArray());
-        return digits.Length >= 2 && digits.Length <= 8;
+        value = trimmed;
+        return true;
     }
 
     private static bool TryFindElementByPath(
@@ -5185,22 +5408,24 @@ internal static class AgentRunner
                && !string.IsNullOrWhiteSpace(TryGetJsonStringProperty(element, "className"));
     }
 
-    private static bool ElementLooksLikeNetflixPinInput(JsonElement element)
+    private static bool ElementLooksLikeDiscreteTextSlot(JsonElement element)
     {
         var controlType = TryGetJsonStringProperty(element, "controlType");
         var name = TryGetJsonStringProperty(element, "name");
         var className = TryGetJsonStringProperty(element, "className");
+        var automationId = TryGetJsonStringProperty(element, "automationId");
 
         return string.Equals(controlType, "Edit", StringComparison.OrdinalIgnoreCase)
-               && ((!string.IsNullOrWhiteSpace(name) &&
-                    name.Contains("PIN Entry Input", StringComparison.OrdinalIgnoreCase))
-                   || (!string.IsNullOrWhiteSpace(className) &&
-                       className.Contains("pin-number-input", StringComparison.OrdinalIgnoreCase)));
+               && (TextHasDiscreteSlotCue(name)
+                   || TextHasDiscreteSlotCue(className)
+                   || TextHasDiscreteSlotCue(automationId)
+                   || TextHasDiscreteSlotOrdinalCue(name)
+                   || TextHasDiscreteSlotOrdinalCue(automationId));
     }
 
-    private static bool ElementLooksLikeNetflixPinInputOrPrompt(JsonElement element)
+    private static bool ElementLooksLikeDiscreteTextPrompt(JsonElement element)
     {
-        if (ElementLooksLikeNetflixPinInput(element))
+        if (ElementLooksLikeDiscreteTextSlot(element))
         {
             return true;
         }
@@ -5211,10 +5436,56 @@ internal static class AgentRunner
             return false;
         }
 
-        return name.Contains("Enter your PIN", StringComparison.OrdinalIgnoreCase)
-               || name.Contains("Forgot PIN", StringComparison.OrdinalIgnoreCase)
-               || name.Contains("Whoops, wrong PIN", StringComparison.OrdinalIgnoreCase)
-               || name.Contains("Profile Lock is currently on", StringComparison.OrdinalIgnoreCase);
+        var normalized = NormalizeForNameMatching(name);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return false;
+        }
+
+        return normalized.Contains(" enter your pin ", StringComparison.Ordinal)
+               || normalized.Contains(" forgot pin ", StringComparison.Ordinal)
+               || normalized.Contains(" wrong pin ", StringComparison.Ordinal)
+               || normalized.Contains(" profile lock is currently on ", StringComparison.Ordinal)
+               || normalized.Contains(" passcode ", StringComparison.Ordinal)
+               || normalized.Contains(" otp ", StringComparison.Ordinal)
+               || normalized.Contains(" one time code ", StringComparison.Ordinal)
+               || normalized.Contains(" verification code ", StringComparison.Ordinal)
+               || normalized.Contains(" security code ", StringComparison.Ordinal);
+    }
+
+    private static bool TextHasDiscreteSlotCue(string? text)
+    {
+        var normalized = NormalizeForNameMatching(text ?? string.Empty);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return false;
+        }
+
+        return normalized.Contains(" pin ", StringComparison.Ordinal)
+               || normalized.Contains(" passcode ", StringComparison.Ordinal)
+               || normalized.Contains(" otp ", StringComparison.Ordinal)
+               || normalized.Contains(" one time code ", StringComparison.Ordinal)
+               || normalized.Contains(" verification code ", StringComparison.Ordinal)
+               || normalized.Contains(" security code ", StringComparison.Ordinal)
+               || normalized.Contains(" digit ", StringComparison.Ordinal)
+               || normalized.Contains(" slot ", StringComparison.Ordinal)
+               || normalized.Contains(" box ", StringComparison.Ordinal)
+               || normalized.Contains(" character ", StringComparison.Ordinal)
+               || normalized.Contains(" code ", StringComparison.Ordinal)
+               || normalized.Contains(" pin number input ", StringComparison.Ordinal);
+    }
+
+    private static bool TextHasDiscreteSlotOrdinalCue(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        return Regex.IsMatch(
+            text,
+            @"(?:digit|slot|box|character|field|code|input)\s*\d+",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     }
 
     private static bool ElementLooksLikeGenericContainerTarget(JsonElement element)
@@ -5394,6 +5665,40 @@ internal static class AgentRunner
         return TryChooseBestNamedActionTargetCandidate(candidateMatches, out matchedPath);
     }
 
+    private static bool TryFindStrongUniqueNamedActionTargetFromUserText(
+        JsonElement elementTree,
+        string userText,
+        string? requiredAction,
+        out string matchedPath,
+        string? preferredAncestorPath = null)
+    {
+        matchedPath = string.Empty;
+        var candidateMatches = new List<NamedActionTargetCandidate>();
+        if (!string.IsNullOrWhiteSpace(preferredAncestorPath) &&
+            TryFindElementByPath(elementTree, preferredAncestorPath, out var preferredAncestor))
+        {
+            CollectStrongNamedActionTargetCandidatesFromUserText(
+                preferredAncestor,
+                userText,
+                requiredAction,
+                candidateMatches);
+
+            if (TryChooseBestNamedActionTargetCandidate(candidateMatches, out matchedPath))
+            {
+                return true;
+            }
+
+            candidateMatches.Clear();
+        }
+
+        CollectStrongNamedActionTargetCandidatesFromUserText(
+            elementTree,
+            userText,
+            requiredAction,
+            candidateMatches);
+        return TryChooseBestNamedActionTargetCandidate(candidateMatches, out matchedPath);
+    }
+
     private static void CollectNamedActionTargetCandidatesFromUserText(
         JsonElement element,
         string userText,
@@ -5431,6 +5736,46 @@ internal static class AgentRunner
         foreach (var child in children.EnumerateArray())
         {
             CollectNamedActionTargetCandidatesFromUserText(child, userText, requiredAction, matches);
+        }
+    }
+
+    private static void CollectStrongNamedActionTargetCandidatesFromUserText(
+        JsonElement element,
+        string userText,
+        string? requiredAction,
+        List<NamedActionTargetCandidate> matches)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        var path = TryGetJsonStringProperty(element, "uiPath") ?? TryGetJsonStringProperty(element, "path");
+        var name = TryGetJsonStringProperty(element, "name");
+        if (!string.IsNullOrWhiteSpace(path) &&
+            !string.IsNullOrWhiteSpace(name) &&
+            ElementLooksLikePreciseActionTarget(element) &&
+            UserTextStronglyMatchesNamedChoice(userText, name) &&
+            (requiredAction is null || ElementHasAction(element, requiredAction)))
+        {
+            matches.Add(
+                new NamedActionTargetCandidate(
+                    path,
+                    ElementHasInterestingAction(element),
+                    GetNamedActionTargetNameMatchScore(userText, name),
+                    GetNamedActionTargetSpecificity(element),
+                    GetPathDepth(path)));
+        }
+
+        if (!TryGetJsonProperty(element, "children", out var children) ||
+            children.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (var child in children.EnumerateArray())
+        {
+            CollectStrongNamedActionTargetCandidatesFromUserText(child, userText, requiredAction, matches);
         }
     }
 
@@ -6150,53 +6495,66 @@ internal static class AgentRunner
                || normalized.Contains(" go to ", StringComparison.Ordinal);
     }
 
-    private static bool UserRequestLooksLikeProfileSelection(string userText)
+    private static bool TryExtractRequestedDiscreteSlotTextFromUserText(string userText, out string value)
     {
+        value = string.Empty;
         if (string.IsNullOrWhiteSpace(userText))
         {
             return false;
         }
 
-        var normalized = NormalizeForNameMatching(userText);
-        if (string.IsNullOrWhiteSpace(normalized) ||
-            !normalized.Contains("profile", StringComparison.Ordinal))
+        foreach (var pattern in new[]
+                 {
+                     @"\b(?:type|enter|use|input)\s+(?<value>[A-Za-z0-9]{2,12})\b",
+                     @"\b(?:pin|passcode|pass\s+code|otp|verification\s+code|security\s+code|code)\b(?:[^A-Za-z0-9]+(?:is|to\s+(?:type|enter|use)|:|=))?[^A-Za-z0-9]*(?<value>[A-Za-z0-9]{2,12})\b",
+                     @"\b(?<value>\d{2,12})\b",
+                 })
         {
-            return false;
+            var match = Regex.Match(userText, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            if (!match.Success)
+            {
+                continue;
+            }
+
+            var candidateValue = match.Groups["value"].Value;
+            if (!TryExtractMultiCharacterDiscreteSlotText(candidateValue, out value))
+            {
+                continue;
+            }
+
+            return true;
         }
 
-        if (Regex.IsMatch(
-                normalized,
-                @"\b(select|choose|pick|click|tap|invoke)\b",
-                RegexOptions.CultureInvariant))
+        return false;
+    }
+
+    private static bool UserTextStronglyMatchesNamedChoice(string userText, string elementName)
+    {
+        if (TextContainsNormalizedName(userText, elementName))
         {
             return true;
         }
 
-        return Regex.IsMatch(
-            normalized,
-            @"\bopen\s+(?:the\s+)?(?:[a-z0-9]+\s+){0,2}profile\b",
-            RegexOptions.CultureInvariant);
-    }
-
-    private static bool TryExtractRequestedPinDigitsFromUserText(string userText, out string digits)
-    {
-        digits = string.Empty;
-        if (string.IsNullOrWhiteSpace(userText))
+        var elementNameTokens = GetNormalizedTokens(elementName)
+            .Where(token => token.Length >= 3)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (elementNameTokens.Length != 1)
         {
             return false;
         }
 
-        var match = Regex.Match(
-            userText,
-            @"\b(?<digits>\d{2,8})\b",
-            RegexOptions.CultureInvariant);
-        if (!match.Success)
+        var targetToken = elementNameTokens[0];
+        foreach (var userToken in GetNormalizedTokens(userText))
         {
-            return false;
+            if (string.Equals(userToken, targetToken, StringComparison.Ordinal) ||
+                LooksLikeObviousAsrVariant(userToken, targetToken))
+            {
+                return true;
+            }
         }
 
-        digits = match.Groups["digits"].Value;
-        return digits.Length >= 2;
+        return false;
     }
 
     private static bool UserRequestExplicitlyAsksForFocusOnly(string userText)

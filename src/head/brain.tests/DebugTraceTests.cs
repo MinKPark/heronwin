@@ -48,6 +48,22 @@ public sealed class DebugTraceTests
     }
 
     [Fact]
+    public void PreviewToolArguments_RedactsSensitiveTypeWindowText()
+    {
+        var actual = DebugTrace.PreviewToolArguments("type_window_text", """{"text":"3579"}""");
+
+        Assert.Equal("""{"text":"[type_window_text redacted]"}""", actual);
+    }
+
+    [Fact]
+    public void PreviewToolArguments_LeavesOtherToolArgumentsVisible()
+    {
+        var actual = DebugTrace.PreviewToolArguments("invoke_window_element", """{"elementPath":"1/2/3"}""");
+
+        Assert.Equal("""{"elementPath":"1/2/3"}""", actual);
+    }
+
+    [Fact]
     public void ShouldLogFullToolPayload_ReturnsTrue_ForUiTreeTools()
     {
         Assert.True(McpClientManager.ShouldLogFullToolPayload("describe_window", "{ }"));
