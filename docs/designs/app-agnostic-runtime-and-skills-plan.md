@@ -1,7 +1,7 @@
 # App-Agnostic Runtime and Skills Plan
 
 Last updated: 2026-04-19
-Status: in progress
+Status: completed
 Depends on: `docs/designs/brain-debuggability-and-rewrite-guardrails.md`
 
 ## Summary
@@ -32,18 +32,16 @@ Completed on 2026-04-19:
   discrete-slot entry primitives with generic debug traces
 - production runtime no longer contains Netflix-specific continuation or PIN
   helper names
+- the remaining chooser-surface blocker, no-op heuristics, and legacy
+  profile-surface helper names in `Conversation.cs` were genericized
+- boundary-enforcement tests now cover restricted runtime files plus core and
+  cross-app prompt or skill files
 - the regression suite was reclassified around the generic primitive names;
   `dotnet test src/head/brain.tests/HeronWin.Brain.Tests.csproj --no-restore`
-  passed `234` tests after the migration
+  passed `236` tests after the migration
 
-Remaining work under the broader app-agnostic plan:
-
-- retire or genericize the remaining profile-picker-specific blocker and
-  surface heuristics in `Conversation.cs`
-- add the planned boundary-enforcement scan or test coverage for core
-  runtime, core prompts, and cross-app skills
-- keep pushing app-specific no-op and surface wording out of generic runtime
-  helpers when traces show those phrases are still coupled to one app family
+This plan is complete. Future app-boundary work should land as separate,
+smaller follow-on plans when a new cross-app pattern appears.
 
 ## Why This Plan Exists
 
@@ -152,16 +150,12 @@ branches. Completed targets include:
 - the app-name website-fallback allowlist branch
 - Netflix-shaped wording in generic prompts and cross-app/browser-host skills
 
-The remaining migration debt is narrower and should still be treated as debt,
-not as architecture to extend. Current follow-on targets include:
+The original remaining migration debt from this plan has been cleared:
 
-- `ShouldBlockUnnamedProfilePickerAction(...)`
-- `SnapshotContainsVisibleProfilePicker(...)`
-- `ElementLooksLikeProfilePickerTile(...)`
-- `ElementLooksLikeProfilePickerCue(...)`
-- any remaining reply-consistency or no-op heuristics in `Conversation.cs`
-  that are still keyed to one app's profile-picker or profile-lock wording
-- the boundary-enforcement checks described in Phase 5
+- chooser-surface blocking and detection now use generic named-choice
+  terminology in runtime
+- the remaining reply-consistency heuristics were genericized
+- the Phase 5 boundary-enforcement checks landed in tests
 
 ## Target Architecture
 
@@ -229,11 +223,9 @@ agent how to perform those app-native steps.
 
 ## Progress Against Plan
 
-- Phase 0 is materially complete enough for migration work: the generic trace
-  family, rewrite evaluation trace, and continuation instrumentation landed
+- Phase 0 is complete
 - Phases 1 through 4 are complete for the Netflix pilot
-- Phase 5 is still open and is now the main remaining work for this broader
-  plan
+- Phase 5 is complete
 
 ## Phase 0. Finish Debuggability Work First
 

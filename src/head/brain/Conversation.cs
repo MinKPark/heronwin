@@ -1514,7 +1514,7 @@ internal static class AgentRunner
                             ["requestedElementSummary"] = namedTargetRewriteEvaluation.RequestedElementSummary,
                             ["requiredAction"] = namedTargetRewriteEvaluation.RequiredAction,
                             ["userRequestedActivation"] = namedTargetRewriteEvaluation.UserRequestedActivation,
-                            ["snapshotContainsProfilePicker"] = namedTargetRewriteEvaluation.SnapshotContainsProfilePicker,
+                            ["snapshotContainsNamedChoiceSurface"] = namedTargetRewriteEvaluation.SnapshotContainsNamedChoiceSurface,
                             ["matchedPath"] = namedTargetRewriteEvaluation.MatchedPath,
                             ["matchedElementSummary"] = namedTargetRewriteEvaluation.MatchedElementSummary,
                             ["rewritten"] = namedTargetRewriteEvaluation.Rewritten,
@@ -1781,7 +1781,7 @@ internal static class AgentRunner
                     continue;
                 }
 
-                if (ShouldBlockUnnamedProfilePickerAction(
+                if (ShouldBlockUnrequestedNamedChoiceSurfaceAction(
                         userText,
                         executableToolName,
                         executableArgs,
@@ -1798,7 +1798,7 @@ internal static class AgentRunner
                             ["toolCallId"] = toolCall.Id,
                             ["tool"] = toolCall.Name,
                             ["executedTool"] = executableToolName,
-                            ["reason"] = "unnamed_profile_picker_target_blocked",
+                            ["reason"] = "unnamed_named_choice_surface_target_blocked",
                             ["resultPreview"] = DebugTrace.Preview(blockedProfilePickerMessage, 900),
                         });
                     DebugTrace.WriteStructuredEvent(
@@ -2954,45 +2954,56 @@ internal static class AgentRunner
                || combinedLowerText.Contains("conditional no-op", StringComparison.Ordinal)
                || combinedLowerText.Contains("no action was needed", StringComparison.Ordinal)
                || combinedLowerText.Contains("no action needed", StringComparison.Ordinal)
-               || (combinedLowerText.Contains("no profile selection prompt", StringComparison.Ordinal)
-                   && combinedLowerText.Contains("did not click anything", StringComparison.Ordinal))
-               || (combinedLowerText.Contains("no profile selection screen", StringComparison.Ordinal)
-                   && combinedLowerText.Contains("did not click anything", StringComparison.Ordinal))
-               || (combinedLowerText.Contains("not a profile selection screen", StringComparison.Ordinal)
-                   && combinedLowerText.Contains("did not click anything", StringComparison.Ordinal))
-               || (combinedLowerText.Contains("did not see a profile-selection screen", StringComparison.Ordinal)
-                   && combinedLowerText.Contains("no profile to choose", StringComparison.Ordinal))
-               || (combinedLowerText.Contains("not a profile picker", StringComparison.Ordinal)
-                   && combinedLowerText.Contains("did not click anything", StringComparison.Ordinal))
+               || LooksLikeSelectionSurfaceNoOpOutcome(combinedLowerText)
                || (combinedLowerText.Contains("no passcode prompt", StringComparison.Ordinal)
                    && combinedLowerText.Contains("not needed", StringComparison.Ordinal))
                || (combinedLowerText.Contains("already active", StringComparison.Ordinal)
                    && combinedLowerText.Contains("did not request any ui action", StringComparison.Ordinal))
                || (combinedLowerText.Contains("already on", StringComparison.Ordinal)
                    && combinedLowerText.Contains("did not request any ui action", StringComparison.Ordinal))
-               || ((combinedLowerText.Contains("did not type the pin", StringComparison.Ordinal)
-                    || combinedLowerText.Contains("didn't type the pin", StringComparison.Ordinal)
-                    || combinedLowerText.Contains("did not enter the pin", StringComparison.Ordinal)
-                    || combinedLowerText.Contains("didn't enter the pin", StringComparison.Ordinal)
-                    || combinedLowerText.Contains("did not type the passcode", StringComparison.Ordinal)
-                    || combinedLowerText.Contains("didn't type the passcode", StringComparison.Ordinal)
-                    || combinedLowerText.Contains("did not enter the passcode", StringComparison.Ordinal)
-                    || combinedLowerText.Contains("didn't enter the passcode", StringComparison.Ordinal))
-                   && ((combinedLowerText.Contains("not present", StringComparison.Ordinal)
-                        && (combinedLowerText.Contains("prompt", StringComparison.Ordinal)
-                            || combinedLowerText.Contains("passcode", StringComparison.Ordinal)
-                            || combinedLowerText.Contains("pin", StringComparison.Ordinal)))
-                       || combinedLowerText.Contains("no passcode prompt", StringComparison.Ordinal)
-                       || combinedLowerText.Contains("no profile passcode", StringComparison.Ordinal)
-                       || combinedLowerText.Contains("no profile lock prompt", StringComparison.Ordinal)
-                       || combinedLowerText.Contains("pin prompt is not visible", StringComparison.Ordinal)
-                       || combinedLowerText.Contains("passcode prompt is not visible", StringComparison.Ordinal)
-                       || combinedLowerText.Contains("profile lock prompt is not visible", StringComparison.Ordinal))
-                   && (combinedLowerText.Contains("home is visible", StringComparison.Ordinal)
-                       || combinedLowerText.Contains("browse is visible", StringComparison.Ordinal)
-                       || combinedLowerText.Contains("profile lock is gone", StringComparison.Ordinal)
-                       || combinedLowerText.Contains("positive evidence", StringComparison.Ordinal)
-                       || combinedLowerText.Contains("confirmed from the active edge ui snapshot", StringComparison.Ordinal)));
+               || LooksLikeSecretPromptNoOpOutcome(combinedLowerText);
+    }
+
+    private static bool LooksLikeSelectionSurfaceNoOpOutcome(string combinedLowerText)
+    {
+        return (combinedLowerText.Contains("did not click anything", StringComparison.Ordinal)
+                && Regex.IsMatch(
+                    combinedLowerText,
+                    @"\b(?:no|not a|did not see(?: a)?)\s+(?:[a-z-]+\s+){0,3}(?:selection\s+(?:prompt|screen)|picker|chooser)\b",
+                    RegexOptions.CultureInvariant))
+               || (Regex.IsMatch(
+                       combinedLowerText,
+                       @"\bdid not see(?: a)?\s+(?:[a-z-]+\s+){0,3}selection\s+screen\b",
+                       RegexOptions.CultureInvariant)
+                   && Regex.IsMatch(
+                       combinedLowerText,
+                       @"\bno\s+(?:[a-z-]+\s+){0,2}[a-z-]+\s+to\s+choose\b",
+                       RegexOptions.CultureInvariant));
+    }
+
+    private static bool LooksLikeSecretPromptNoOpOutcome(string combinedLowerText)
+    {
+        var skippedEntry = Regex.IsMatch(
+            combinedLowerText,
+            @"\bdid(?: not|n['’]t)\s+(?:type|enter)\s+(?:the\s+)?(?:[a-z-]+\s+){0,2}(?:pin|passcode|code)\b",
+            RegexOptions.CultureInvariant);
+        var missingPrompt = Regex.IsMatch(
+                                combinedLowerText,
+                                @"\b(?:no|not present|not visible)\b.{0,80}\b(?:pin|passcode|code|lock)\b.{0,40}\b(?:prompt|screen|gate)?\b",
+                                RegexOptions.CultureInvariant | RegexOptions.Singleline)
+                            || Regex.IsMatch(
+                                combinedLowerText,
+                                @"\b(?:pin|passcode|code|lock)\b.{0,40}\b(?:prompt|screen|gate)\b.{0,24}\b(?:is\s+)?not\s+present\b",
+                                RegexOptions.CultureInvariant | RegexOptions.Singleline)
+                            || combinedLowerText.Contains("pin prompt is not visible", StringComparison.Ordinal)
+                            || combinedLowerText.Contains("passcode prompt is not visible", StringComparison.Ordinal)
+                            || combinedLowerText.Contains("lock prompt is not visible", StringComparison.Ordinal);
+        var positiveEvidence = combinedLowerText.Contains("home is visible", StringComparison.Ordinal)
+                               || combinedLowerText.Contains("browse is visible", StringComparison.Ordinal)
+                               || combinedLowerText.Contains("lock is gone", StringComparison.Ordinal)
+                               || combinedLowerText.Contains("positive evidence", StringComparison.Ordinal)
+                               || combinedLowerText.Contains("confirmed from the active edge ui snapshot", StringComparison.Ordinal);
+        return skippedEntry && missingPrompt && positiveEvidence;
     }
 
     private static async Task<IReadOnlyList<AgentMessage>> CollectAdditionalConfidenceEvidenceAsync(
@@ -3877,7 +3888,7 @@ internal static class AgentRunner
         JsonElement matchedElement = default;
         var hasSnapshotTree = false;
         var hasRequestedElement = false;
-        var snapshotContainsProfilePicker = false;
+        var snapshotContainsNamedChoiceSurface = false;
 
         if (!string.IsNullOrWhiteSpace(recentWindowContext))
         {
@@ -3887,7 +3898,7 @@ internal static class AgentRunner
                 if (TryGetSnapshotTree(document.RootElement, out elementTree))
                 {
                     hasSnapshotTree = true;
-                    snapshotContainsProfilePicker = SnapshotContainsVisibleProfilePicker(elementTree);
+                    snapshotContainsNamedChoiceSurface = SnapshotContainsVisibleNamedChoiceSurface(elementTree);
                     hasRequestedElement =
                         !string.IsNullOrWhiteSpace(requestedPath) &&
                         TryFindElementByPath(elementTree, requestedPath, out requestedElement);
@@ -3910,7 +3921,7 @@ internal static class AgentRunner
                 requestedElementSummary,
                 requiredAction,
                 userRequestedActivation,
-                snapshotContainsProfilePicker,
+                snapshotContainsNamedChoiceSurface,
                 matchedPath,
                 matchedElementSummary,
                 false,
@@ -3980,7 +3991,7 @@ internal static class AgentRunner
             requestedElementSummary,
             requiredAction,
             userRequestedActivation,
-            snapshotContainsProfilePicker,
+            snapshotContainsNamedChoiceSurface,
             matchedPath,
             matchedElementSummary,
             true,
@@ -4102,7 +4113,7 @@ internal static class AgentRunner
         return new ToolCallOutcome(string.Join(Environment.NewLine, lines), []);
     }
 
-    internal static bool ShouldBlockUnnamedProfilePickerAction(
+    internal static bool ShouldBlockUnrequestedNamedChoiceSurfaceAction(
         string userText,
         string toolName,
         IReadOnlyDictionary<string, object?> args,
@@ -4128,7 +4139,7 @@ internal static class AgentRunner
         {
             using var document = JsonDocument.Parse(recentWindowContext);
             if (!TryGetSnapshotTree(document.RootElement, out var elementTree) ||
-                !SnapshotContainsVisibleProfilePicker(elementTree) ||
+                !SnapshotContainsVisibleNamedChoiceSurface(elementTree) ||
                 !TryFindElementByPath(elementTree, elementPath, out var requestedElement))
             {
                 return false;
@@ -4147,7 +4158,7 @@ internal static class AgentRunner
             }
 
             blockedMessage =
-                "Blocked internal policy: a profile picker is visible, but this action does not match an exact profile or picker control named by the user. Do not guess which profile to choose or enter Manage Profiles/Add Profile/Done. Report that profile selection is still required instead.";
+                "Blocked internal policy: a visible named-choice surface is active, but this action does not match an exact named option or named management control requested by the user. Do not guess which choice to select. Report that explicit selection is still required instead.";
             return true;
         }
         catch
@@ -5445,7 +5456,8 @@ internal static class AgentRunner
         return normalized.Contains(" enter your pin ", StringComparison.Ordinal)
                || normalized.Contains(" forgot pin ", StringComparison.Ordinal)
                || normalized.Contains(" wrong pin ", StringComparison.Ordinal)
-               || normalized.Contains(" profile lock is currently on ", StringComparison.Ordinal)
+               || normalized.Contains(" lock is currently on ", StringComparison.Ordinal)
+               || normalized.Contains(" lock is on ", StringComparison.Ordinal)
                || normalized.Contains(" passcode ", StringComparison.Ordinal)
                || normalized.Contains(" otp ", StringComparison.Ordinal)
                || normalized.Contains(" one time code ", StringComparison.Ordinal)
@@ -5501,24 +5513,29 @@ internal static class AgentRunner
                || controlType.Equals("List", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool SnapshotContainsVisibleProfilePicker(JsonElement elementTree)
-        => ContainsMatchingElement(elementTree, ElementLooksLikeProfilePickerTile)
-           && ContainsMatchingElement(elementTree, ElementLooksLikeProfilePickerCue);
+    private static bool SnapshotContainsVisibleNamedChoiceSurface(JsonElement elementTree)
+        => CountMatchingElements(elementTree, ElementLooksLikeNamedChoiceOption) >= 1
+           && CountMatchingElements(elementTree, ElementLooksLikeNamedChoiceSurfaceCue) >= 1;
 
-    private static bool ElementLooksLikeProfilePickerTile(JsonElement element)
+    private static bool ElementLooksLikeNamedChoiceOption(JsonElement element)
     {
+        if (TryGetJsonBooleanProperty(element, "isOffscreen") == true)
+        {
+            return false;
+        }
+
         var controlType = TryGetJsonStringProperty(element, "controlType");
         var name = TryGetJsonStringProperty(element, "name");
         var className = TryGetJsonStringProperty(element, "className");
-        return TryGetJsonBooleanProperty(element, "isOffscreen") != true
-               && !string.IsNullOrWhiteSpace(name)
+
+        return !string.IsNullOrWhiteSpace(name)
                && string.Equals(controlType, "ListItem", StringComparison.OrdinalIgnoreCase)
-               && ((!string.IsNullOrWhiteSpace(className) &&
-                    className.Contains("profile", StringComparison.OrdinalIgnoreCase))
-                   || name.Contains("Add Profile", StringComparison.OrdinalIgnoreCase));
+               && !TextLooksLikeNamedChoiceManagementControl(name)
+               && (string.IsNullOrWhiteSpace(className)
+                   || !TextLooksLikeNamedChoiceManagementControl(className));
     }
 
-    private static bool ElementLooksLikeProfilePickerCue(JsonElement element)
+    private static bool ElementLooksLikeNamedChoiceSurfaceCue(JsonElement element)
     {
         if (TryGetJsonBooleanProperty(element, "isOffscreen") == true)
         {
@@ -5526,18 +5543,49 @@ internal static class AgentRunner
         }
 
         var name = TryGetJsonStringProperty(element, "name");
-        if (!string.IsNullOrWhiteSpace(name) &&
-            (name.Contains("Who's watching", StringComparison.OrdinalIgnoreCase)
-             || name.Contains("Manage Profiles", StringComparison.OrdinalIgnoreCase)
-             || string.Equals(name, "Done", StringComparison.OrdinalIgnoreCase)))
+        if (TextLooksLikeNamedChoiceManagementControl(name)
+            || TextLooksLikeNamedChoiceSelectionCue(name))
         {
             return true;
         }
 
         var className = TryGetJsonStringProperty(element, "className");
-        return !string.IsNullOrWhiteSpace(className)
-               && (className.Contains("profile-gate", StringComparison.OrdinalIgnoreCase)
-                   || className.Contains("profile-button", StringComparison.OrdinalIgnoreCase));
+        return TextLooksLikeNamedChoiceSelectionCue(className)
+               || TextLooksLikeNamedChoiceManagementControl(className);
+    }
+
+    private static bool TextLooksLikeNamedChoiceManagementControl(string? text)
+    {
+        var normalized = NormalizeForNameMatching(text ?? string.Empty);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return false;
+        }
+
+        return normalized.Contains(" manage ", StringComparison.Ordinal)
+               || normalized.Contains(" edit ", StringComparison.Ordinal)
+               || normalized.Contains(" switch ", StringComparison.Ordinal)
+               || normalized.Contains(" add ", StringComparison.Ordinal)
+               || normalized.Contains(" done ", StringComparison.Ordinal);
+    }
+
+    private static bool TextLooksLikeNamedChoiceSelectionCue(string? text)
+    {
+        var normalized = NormalizeForNameMatching(text ?? string.Empty);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return false;
+        }
+
+        return normalized.Contains(" choose ", StringComparison.Ordinal)
+               || normalized.Contains(" select ", StringComparison.Ordinal)
+               || normalized.Contains(" picker ", StringComparison.Ordinal)
+               || normalized.Contains(" chooser ", StringComparison.Ordinal)
+               || normalized.Contains(" watching ", StringComparison.Ordinal)
+               || normalized.Contains(" account ", StringComparison.Ordinal)
+               || normalized.Contains(" user ", StringComparison.Ordinal)
+               || normalized.Contains(" gate ", StringComparison.Ordinal)
+               || normalized.Contains(" selector ", StringComparison.Ordinal);
     }
 
     private static string? DescribeFocusedElementFromToolOutput(string toolOutputText)
@@ -6581,7 +6629,7 @@ internal static class AgentRunner
         IReadOnlyDictionary<string, object?>? RequestedElementSummary,
         string? RequiredAction,
         bool UserRequestedActivation,
-        bool SnapshotContainsProfilePicker,
+        bool SnapshotContainsNamedChoiceSurface,
         string? MatchedPath,
         IReadOnlyDictionary<string, object?>? MatchedElementSummary,
         bool Rewritten,

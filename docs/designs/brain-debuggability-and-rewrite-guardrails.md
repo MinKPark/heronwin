@@ -1,7 +1,7 @@
 # Brain Debuggability and Rewrite Guardrails
 
 Last updated: 2026-04-19
-Status: in progress
+Status: completed
 
 ## Summary
 
@@ -35,10 +35,9 @@ Landed on 2026-04-19:
   `docs/designs/generic-continuations-and-discrete-entry-plan.md`, which
   removed the old Netflix-specific continuation and PIN helper names from
   production runtime
-
-What remains open here is mostly documentation and follow-through at the
-broader app-boundary level. That work continues under
-`docs/designs/app-agnostic-runtime-and-skills-plan.md`.
+- the broader app-boundary follow-through under
+  `docs/designs/app-agnostic-runtime-and-skills-plan.md`, including boundary
+  enforcement tests and generic chooser-surface cleanup, is now complete
 
 ## Visual Overview
 

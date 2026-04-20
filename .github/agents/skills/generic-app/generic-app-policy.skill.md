@@ -53,14 +53,14 @@ applies_when:
 
 - Treat `execution/press_window_key` and `execution/type_window_text` as explicit keyboard input that still requires follow-up verification. Key presses and text entry alone do not confirm that the intended visible UI result occurred.
 - Final replies must report what already happened in this turn. Do not say things like `I'm turning it off now` or `I'll open it` unless you already performed a desktop action toward that outcome.
-- For conditional instructions such as `if profile selection is visible` or `if a passcode is required`, inspect the current UI first.
+- For conditional instructions such as `if a chooser is visible` or `if a passcode is required`, inspect the current UI first.
 - If the condition is present and the user named a target or action, perform that action instead of stopping just because the target is visible.
 - If the condition is absent, treat that conditional step as a successful no-op and say so plainly rather than framing it as an incomplete or failed outcome.
 
 ## Discovery Rules
 
-- If a profile picker is visible, do not guess between profile tiles or click controls such as `Manage Profiles`, `Add Profile`, or `Done` unless the user explicitly named that exact target.
-- If no exact profile or picker control was requested, stop after reporting that profile selection is still required.
+- If a visible chooser or account-selection surface is active, do not guess between named options or management controls unless the user explicitly named that exact target.
+- If no exact named option or management control was requested, stop after reporting that explicit selection is still required.
 - Use `execution/launch_application` only for launching Windows apps.
 - When a browser window is already selected and the user wants to search for content such as a show, movie, article, or page, keep the interaction inside the browser or website instead of using Windows Search.
 - If no more-specific app or site skill clearly applies and the user needs product-specific instructions, use the browser to look up guidance instead of improvising.

@@ -1208,7 +1208,7 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
-    public void ShouldBlockUnnamedProfilePickerAction_ReturnsTrue_ForGuessedManageProfilesClick()
+    public void ShouldBlockUnrequestedNamedChoiceSurfaceAction_ReturnsTrue_ForGuessedManagementControlClick()
     {
         var snapshot =
             """
@@ -1258,7 +1258,7 @@ public sealed class AgentRunnerDecisionTests
             }
             """;
 
-        var actual = AgentRunner.ShouldBlockUnnamedProfilePickerAction(
+        var actual = AgentRunner.ShouldBlockUnrequestedNamedChoiceSurfaceAction(
             "Play Netflix.",
             "click_window_element",
             new Dictionary<string, object?> { ["elementPath"] = "1/0/0/1/1/0/0/0/0/0/0/0/0/3" },
@@ -1266,12 +1266,12 @@ public sealed class AgentRunnerDecisionTests
             out var blockedMessage);
 
         Assert.True(actual);
-        Assert.Contains("profile picker is visible", blockedMessage, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Do not guess which profile to choose", blockedMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("named-choice surface is active", blockedMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Do not guess which choice to select", blockedMessage, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public void ShouldBlockUnnamedProfilePickerAction_ReturnsFalse_ForExplicitProfileSelection()
+    public void ShouldBlockUnrequestedNamedChoiceSurfaceAction_ReturnsFalse_ForExplicitNamedSelection()
     {
         var snapshot =
             """
@@ -1313,7 +1313,7 @@ public sealed class AgentRunnerDecisionTests
             }
             """;
 
-        var actual = AgentRunner.ShouldBlockUnnamedProfilePickerAction(
+        var actual = AgentRunner.ShouldBlockUnrequestedNamedChoiceSurfaceAction(
             "Select Min.",
             "click_window_element",
             new Dictionary<string, object?> { ["elementPath"] = "1/0/0/1/1/0/0/0/0/0/0/0/0/2/0" },
@@ -1325,7 +1325,7 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
-    public void ShouldBlockUnnamedProfilePickerAction_ReturnsFalse_ForExplicitManageProfilesRequest()
+    public void ShouldBlockUnrequestedNamedChoiceSurfaceAction_ReturnsFalse_ForExplicitManagementControlRequest()
     {
         var snapshot =
             """
@@ -1368,7 +1368,7 @@ public sealed class AgentRunnerDecisionTests
             }
             """;
 
-        var actual = AgentRunner.ShouldBlockUnnamedProfilePickerAction(
+        var actual = AgentRunner.ShouldBlockUnrequestedNamedChoiceSurfaceAction(
             "Open Manage Profiles.",
             "click_window_element",
             new Dictionary<string, object?> { ["elementPath"] = "1/0/0/1/1/0/0/0/0/0/0/0/0/3" },

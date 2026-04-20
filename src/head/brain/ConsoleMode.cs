@@ -72,7 +72,7 @@ internal static class BrainConsoleMode
         Console.WriteLine("brain");
         Console.WriteLine("Usage:");
         Console.WriteLine("  brain.exe                              Start the provider's default interactive mode");
-        Console.WriteLine("  brain.exe --command \"open netflix\"     Run one scripted command");
+        Console.WriteLine("  brain.exe --command \"open calculator\"  Run one scripted command");
         Console.WriteLine("  brain.exe --command \"...\" --command \"...\"");
         Console.WriteLine("                                           Run multiple scripted commands");
         Console.WriteLine("  brain.exe --commands-file .\\steps.yml  Run scripted commands from a YAML file");

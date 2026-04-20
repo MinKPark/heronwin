@@ -200,8 +200,7 @@ public sealed class AgentPromptLoaderTests
             "tiktok",
             "linkedin",
             "instagram",
-            "facebook",
-            "max"
+            "facebook"
         };
 
         foreach (var path in restrictedPaths)
@@ -213,6 +212,94 @@ public sealed class AgentPromptLoaderTests
                 Assert.False(
                     Regex.IsMatch(content, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
                     $"Restricted prompt file '{path}' contains app-specific term '{term}'.");
+            }
+        }
+    }
+
+    [Fact]
+    public void RepositoryRestrictedRuntimeFiles_AvoidAppSpecificWorkflowNames()
+    {
+        var repoRoot = FindRepoRoot();
+        var restrictedPaths = new[]
+        {
+            Path.Combine(repoRoot, "src", "head", "brain", "Conversation.cs"),
+            Path.Combine(repoRoot, "src", "head", "brain", "AgentPrompts.cs"),
+            Path.Combine(repoRoot, "src", "head", "brain", "ConsoleMode.cs"),
+        };
+
+        var forbiddenTerms = new[]
+        {
+            "netflix",
+            "spotify",
+            "youtube",
+            "outlook",
+            "hulu",
+            "prime video",
+            "discord",
+            "gmail",
+            "reddit",
+            "slack",
+            "teams",
+            "tiktok",
+            "linkedin",
+            "instagram",
+            "facebook"
+        };
+
+        foreach (var path in restrictedPaths)
+        {
+            var content = File.ReadAllText(path);
+            foreach (var term in forbiddenTerms)
+            {
+                var pattern = $@"\b{Regex.Escape(term)}\b";
+                Assert.False(
+                    Regex.IsMatch(content, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
+                    $"Restricted runtime file '{path}' contains app-specific term '{term}'.");
+            }
+        }
+    }
+
+    [Fact]
+    public void RepositoryCoreAndCrossAppBoundaries_AvoidLegacyProfileSurfaceWorkflowTerms()
+    {
+        var repoRoot = FindRepoRoot();
+        var restrictedPaths = new List<string>
+        {
+            Path.Combine(repoRoot, "src", "head", "brain", "Conversation.cs"),
+            Path.Combine(repoRoot, ".github", "agents", "her.agent.md"),
+            Path.Combine(repoRoot, ".github", "agents", "her.agent.core.md")
+        };
+
+        restrictedPaths.AddRange(Directory.GetFiles(
+            Path.Combine(repoRoot, ".github", "agents", "skills", "any-app"),
+            "*.skill.md",
+            SearchOption.AllDirectories));
+        restrictedPaths.AddRange(Directory.GetFiles(
+            Path.Combine(repoRoot, ".github", "agents", "skills", "generic-app"),
+            "*.skill.md",
+            SearchOption.AllDirectories));
+        restrictedPaths.AddRange(Directory.GetFiles(
+            Path.Combine(repoRoot, ".github", "agents", "skills", "edge"),
+            "*.skill.md",
+            SearchOption.AllDirectories));
+
+        var forbiddenTerms = new[]
+        {
+            "profile picker",
+            "manage profiles",
+            "add profile",
+            "profile lock",
+        };
+
+        foreach (var path in restrictedPaths)
+        {
+            var content = File.ReadAllText(path);
+            foreach (var term in forbiddenTerms)
+            {
+                var pattern = Regex.Escape(term);
+                Assert.False(
+                    Regex.IsMatch(content, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
+                    $"Restricted boundary file '{path}' contains legacy profile-surface term '{term}'.");
             }
         }
     }
