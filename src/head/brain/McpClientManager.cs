@@ -18,6 +18,7 @@ internal sealed class McpClientManager : IAsyncDisposable
     private readonly Dictionary<string, McpServerConfig> _serverConfigsByName = new(StringComparer.Ordinal);
     private readonly Dictionary<string, HashSet<string>> _toolNamesByServer = new(StringComparer.Ordinal);
     private readonly Func<CancellationToken, Task<IReadOnlyList<ToolDefinition>>>? _listAllToolsOverride;
+    private readonly Func<string, IReadOnlyDictionary<string, object?>, CancellationToken, Task<ToolCallOutcome>>? _callToolOverride;
     private readonly TimeSpan _toolCallTimeout;
     private IReadOnlyList<ToolDefinition> _cachedToolDefinitions = [];
     private bool _hasCachedToolDefinitions;
@@ -30,9 +31,11 @@ internal sealed class McpClientManager : IAsyncDisposable
 
     internal McpClientManager(
         Func<CancellationToken, Task<IReadOnlyList<ToolDefinition>>>? listAllToolsOverride,
-        TimeSpan? toolCallTimeoutOverride)
+        TimeSpan? toolCallTimeoutOverride,
+        Func<string, IReadOnlyDictionary<string, object?>, CancellationToken, Task<ToolCallOutcome>>? callToolOverride = null)
     {
         _listAllToolsOverride = listAllToolsOverride;
+        _callToolOverride = callToolOverride;
         _toolCallTimeout = toolCallTimeoutOverride ?? GetConfiguredToolCallTimeout();
     }
 
@@ -106,6 +109,11 @@ internal sealed class McpClientManager : IAsyncDisposable
                                  JsonSerializer.Serialize(args, JsonSerializerOptionsCache.Default),
                                  JsonSerializerOptionsCache.Default) ??
                              new Dictionary<string, object?>();
+
+        if (_callToolOverride is not null)
+        {
+            return await _callToolOverride(toolName, dictionaryArgs, cancellationToken);
+        }
 
         foreach (var (serverName, client) in _clients.ToArray())
         {
