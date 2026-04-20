@@ -1786,10 +1786,10 @@ internal static class AgentRunner
                         executableToolName,
                         executableArgs,
                         actionableUiTreeContext,
-                        out var blockedProfilePickerMessage))
+                        out var blockedNamedChoiceSurfaceMessage))
                 {
                     Display.ToolCall(executableToolName, effectiveArgumentsText);
-                    Display.ToolResult(executableToolName, blockedProfilePickerMessage, 0);
+                    Display.ToolResult(executableToolName, blockedNamedChoiceSurfaceMessage, 0);
                     DebugTrace.WriteStructuredEvent(
                         "agent.tool_call_blocked",
                         new Dictionary<string, object?>
@@ -1799,7 +1799,7 @@ internal static class AgentRunner
                             ["tool"] = toolCall.Name,
                             ["executedTool"] = executableToolName,
                             ["reason"] = "unnamed_named_choice_surface_target_blocked",
-                            ["resultPreview"] = DebugTrace.Preview(blockedProfilePickerMessage, 900),
+                            ["resultPreview"] = DebugTrace.Preview(blockedNamedChoiceSurfaceMessage, 900),
                         });
                     DebugTrace.WriteStructuredEvent(
                         "agent.tool_call_completed",
@@ -1812,9 +1812,9 @@ internal static class AgentRunner
                             ["elapsedMs"] = 0,
                             ["isError"] = true,
                             ["images"] = 0,
-                            ["resultPreview"] = DebugTrace.Preview(blockedProfilePickerMessage, 900),
+                            ["resultPreview"] = DebugTrace.Preview(blockedNamedChoiceSurfaceMessage, 900),
                         });
-                    messages.Add(new AgentMessage.ToolResult(toolCall.Id, toolCall.Name, blockedProfilePickerMessage));
+                    messages.Add(new AgentMessage.ToolResult(toolCall.Id, toolCall.Name, blockedNamedChoiceSurfaceMessage));
                     continue;
                 }
 

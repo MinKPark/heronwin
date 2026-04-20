@@ -918,7 +918,7 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
-    public void TryFindVisibleNamedChoiceTargetPath_ReturnsFalse_WhenProfilePickerIsAbsent()
+    public void TryFindVisibleNamedChoiceTargetPath_ReturnsFalse_WhenNamedChoiceSurfaceIsAbsent()
     {
         var snapshot =
             """

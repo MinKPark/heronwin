@@ -152,7 +152,7 @@ Recommended fields:
   - `availableActions`
 - `requiredAction`
 - `userRequestedActivation`
-- `snapshotContainsProfilePicker`
+- `snapshotContainsNamedChoiceSurface`
 - `matchedPath`
 - `matchedElementSummary`
 - `rewritten`
