@@ -2848,7 +2848,11 @@ internal static class AgentRunner
             || combined.Contains("cannot describe", StringComparison.Ordinal)
             || combined.Contains("cannot confirm", StringComparison.Ordinal)
             || combined.Contains("can't confirm", StringComparison.Ordinal)
-            || combined.Contains("uncertain", StringComparison.Ordinal)
+            || Regex.IsMatch(combined, @"\buncertain\b", RegexOptions.CultureInvariant)
+            || Regex.IsMatch(
+                combined,
+                @"\buncertainty\b.{0,24}\b(?:is|remains|stays)\s+(?:high|elevated|significant|substantial)\b",
+                RegexOptions.CultureInvariant | RegexOptions.Singleline)
             || combined.Contains("ambigu", StringComparison.Ordinal)
             || combined.Contains("too sparse", StringComparison.Ordinal)
             || combined.Contains("not exposed", StringComparison.Ordinal)
@@ -2873,6 +2877,11 @@ internal static class AgentRunner
             .Replace('’', '\'')
             .Replace('‘', '\'');
         if (LooksLikeConditionalNoOpOutcome(combined))
+        {
+            return false;
+        }
+
+        if (LooksLikeSatisfiedRequestedConditionOutcome(combined))
         {
             return false;
         }
@@ -2962,6 +2971,45 @@ internal static class AgentRunner
                || (combinedLowerText.Contains("already on", StringComparison.Ordinal)
                    && combinedLowerText.Contains("did not request any ui action", StringComparison.Ordinal))
                || LooksLikeSecretPromptNoOpOutcome(combinedLowerText);
+    }
+
+    private static bool LooksLikeSatisfiedRequestedConditionOutcome(string combinedLowerText)
+    {
+        var satisfiedRequestedCondition = combinedLowerText.Contains("requested condition is satisfied", StringComparison.Ordinal)
+                                         || combinedLowerText.Contains("requested condition was satisfied", StringComparison.Ordinal)
+                                         || combinedLowerText.Contains("requested wait condition is satisfied", StringComparison.Ordinal)
+                                         || combinedLowerText.Contains("requested wait condition was satisfied", StringComparison.Ordinal)
+                                         || combinedLowerText.Contains("stop condition is satisfied", StringComparison.Ordinal)
+                                         || combinedLowerText.Contains("stop condition was satisfied", StringComparison.Ordinal)
+                                         || combinedLowerText.Contains("satisfies the requested condition", StringComparison.Ordinal)
+                                         || combinedLowerText.Contains("satisfy the requested condition", StringComparison.Ordinal)
+                                         || combinedLowerText.Contains("satisfies the requested wait condition", StringComparison.Ordinal)
+                                         || combinedLowerText.Contains("satisfy the requested wait condition", StringComparison.Ordinal)
+                                         || Regex.IsMatch(
+                                             combinedLowerText,
+                                             @"\brequested condition\b.{0,80}\b(?:is|was)\s+(?:visible|reached|met)\b",
+                                             RegexOptions.CultureInvariant | RegexOptions.Singleline)
+                                         || Regex.IsMatch(
+                                             combinedLowerText,
+                                             @"\brequested wait condition\b.{0,80}\b(?:is|was)\s+(?:visible|reached|met)\b",
+                                             RegexOptions.CultureInvariant | RegexOptions.Singleline);
+        if (!satisfiedRequestedCondition)
+        {
+            return false;
+        }
+
+        return !combinedLowerText.Contains("request is not complete", StringComparison.Ordinal)
+               && !combinedLowerText.Contains("request is incomplete", StringComparison.Ordinal)
+               && !combinedLowerText.Contains("requested action is incomplete", StringComparison.Ordinal)
+               && !combinedLowerText.Contains("remains incomplete", StringComparison.Ordinal)
+               && !combinedLowerText.Contains("remains uncompleted", StringComparison.Ordinal)
+               && !combinedLowerText.Contains("next step should be", StringComparison.Ordinal)
+               && !combinedLowerText.Contains("next step remains", StringComparison.Ordinal)
+               && !combinedLowerText.Contains("failed", StringComparison.Ordinal)
+               && !combinedLowerText.Contains("unable", StringComparison.Ordinal)
+               && !combinedLowerText.Contains("could not", StringComparison.Ordinal)
+               && !combinedLowerText.Contains("cannot", StringComparison.Ordinal)
+               && !combinedLowerText.Contains("can't", StringComparison.Ordinal);
     }
 
     private static bool LooksLikeSelectionSurfaceNoOpOutcome(string combinedLowerText)

@@ -67,3 +67,4 @@ Use one of these status values near the top of each bug doc:
 ## Current Bugs
 
 - [Netflix stale PIN continuation](./2026-04-19-netflix-stale-pin-continuation.md)
+- [Netflix PIN prompt contradiction false positive](./2026-04-19-netflix-pin-prompt-contradiction-false-positive.md)

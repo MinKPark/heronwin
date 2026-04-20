@@ -24,6 +24,7 @@ public sealed class AgentRunnerDecisionTests
     [InlineData("Netflix is open and the home screen is visible with profile tiles.")]
     [InlineData("The Save button was clicked and the dialog closed.")]
     [InlineData("File Explorer is focused and the Downloads folder is selected.")]
+    [InlineData("Using the newest post-action UI snapshot as the source of truth: the Netflix window is focused, the profile picker is no longer shown, and the page exposes \"Profile Lock is currently on.\" with a focused \"PIN Entry Input 1.\" field plus a \"Forgot PIN?\" link. This confirms the Min selection reached Min's profile PIN prompt, satisfying the requested wait condition. Uncertainty is low for the screen state from UI evidence, though no post-action screenshot was provided for independent visual confirmation.")]
     public void NeedsAdditionalDesktopEvidence_ReturnsFalse_ForConfidentLanguage(string text)
     {
         var reply = new AgentReply(LogText: text, SpokenText: text, RawText: text);
@@ -131,6 +132,37 @@ public sealed class AgentRunnerDecisionTests
             "The previous confirmed screen was Home - Netflix, and it included the visible control \"Min - Account & Settings\". That indicates the Min profile is already active, so I did not request any UI action.");
 
         Assert.False(actual);
+    }
+
+    [Fact]
+    public void HasExplicitlyUnresolvedOutcome_ReturnsFalse_ForSatisfiedAlternateStopCondition()
+    {
+        var actual = AgentRunner.HasExplicitlyUnresolvedOutcome(
+            "Using the post-action UI snapshot first, the profile picker is gone and Netflix shows the Min profile lock flow: \"Profile Lock is currently on.\" with PIN Entry Input 1 focused and a \"Forgot PIN?\" link. The second-pass snapshot after the extra wait confirms the same state and adds \"Enter your PIN to access this profile.\" plus four PIN entry boxes. Netflix home has not opened yet, but the requested condition is satisfied because Min's profile PIN prompt is visible. Uncertainty is low from the UI Automation evidence; no conflicting current evidence is present.");
+
+        Assert.False(actual);
+    }
+
+    [Fact]
+    public void HasExplicitlyUnresolvedOutcome_ReturnsTrue_ForSatisfiedConditionWithMandatoryNextStepLanguage()
+    {
+        var actual = AgentRunner.HasExplicitlyUnresolvedOutcome(
+            "The requested condition is satisfied because the PIN prompt is visible, but the request remains incomplete and the next step remains entering the PIN.");
+
+        Assert.True(actual);
+    }
+
+    [Fact]
+    public void GetReplyOutcomeContradictionRule_ReturnsNull_ForSatisfiedAlternateStopCondition()
+    {
+        var reply = new AgentReply(
+            LogText: "Using the post-action UI snapshot first, the profile picker is gone and Netflix shows the Min profile lock flow: \"Profile Lock is currently on.\" with PIN Entry Input 1 focused and a \"Forgot PIN?\" link. The second-pass snapshot after the extra wait confirms the same state and adds \"Enter your PIN to access this profile.\" plus four PIN entry boxes. Netflix home has not opened yet, but the requested condition is satisfied because Min's profile PIN prompt is visible. Uncertainty is low from the UI Automation evidence; no conflicting current evidence is present.",
+            SpokenText: "Min was selected, and it's waiting on the PIN screen now. We can enter the PIN, use Forgot PIN, or go back and choose another profile.",
+            RawText: "{}");
+
+        var actual = AgentRunner.GetReplyOutcomeContradictionRule(reply);
+
+        Assert.Null(actual);
     }
 
     [Fact]
