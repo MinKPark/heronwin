@@ -1,50 +1,83 @@
 # Netflix Stale PIN Continuation
 
 Last updated: 2026-04-19
-Status: proposed
+Status: fixed
 
 ## Summary
 
-During the rerun of the Netflix Boyfriend On Demand scenario under Codex, the
-scenario passed, but the new continuation trace revealed a runtime bug:
-`brain` started an internal PIN-entry continuation after the model had
-already entered the PIN and the UI had already advanced to Netflix Home.
+The latest rerun of the Netflix Boyfriend On Demand smoke changed the shape of
+this bug.
 
-This is a good example of the kind of issue that can stay hidden during a
-"green" scenario run unless we record and review the decision trace.
+The earlier draft of this note described a stale PIN continuation that started
+after Netflix had already advanced to Home. The newest trace shows a more
+specific failure:
+
+- turn 2 correctly reached the Netflix profile PIN prompt
+- turn 2 should have stopped there
+- instead, `brain` started a hidden internal
+  `netflix_discrete_slot_text_entry` continuation
+- that continuation entered a six-character value into the PIN surface
+- turn 2 still ended with the PIN screen visible
+- turn 3 then explicitly re-entered the real four-digit PIN and succeeded
+
+So the current bug is not "duplicate PIN entry after success." It is "false
+positive discrete-slot continuation on the stop-at-PIN turn, which types the
+wrong hidden value and leaves the site waiting for re-entry."
+
+The trace does not preserve the website's visible error string, but the turn
+sequence is consistent with what was observed live on screen:
+
+1. PIN prompt appears
+2. wrong PIN is entered internally
+3. Netflix shows an error and keeps the PIN surface up
+4. the next turn re-enters the correct PIN
 
 ## Bug Report
 
 Observed behavior:
 
-- the model entered PIN digits successfully
-- the Netflix profile lock disappeared
-- Netflix Home became visible
-- after that, `brain` still started `netflix_pin_entry` internal
-  continuation work using stale preconditions
+- turn 2 user text only asked to select Min and continue until Min opened or
+  the PIN prompt became visible
+- the model reached that stop condition and described the PIN prompt correctly
+- after that, runtime still started an internal discrete-slot continuation
+- the trace recorded `inputLength = 6` for the internal entry
+- turn 2 ended with the PIN prompt still visible, meaning the hidden entry did
+  not unlock the profile
+- turn 3 then issued four explicit `type_window_text` calls and unlocked the
+  profile successfully
 
 Expected behavior:
 
-- once the target surface is no longer present, the internal continuation
-  should not start
-- runtime continuation code should refresh evidence before acting
-- if refreshed evidence shows the goal is already achieved, the continuation
-  should be skipped or aborted with a clear trace reason
+- turn 2 should stop once the PIN prompt is visible
+- no internal discrete-slot entry should start unless the current turn text
+  explicitly provides a code value to enter
+- words such as `prompt`, `visible`, `screen`, or similar surface-description
+  language must never be treated as a PIN or code value
+- the trace should make it clear why continuation was skipped or started,
+  without logging the secret itself
 
 ## Impact
 
-- It wastes actions after success, which can create flaky follow-on behavior.
-- It increases the chance of duplicate or contradictory tool calls.
-- It makes "passed" scenarios less trustworthy because hidden stale actions
-  may still be happening underneath the pass condition.
-- The underlying issue is app agnostic: any internal continuation could act on
-  stale state if it does not re-check fresh evidence before starting.
+- It mutates live app state after the requested stop condition has already been
+  reached.
+- It can create hidden bad inputs that force the next turn down a different UI
+  branch.
+- It makes a passing scenario less trustworthy because the success can depend
+  on a later recovery turn.
+- The underlying issue is app agnostic: any generic discrete-slot continuation
+  can misfire if it incorrectly extracts a code value from descriptive text.
 
 ## Evidence
 
 Source run:
 
 - scenario: `src/scenarios/netflix-boyfriend-on-demand.yml`
+- command:
+
+```powershell
+.\buildandrun.ps1 -BrainOnly -Scenario src\scenarios\netflix-boyfriend-on-demand.yml
+```
+
 - provider banner: `LLM: ChatGPT / Codex sign-in`
 - result: scenario passed
 
@@ -53,133 +86,274 @@ Relevant logs:
 - `src/head/brain/bin/Debug/net10.0-windows/logs/brain.debug.jsonl`
 - `src/head/brain/bin/Debug/net10.0-windows/logs/brain.debug.log`
 
-Relevant trace pattern from the run:
+Relevant trace pattern from the latest run:
 
-- the model typed PIN digits `3`, `5`, `7`, `9`
-- the visible window had already advanced to Netflix Home
-- `agent.internal_continuation_started` still fired for
-  `policyName = "netflix_pin_entry"`
-- `agent.internal_continuation_step_completed` then recorded PIN-entry work
-  even though the target lock surface was already gone
+- turn 2 assistant draft already reported the intended stop condition:
+  `Min is selected, and it's asking for the profile PIN now.`
+- turn 2 then recorded:
+  - `agent.internal_continuation_started`
+  - `policyName = "netflix_discrete_slot_text_entry"`
+  - `continuationKind = "enter_remaining_discrete_text"`
+  - `inputLength = 6`
+- turn 2 then recorded:
+  - `agent.discrete_slot_text_entry.start`
+  - six `agent.discrete_slot_text_entry.character_input` events
+  - `agent.discrete_slot_text_entry.completed`
+- turn 2 still ended with the assistant saying the PIN screen was visible and
+  Min had not opened yet
+- turn 3 then issued four explicit `type_window_text` tool calls
+- on the fourth explicit digit, the tool result window title changed to
+  `Home - Netflix ...`
+- turn 3 assistant reply then confirmed Min was open on Netflix Home
 
-Related negative evidence:
+Important constraint from the latest trace:
 
-- the old `Home` rewrite loop did not recur
-- named-target rewrite evaluation behaved correctly
-- `agent.reply_contradiction_detected` stayed at `0`
+- the logs do not capture a clean website error string such as `Incorrect PIN`
+  or `Try again`
+- the failed hidden entry is inferred from the combination of:
+  - turn 2 internal entry work happening
+  - the PIN prompt remaining visible afterward
+  - turn 3 explicit re-entry succeeding
+
+Secondary observation:
+
+- turn 2 also considered `netflix_named_choice_continuation` on the PIN
+  surface, but it correctly skipped with
+  `skipReason = "no_exact_visible_named_choice_match"`
+- that looks noisy, but it is not the primary bug here
 
 ## Reproduction
 
 1. Clear runtime logs under `src/head/brain/bin/Debug/net10.0-windows/logs`.
-2. Run:
+2. Ensure `NETFLIX_PROFILE_PIN` is available, either through the shell or the
+   local environment file.
+3. Run:
 
 ```powershell
 $env:NETFLIX_PROFILE_PIN='3579'
-dotnet run --project src/head/brain -- --scenario src/scenarios/netflix-boyfriend-on-demand.yml
+.\buildandrun.ps1 -BrainOnly -Scenario src\scenarios\netflix-boyfriend-on-demand.yml
 ```
 
-3. Inspect the JSONL log for:
+4. Inspect the JSONL log for turn 2:
    - `agent.internal_continuation_considered`
    - `agent.internal_continuation_started`
-   - `agent.internal_continuation_step_completed`
-   - `agent.internal_continuation_completed`
-4. Confirm whether `netflix_pin_entry` starts after Netflix Home is already
-   visible.
+   - `agent.discrete_slot_text_entry.*`
+   - `assistant.reply`
+5. Confirm whether turn 2 starts
+   `policyName = "netflix_discrete_slot_text_entry"` with `inputLength = 6`
+   even though the turn only asked to stop at the PIN prompt.
+6. Confirm that turn 3 still performs four explicit PIN digits and unlocks the
+   profile.
 
 ## Diagnosis
 
 Current diagnosis:
 
-- the continuation eligibility decision is being made from stale or no-longer-
-  valid UI evidence
-- the runtime layer does not sufficiently re-check current state immediately
-  before starting the internal continuation
+- the generic discrete-slot continuation is starting on a turn that did not
+  actually provide a PIN or code value
+- the continuation gate is misclassifying descriptive stop-condition wording as
+  a user-provided discrete-slot value
 
-Likely root cause:
+Most likely root cause:
 
-- the continuation candidate is formed from an earlier actionable UI context
-- after the model's explicit tool actions succeed, the continuation still uses
-  that earlier context instead of requiring a fresh precondition check
+- `TryExtractRequestedDiscreteSlotTextFromUserText(...)` is too permissive
+- in particular, the current code-term pattern can match a phrase like
+  `PIN prompt` and treat `prompt` as the candidate value
+- that candidate then passes the generic multi-character alphanumeric check
+  because `prompt` is six letters long
+- once the PIN surface is visible, `TryBuildDiscreteSlotTextContinuation(...)`
+  sees both a visible discrete-slot surface and a seemingly valid six-character
+  value, so it starts the internal continuation
+
+Why the latest run fits that diagnosis:
+
+- turn 2 user text did not contain the real PIN digits
+- the trace still shows `inputLength = 6`
+- six is consistent with `prompt`
+- turn 2 did not unlock anything
+- turn 3 explicit digit entry did unlock
+
+Gaps in current instrumentation:
+
+- the trace shows `inputLength`, but not the redacted extraction source or
+  extraction pattern
+- that makes it harder than necessary to understand why the continuation
+  thought a code value existed
 
 Architecture boundary:
 
-- the stale-state guard belongs in app-agnostic runtime code
-- Netflix-specific selection/PIN policy remains in Netflix skill files
+- the fix belongs in app-agnostic runtime extraction, gating, and tracing code
+- Netflix-specific selection and PIN policy should stay in Netflix skill files
+
+## Fix Landed
+
+Implemented in app-agnostic runtime:
+
+- tightened `TryExtractRequestedDiscreteSlotTextFromUserText(...)` so code-term
+  extraction only accepts explicit value-bearing phrases such as
+  `enter passcode 3579` or `PIN is 3579`
+- stopped treating descriptive phrases such as `PIN prompt`, `verification code
+  screen`, or `code field` as candidate discrete-slot values
+- added redacted continuation trace fields:
+  - `valueExtractionMatched`
+  - `valueExtractionPattern`
+  - `candidateLength`
+- kept the continuation gate generic:
+  - explicit value text is still required
+  - a visible discrete-slot surface is still required before entry starts
+  - raw secret text is still never written to trace
+
+Code touchpoints:
+
+- `src/head/brain/Conversation.cs`
+- `src/head/brain.tests/AgentRunnerContinuationTests.cs`
+- `src/head/brain.tests/AgentRunnerDecisionTests.cs`
 
 ## Fix Plan
 
-### 1. Add a fresh precondition check before continuation start
+### 1. Tighten discrete-slot text extraction
 
-Before any internal continuation starts, the runtime should refresh its
-evidence and confirm that the target surface still exists.
+Update `TryExtractRequestedDiscreteSlotTextFromUserText(...)` so it only
+extracts a value when the user text explicitly provides one.
 
 Planned runtime behavior:
 
-- re-resolve current actionable UI context after model-driven actions finish
-- require the continuation precondition to still be true
-- if the surface is gone or the goal is already satisfied, do not start the
-  continuation
+- keep accepting clear value-bearing phrases such as:
+  - `type 3579`
+  - `enter 3579`
+  - `PIN is 3579`
+  - `passcode: 3579`
+- stop treating arbitrary words after `PIN`, `code`, or `passcode` as values
+- ensure phrases like `PIN prompt`, `code field`, `verification code screen`,
+  or `PIN prompt is visible` do not produce a candidate value
 
-### 2. Add explicit stale-state skip or abort reasons
+### 2. Add explicit trace fields for extraction decisions
 
-The trace should tell us exactly why continuation did not proceed.
+The trace should tell us why discrete-slot continuation believed a value was
+available, without logging the secret itself.
 
-Add or use clear reasons such as:
+Add generic debug fields such as:
 
-- `precondition_no_longer_true`
-- `target_surface_gone`
-- `goal_already_satisfied`
+- `valueExtractionMatched`
+- `valueExtractionPattern`
+- `candidateLength`
+- `skipReason`
 
-These reasons should be generic and reusable by future continuations in other
-apps.
+Important requirement:
 
-### 3. Prevent duplicate follow-through after successful model action
+- never log the raw PIN, passcode, OTP, or extracted candidate text
 
-If the model already completed the same outcome in the same turn, the runtime
-should suppress continuation rather than repeating the work.
+### 3. Strengthen the continuation start gate
 
-This should be phrased generically in code:
+Before `enter_remaining_discrete_text` starts:
 
-- compare intended continuation goal against refreshed current state
-- avoid appending more steps once the goal has already been met
+- require both:
+  - a visible discrete-slot surface
+  - an explicit value-bearing signal from the current turn text
+- if the turn only asks to observe or stop at the PIN prompt, skip with a clear
+  generic reason such as `no_discrete_slot_text_in_user_text`
+
+This keeps the runtime aligned with the actual turn contract:
+
+- turn 2 should stop at the prompt
+- turn 3 should perform entry
 
 ### 4. Add focused regression tests
 
-Add tests around the runtime continuation gate so we can verify that:
+Add tests that cover both the extraction helper and the continuation gate.
 
-- a continuation does not start when refreshed evidence shows success already
-- a continuation does not start when the target surface is gone
-- the skip or abort trace reason is recorded clearly
+Proposed coverage:
 
-Keep the test emphasis app agnostic when possible. Add Netflix-specific tests
-only where the scenario wording or Netflix policy itself matters.
+- extractor returns `false` for:
+  - `Min's profile PIN prompt is visible`
+  - `wait until the verification code screen appears`
+  - `the code field is focused`
+- extractor still returns `true` for:
+  - `type 3579`
+  - `enter passcode 3579`
+- discrete-slot continuation skips a turn-2-like PIN-prompt scenario with
+  `skipReason = "no_discrete_slot_text_in_user_text"`
+- discrete-slot continuation still works for a turn-3-like explicit entry turn
 
-### 5. Rerun the scenario and review the trace
+### 5. Rerun the live scenario and review the trace
 
 After the code change:
 
 1. clear logs
 2. rerun the Netflix scenario
-3. verify that the PIN continuation no longer starts after Home is visible
-4. confirm the trace now explains the decision cleanly
+3. verify that turn 2 no longer starts
+   `netflix_discrete_slot_text_entry`
+4. verify that turn 2 stops cleanly at the PIN prompt
+5. verify that turn 3 still enters four explicit digits and unlocks
+6. confirm the trace explains the decision cleanly
 
-## Verification Plan
+### 6. Keep the current bug scope tight
 
-- `dotnet test src/heronwin.sln`
-- rerun `src/scenarios/netflix-boyfriend-on-demand.yml`
-- inspect the fresh JSONL trace for continuation gating behavior
-- confirm no duplicate PIN-entry action occurs after successful unlock
+This fix should stay focused on the false-positive discrete-slot continuation.
+
+Do not bundle in unrelated cleanup unless needed for the fix:
+
+- the named-choice continuation noise on the PIN surface
+- broader trace redaction work outside discrete-slot extraction
+
+Those can be tracked separately if they still matter after the fix lands.
+
+## Verification
+
+Completed verification:
+
+- `dotnet test src/head/brain.tests/HeronWin.Brain.Tests.csproj --no-restore`
+  - result: 241 passed, 0 failed
+- new focused regressions cover:
+  - stop-at-PIN descriptive text returning
+    `skipReason = "no_discrete_slot_text_in_user_text"`
+  - descriptive phrases such as `PIN prompt is visible`,
+    `verification code screen`, and `code field is focused` not producing a
+    discrete-slot value
+  - explicit passcode text still producing remaining slot text correctly
+- reran `src/scenarios/netflix-boyfriend-on-demand.yml`
+  - result: scenario passed
+
+Post-fix live trace notes from the latest rerun:
+
+- this rerun landed on Min's Netflix Home immediately, so the scenario did not
+  re-enter the visible PIN-prompt branch
+- turn 2 still considered `netflix_discrete_slot_text_entry`, but skipped with:
+  - `valueExtractionMatched = false`
+  - `valueExtractionPattern = null`
+  - `candidateLength = null`
+  - `skipReason = "no_discrete_slot_text_in_user_text"`
+- turn 3 explicitly supplied a PIN value and the trace now shows:
+  - `valueExtractionMatched = true`
+  - `valueExtractionPattern = "explicit_input"`
+  - `candidateLength = 4`
+  - `skipReason = "discrete_slot_surface_not_visible"`
+- no post-fix `agent.internal_continuation_started` event occurred for
+  `netflix_discrete_slot_text_entry` on turns 2 or 3 of the rerun
+
+Remaining verification caveat:
+
+- because the rerun started from Home, the exact "PIN prompt visible and stop"
+  branch was re-verified by unit regressions rather than by this specific live
+  smoke pass
 
 ## Status
 
 Current state:
 
-- bug reproduced in trace
-- diagnosis is strong but still based on runtime log interpretation
-- fix not yet implemented
+- fix implemented in runtime extraction, gating, and trace instrumentation
+- focused regressions are in place and passing
+- full `HeronWin.Brain.Tests` suite is passing
+- latest live scenario rerun passed without any post-fix internal
+  `netflix_discrete_slot_text_entry` start on turns 2 or 3
+- the earlier interpretation in this note has been superseded
+- the root cause remains the same:
+  false-positive value extraction from stop-condition wording
+- the latest live rerun did not reopen the profile PIN prompt, so the prompt
+  branch confirmation now rests on unit coverage plus the historical repro trace
 
 ## Follow-Up
 
-If this fix works well, we should treat "fresh precondition required before
-internal continuation starts" as a standard runtime rule for all future
-continuation helpers, not only Netflix PIN entry.
+If this fix works well, we should treat "explicit value-bearing text required
+before discrete-slot auto-follow-through starts" as a standard runtime rule for
+all future structured code-entry continuations, not only Netflix PIN flows.

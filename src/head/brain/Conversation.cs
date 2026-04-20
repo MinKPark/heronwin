@@ -4531,7 +4531,16 @@ internal static class AgentRunner
             ["window"] = DescribePrimaryWindowFromToolOutput(recentWindowContext),
         };
 
-        if (!TryExtractRequestedDiscreteSlotTextFromUserText(userText, out _))
+        var hasRequestedValue = TryExtractRequestedDiscreteSlotTextFromUserText(
+            userText,
+            out _,
+            out var valueExtractionPattern,
+            out var candidateLength);
+        surfaceSummary["valueExtractionMatched"] = hasRequestedValue;
+        surfaceSummary["valueExtractionPattern"] = valueExtractionPattern;
+        surfaceSummary["candidateLength"] = candidateLength;
+
+        if (!hasRequestedValue)
         {
             skipReason = "no_discrete_slot_text_in_user_text";
             return false;
@@ -6544,18 +6553,37 @@ internal static class AgentRunner
     }
 
     private static bool TryExtractRequestedDiscreteSlotTextFromUserText(string userText, out string value)
+        => TryExtractRequestedDiscreteSlotTextFromUserText(
+            userText,
+            out value,
+            out _,
+            out _);
+
+    private static bool TryExtractRequestedDiscreteSlotTextFromUserText(
+        string userText,
+        out string value,
+        out string? extractionPattern,
+        out int? candidateLength)
     {
         value = string.Empty;
+        extractionPattern = null;
+        candidateLength = null;
         if (string.IsNullOrWhiteSpace(userText))
         {
             return false;
         }
 
-        foreach (var pattern in new[]
+        foreach (var (patternName, pattern) in new[]
                  {
-                     @"\b(?:type|enter|use|input)\s+(?<value>[A-Za-z0-9]{2,12})\b",
-                     @"\b(?:pin|passcode|pass\s+code|otp|verification\s+code|security\s+code|code)\b(?:[^A-Za-z0-9]+(?:is|to\s+(?:type|enter|use)|:|=))?[^A-Za-z0-9]*(?<value>[A-Za-z0-9]{2,12})\b",
-                     @"\b(?<value>\d{2,12})\b",
+                     (
+                         "explicit_input",
+                         @"\b(?:type(?:\s+in)?|enter|use|input)\s+(?:(?:the|my|your)\s+)?(?:(?:profile\s+)?(?:pin|passcode|pass\s+code|otp|verification\s+code|security\s+code|code)\s+)?(?<value>[A-Za-z0-9]{2,12})\b"),
+                     (
+                         "code_assignment",
+                         @"\b(?:profile\s+)?(?:pin|passcode|pass\s+code|otp|verification\s+code|security\s+code|code)\b\s*(?:is|:|=)\s*(?<value>[A-Za-z0-9]{2,12})\b"),
+                     (
+                         "bare_digits",
+                         @"\b(?<value>\d{2,12})\b"),
                  })
         {
             var match = Regex.Match(userText, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
@@ -6570,6 +6598,8 @@ internal static class AgentRunner
                 continue;
             }
 
+            extractionPattern = patternName;
+            candidateLength = value.Length;
             return true;
         }
 

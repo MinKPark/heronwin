@@ -1150,6 +1150,62 @@ public sealed class AgentRunnerDecisionTests
         Assert.False(actual);
     }
 
+    [Theory]
+    [InlineData("Min's profile PIN prompt is visible.")]
+    [InlineData("wait until the verification code screen appears.")]
+    [InlineData("the code field is focused.")]
+    public void TryBuildRemainingDiscreteSlotText_ReturnsFalse_ForDescriptiveCodeSurfaceText(string userText)
+    {
+        var windowSnapshot =
+            """
+            {
+              "Window": {
+                "Handle": "0x009C0680",
+                "Title": "Netflix",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window",
+                "Children": [
+                  {
+                    "Path": "1/0",
+                    "UiPath": "1/0",
+                    "Name": "Enter Min's PIN to add a profile",
+                    "ControlType": "Text"
+                  }
+                ]
+              }
+            }
+            """;
+        var focusSnapshot =
+            """
+            {
+              "Window": {
+                "Handle": "0x009C0680",
+                "Title": "Netflix",
+                "ClassName": "Chrome_WidgetWin_1"
+              },
+              "FocusedElement": {
+                "Path": "focused",
+                "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/5",
+                "Name": "PIN Entry Input 2.",
+                "ControlType": "Edit",
+                "ClassName": "pin-number-input focus-visible"
+              }
+            }
+            """;
+
+        var actual = AgentRunner.TryBuildRemainingDiscreteSlotText(
+            userText,
+            windowSnapshot,
+            focusSnapshot,
+            out _);
+
+        Assert.False(actual);
+    }
+
     [Fact]
     public void TryBuildRemainingDiscreteSlotText_ReturnsFalse_ForManageProfileLockSettingsPage()
     {

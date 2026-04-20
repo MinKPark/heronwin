@@ -79,6 +79,50 @@ public sealed class AgentRunnerContinuationTests
     }
 
     [Fact]
+    public void TryBuildDiscreteSlotTextContinuation_ReturnsFalse_ForStopAtPinPromptInstruction()
+    {
+        var actual = AgentRunner.TryBuildDiscreteSlotTextContinuation(
+            "If Netflix is showing the profile selection screen, select the profile named Min and continue until either Min opens or Min's profile PIN prompt is visible.",
+            BuildStaleNetflixPinSnapshot(),
+            BuildStaleNetflixPinFocusSnapshot(),
+            out var remainingText,
+            out var skipReason,
+            out var surfaceSummary);
+
+        Assert.False(actual);
+        Assert.Equal(string.Empty, remainingText);
+        Assert.Equal("no_discrete_slot_text_in_user_text", skipReason);
+        Assert.Equal("Netflix - Microsoft Edge", surfaceSummary["window"]);
+        Assert.True((bool)surfaceSummary["discreteSlotPromptVisible"]!);
+        Assert.False((bool)surfaceSummary["windowSurfaceVisible"]!);
+        Assert.True((bool)surfaceSummary["focusSurfaceVisible"]!);
+        Assert.Equal(2, surfaceSummary["slotOrdinal"]);
+        Assert.False((bool)surfaceSummary["valueExtractionMatched"]!);
+        Assert.Null(surfaceSummary["valueExtractionPattern"]);
+        Assert.Null(surfaceSummary["candidateLength"]);
+    }
+
+    [Fact]
+    public void TryBuildDiscreteSlotTextContinuation_ReturnsRemainingDigits_ForExplicitPasscodeInstruction()
+    {
+        var actual = AgentRunner.TryBuildDiscreteSlotTextContinuation(
+            "If Netflix asks for a profile passcode, enter passcode 3579 one digit at a time.",
+            BuildStaleNetflixPinSnapshot(),
+            BuildStaleNetflixPinFocusSnapshot(),
+            out var remainingText,
+            out var skipReason,
+            out var surfaceSummary);
+
+        Assert.True(actual);
+        Assert.Equal("579", remainingText);
+        Assert.Equal(string.Empty, skipReason);
+        Assert.True((bool)surfaceSummary["valueExtractionMatched"]!);
+        Assert.Equal("explicit_input", surfaceSummary["valueExtractionPattern"]);
+        Assert.Equal(4, surfaceSummary["candidateLength"]);
+        Assert.Equal(3, surfaceSummary["remainingCharacterCount"]);
+    }
+
+    [Fact]
     public async Task RunTurnAsync_DoesNotStartNetflixPinContinuation_WhenCurrentEvidenceAlreadyShowsHome()
     {
         var llmClient = new QueuedLlmClient(
