@@ -16,7 +16,7 @@ runtime-loaded prompt and skill files under `.github/agents`.
 
 Last updated: 2026-04-19
 
-- Git baseline: `main` at `5dd4a28`, tracking `origin/main`.
+- Git baseline: `main` at `8b4899a`, tracking `origin/main`.
 - The active implementation lives under `src`.
 - The `body` refactor is landed:
   - `src/body` is the active tree.
@@ -49,9 +49,11 @@ Last updated: 2026-04-19
   - the build break from the previous session turned out to be a repo-local ACL
     issue on generated `obj` and `bin` output folders, not low disk space.
 - Current follow-up:
-  - cut the live Netflix smoke from roughly seven minutes to under one minute,
-    ideally much faster, by removing avoidable repair, retry, evidence, and
-    tool-call latency,
+  - start with the latest passing Netflix smoke trace and break the roughly
+    seven-minute runtime down by turn, try, LLM reply, tool call, and evidence
+    refresh cost; then remove the worst avoidable repair, retry, evidence, and
+    tool-call latency until the same scenario finishes in under one minute,
+    ideally much faster,
   - add a separate scripted smoke if we want explicit app-first launch coverage;
     the current Netflix smoke is now an explicit website-navigation scenario.
 - Local tool versions used for the snapshot:
