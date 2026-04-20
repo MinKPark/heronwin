@@ -15,6 +15,8 @@ app-boundary cleanup:
   primitives
 - replace Netflix-specific structured PIN entry with a generic discrete-slot
   text-entry primitive
+- strengthen debug-mode instrumentation so later investigation can explain why
+  a continuation or rewrite did or did not happen
 - keep app policy in skills while preserving the current Netflix behavior that
   already works
 
@@ -96,6 +98,9 @@ After this migration:
 - active skills opt into those primitives through generic metadata or
   affordances, not app-name branches in runtime code
 - trace events are generic and reusable across apps
+- debug mode emits investigation-grade trace and artifact context for
+  continuation planning, rewrite decisions, preflight refreshes, and
+  sequential entry execution
 - Netflix-specific wording stays in skill files and scenarios
 - Netflix remains the pilot app used to prove the generic primitives before
   other apps adopt them
@@ -108,6 +113,92 @@ After this migration:
 - change snapshot formats from `cognition` or `execution`
 - ship a temporary abstraction that still carries Netflix-specific behavior
   under renamed wrappers and then leave it there
+- add always-on screenshots or heavyweight artifacts outside the existing
+  debug-mode path
+
+## Debug-Mode Instrumentation Requirements
+
+This migration should treat observability as part of the feature, not as
+follow-up cleanup.
+
+When `DebugTrace.IsEnabled` is true, the generic continuation and discrete-slot
+paths should leave enough evidence to answer these questions later:
+
+- why was a continuation or rewrite considered at all
+- which affordance or generic policy allowed it
+- what structural signals were present or missing
+- what snapshot or focus evidence was considered stale and refreshed
+- what exact generic step ran
+- why a continuation, rewrite, or sequential entry was skipped, aborted, or
+  completed
+
+## Required Debug Trace Coverage
+
+At minimum, the migration should preserve or add generic trace coverage for:
+
+- continuation consideration, start, skip, step completion, completion, and
+  abort
+- preflight refresh decisions and failures
+- structured or discrete-slot rewrite evaluation
+- sequential discrete-slot entry start, step progress, focus verification, and
+  abort or completion
+
+## Required Debug Fields
+
+The exact schema can evolve, but debug-mode traces should be rich enough to
+include most of the following:
+
+- `turn`
+- `continuationId` or other stable correlation id
+- `policyName`
+- `continuationKind`
+- `triggerReason`
+- `affordances`
+- `userTextPreview`
+- `assistantReplyPreview`
+- `surfaceSummary`
+- `targetSummary`
+- `plannedSteps`
+- `stepIndex`
+- `stepAction`
+- `skipReason`
+- `abortReason`
+- `preActionWindow`
+- `postActionWindow`
+- `preflightRefreshPerformed`
+- `preflightInvalidatedStoredEvidence`
+- `slotOrdinal`
+- `remainingCharacterCount`
+- `inputLength`
+- `rewriteApplied`
+- `rewriteSkipReason`
+
+## Required Debug Artifacts
+
+The current code already passes `debugMode` into window and focus snapshot
+calls. This migration should preserve that behavior and make deliberate use of
+it around the new generic primitives.
+
+In debug mode:
+
+- preflight refreshes should keep the refreshed window or focus snapshot that
+  justified the continuation decision
+- post-action verification should keep the newest debug-mode window snapshot
+  used as source of truth
+- sequential discrete-slot entry should keep focus-verification evidence after
+  each step when that evidence is available
+- traces should reference summaries of those artifacts so a later reader can
+  correlate JSONL events with the stored debug snapshots
+
+## Secret-Handling Requirement
+
+Instrumentation must remain safe for secrets:
+
+- do not log raw PIN, passcode, OTP, or verification-code values
+- step-level traces may record counts, indexes, redacted placeholders, and
+  structural state, but not the sensitive characters themselves
+- display output should remain redacted the same way the runtime already
+  redacts secret entry today
 
 ## Proposed Runtime Primitives
 
@@ -269,6 +360,8 @@ Add or refine regression coverage for:
   entry only when the structured-slot surface is active
 - generic trace events preserve equivalent start, skip, step, and complete
   observability
+- debug-mode traces include enough structured fields to explain continuation
+  and rewrite decisions later
 
 Deliverable:
 
@@ -287,6 +380,11 @@ Expected work:
 
 This phase should reduce risk before the continuation builders are rewritten.
 
+Instrumentation requirement:
+
+- the generic executor must ship with the generic trace family in the same
+  phase, not as a later cleanup
+
 ## Phase C. Replace Tool-Call Interception
 
 Genericize the current `type_window_text` interception path:
@@ -299,6 +397,8 @@ Genericize the current `type_window_text` interception path:
 Deliverable:
 
 - no Netflix-specific tool-call rewrite logic in production runtime
+- a generic debug trace event for discrete-slot rewrite evaluation with enough
+  context to explain why rewrite was applied or skipped
 
 ## Phase D. Replace Post-Reply Continuations
 
@@ -317,6 +417,8 @@ Expected work:
 Deliverable:
 
 - no Netflix-specific post-reply continuation methods in `Conversation.cs`
+- generic continuation traces that still let us compare before-and-after runs
+  at the same level of detail as the current debug continuation logs
 
 ## Phase E. Remove Netflix-Specific Surface Detectors
 
@@ -376,6 +478,11 @@ tests after the runtime is genericized.
   - Mitigation: keep full-value redaction mandatory in display and trace
     payloads
 
+- Risk: the generic runtime becomes harder to debug than the Netflix-specific
+  code it replaces
+  - Mitigation: require debug-mode instrumentation and artifact correlation as
+    part of each migration phase, not as optional polish
+
 - Risk: test coverage remains coupled to old helper names and slows cleanup
   - Mitigation: separate generic primitive tests from Netflix pilot-flow tests
     during the migration
@@ -388,6 +495,8 @@ If this plan lands cleanly, the result should be:
 - generic discrete-slot text-entry support in runtime
 - skill-gated use of those primitives
 - generic trace event names for sequential discrete entry
+- investigation-grade debug-mode traces and artifact correlation for the new
+  generic paths
 - deletion of Netflix-specific continuation and PIN helper names from
   production runtime
 - retained Netflix pilot coverage through skills, tests, and scenarios
@@ -401,6 +510,9 @@ If this plan lands cleanly, the result should be:
 - For discrete-slot detection, do we want purely structural signals, or should
   runtime allow neutral cross-app cue terms such as `PIN`, `passcode`, `OTP`,
   and `verification code`?
+- Do we want one dedicated generic debug event for discrete-slot rewrite
+  evaluation, or should that information live inside the broader continuation
+  events only?
 - Is a short-lived adapter phase acceptable while renaming the executor and
   trace events, or do we want a one-shot cutover?
 - Do we keep the current `policyName` values temporarily for trace comparison,
