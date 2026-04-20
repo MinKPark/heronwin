@@ -10,6 +10,7 @@ runtime-loaded prompt and skill files under `.github/agents`.
 - [Goal and Design](./GOAL_AND_DESIGN.md)
 - [History and Todos](./HISTORY_AND_TODOS.md)
 - [Development Guardrails](./DEVELOPMENT_GUARDRAILS.md)
+- [Bug Docs](./bugs/README.md)
 
 ## Current Snapshot
 
