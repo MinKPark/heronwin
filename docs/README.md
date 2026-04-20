@@ -14,7 +14,7 @@ runtime-loaded prompt and skill files under `.github/agents`.
 
 ## Current Snapshot
 
-Last updated: 2026-04-18
+Last updated: 2026-04-19
 
 - Git baseline: `main` at `5dd4a28`, tracking `origin/main`.
 - The active implementation lives under `src`.
@@ -31,15 +31,16 @@ Last updated: 2026-04-18
   - `dotnet build src\heronwin.sln` passed with 0 warnings and 0 errors.
   - `dotnet test src\heronwin.sln` passed with 295 total tests.
   - `dotnet test src\head\brain.tests\HeronWin.Brain.Tests.csproj` passed
-    with 214 total tests after adding browser-request guardrails, app-first
-    website-fallback confirmation, screenshot-gating checks, and Netflix
-    profile-selection, PIN follow-through, and named-target disambiguation
-    coverage.
+    with 245 total tests after adding browser-request guardrails, app-first
+    website-fallback confirmation, screenshot-gating checks, generic runtime
+    continuation coverage, Netflix profile-selection and PIN coverage, and the
+    reply-outcome / extra-evidence regression checks for the PIN-prompt retry
+    bug.
   - `npm run build` passed in `src\body\process-manager`.
   - `.\buildandrun.ps1 -BrainOnly -Scenario src\scenarios\netflix-boyfriend-on-demand.yml`
-    now exposes live Netflix account-state problems more honestly instead of
-    silently passing stale picker/PIN issues, but the smoke is still blocked by
-    real confirmation/profile-lock branches before the search/playback turns.
+    passed end to end after the stale-PIN-continuation and PIN-prompt
+    contradiction fixes, but the live smoke still takes roughly seven minutes
+    and needs aggressive runtime-performance cleanup.
   - ordinary app launch requests now stay app-first, and the brain asks before
     falling back to a website when a likely web-backed app launch remains
     unconfirmed.
@@ -48,10 +49,9 @@ Last updated: 2026-04-18
   - the build break from the previous session turned out to be a repo-local ACL
     issue on generated `obj` and `bin` output folders, not low disk space.
 - Current follow-up:
-  - make the live Netflix smoke deterministic across real account-state
-    branches like stale tabs, confirmation prompts, and `Manage Profile Lock`,
-  - keep tightening Netflix search/playback scripted validation on top of the
-    stricter unresolved-outcome checks,
+  - cut the live Netflix smoke from roughly seven minutes to under one minute,
+    ideally much faster, by removing avoidable repair, retry, evidence, and
+    tool-call latency,
   - add a separate scripted smoke if we want explicit app-first launch coverage;
     the current Netflix smoke is now an explicit website-navigation scenario.
 - Local tool versions used for the snapshot:

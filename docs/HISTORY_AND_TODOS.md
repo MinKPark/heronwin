@@ -16,21 +16,22 @@ This file has two jobs:
 
 | Status | Priority | Item | Next move |
 |--------|----------|------|-----------|
-| `next` | `P1` | Make the live Netflix smoke deterministic across account-state branches. | The stricter brain checks now catch stale picker/PIN issues correctly, but reruns can still land on real Netflix confirmation and profile-lock surfaces that block the scripted search/playback path. |
-| `next` | `P1` | Tighten Netflix search/playback scripted validation. | Keep the stricter unresolved-outcome checks, but continue hardening in-site search and playback verification on top of the live account-state cleanup work. |
+| `next` | `P0` | Cut scripted Netflix smoke runtime below one minute. | The current end-to-end Netflix smoke now passes, but it still takes about seven minutes to run. Profile and remove avoidable repair loops, extra evidence refreshes, redundant tool calls, and other per-turn latency so the same scenario completes in under one minute, ideally much faster. |
 | `next` | `P1` | Decide whether to add separate scripted coverage for app-first launch. | The current Netflix smoke is now explicitly website-navigation-based; add another smoke if we want deterministic coverage for the app-first fallback-confirmation path. |
 | `next` | `P1` | Finish the compact-tree rollout in `cognition`. | Add the opt-in screenshot-vs-compact evaluation harness, then run the documented parity checks, benchmarks, and manual evaluation passes in [Cognition Compact Tree Migration](./designs/cognition-compact-tree-migration.md). |
 | `next` | `P1` | Add dedicated coverage for the WPF `face` app. | Start with settings edits, status mapping, and view-model state transitions. |
 | `next` | `P1` | Broaden the prompt and skill intent vocabulary. | Add a small set of generic intents and cover them with activation tests. |
 | `soon` | `P2` | Add automated tests for `process-manager`. | Start with command validation and process-list parsing, then add integration tests later. |
-| `backlog` | `P3` | Revisit browser-backed ChatGPT mode only if it becomes a product requirement. | Keep current effort on API-backed LLMs and local tooling. |
 
 ## Working-Tree Notes
 
 These notes describe local work that exists in the working tree but is not yet
 part of committed repo history.
 
-- None during this update pass. `git status --short` was clean on 2026-04-18.
+- Local working tree now includes:
+  - the verified fix for the Netflix PIN-prompt contradiction / retry churn,
+  - the updated bug doc for that fix,
+  - the refreshed active todo list that promotes scenario runtime to `P0`.
 
 ## Daily Repo History
 
