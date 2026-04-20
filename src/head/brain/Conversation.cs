@@ -232,6 +232,13 @@ internal static class AgentRunner
             SyncDesktopSession();
         }
 
+        void InvalidateRecentFocusSnapshot()
+        {
+            recentFocusContext = null;
+            currentFocusElementContext = null;
+            SyncDesktopSession();
+        }
+
         static Dictionary<string, object?> BuildWindowSnapshotArguments(bool debugMode)
             => CreateWindowSnapshotArguments(debugMode);
 
@@ -648,6 +655,67 @@ internal static class AgentRunner
             return true;
         }
 
+        async Task RefreshCurrentWindowEvidenceBeforeInternalContinuationAsync(string assistantResponseText)
+        {
+            if (!performedDesktopAction ||
+                !availableToolNames.Contains("describe_window"))
+            {
+                return;
+            }
+
+            var previousWindow = DescribePrimaryWindowFromToolOutput(ResolveActionableUiTreeContext());
+            var hadStoredFocusContext = !string.IsNullOrWhiteSpace(recentFocusContext);
+
+            try
+            {
+                var refreshedSnapshot = await CallToolWithDesktopSessionAsync(
+                    "describe_window",
+                    BuildWindowSnapshotArguments(debugMode: DebugTrace.IsEnabled));
+                if (refreshedSnapshot.IsError)
+                {
+                    DebugTrace.WriteStructuredEvent(
+                        "agent.internal_continuation_preflight_snapshot_failed",
+                        new Dictionary<string, object?>
+                        {
+                            ["turn"] = turnId,
+                            ["assistantReplyPreview"] = DebugTrace.Preview(assistantResponseText, 400),
+                            ["lastCompletedTool"] = lastCompletedToolNameInTurn,
+                            ["previousWindow"] = previousWindow,
+                            ["error"] = DebugTrace.Preview(refreshedSnapshot.Text, 700),
+                        });
+                    return;
+                }
+
+                RememberRecentWindowSnapshot(refreshedSnapshot.Text, "describe_window");
+                InvalidateRecentFocusSnapshot();
+                DebugTrace.WriteStructuredEvent(
+                    "agent.internal_continuation_preflight_snapshot",
+                    new Dictionary<string, object?>
+                    {
+                        ["turn"] = turnId,
+                        ["assistantReplyPreview"] = DebugTrace.Preview(assistantResponseText, 400),
+                        ["lastCompletedTool"] = lastCompletedToolNameInTurn,
+                        ["previousWindow"] = previousWindow,
+                        ["refreshedWindow"] = DescribePrimaryWindowFromToolOutput(refreshedSnapshot.Text),
+                        ["invalidatedStoredFocusContext"] = hadStoredFocusContext,
+                        ["resultPreview"] = DebugTrace.Preview(refreshedSnapshot.Text, 700),
+                    });
+            }
+            catch (Exception ex)
+            {
+                DebugTrace.WriteStructuredEvent(
+                    "agent.internal_continuation_preflight_snapshot_failed",
+                    new Dictionary<string, object?>
+                    {
+                        ["turn"] = turnId,
+                        ["assistantReplyPreview"] = DebugTrace.Preview(assistantResponseText, 400),
+                        ["lastCompletedTool"] = lastCompletedToolNameInTurn,
+                        ["previousWindow"] = previousWindow,
+                        ["error"] = DebugTrace.Preview(ex.ToString(), 700),
+                    });
+            }
+        }
+
         while (true)
         {
             llmAttempt += 1;
@@ -756,6 +824,8 @@ internal static class AgentRunner
                         cancellationToken));
                     continue;
                 }
+
+                await RefreshCurrentWindowEvidenceBeforeInternalContinuationAsync(responseText);
 
                 if (await MaybeContinueNetflixProfileSelectionAsync(responseText))
                 {
@@ -2720,7 +2790,34 @@ internal static class AgentRunner
                || (combinedLowerText.Contains("not a profile picker", StringComparison.Ordinal)
                    && combinedLowerText.Contains("did not click anything", StringComparison.Ordinal))
                || (combinedLowerText.Contains("no passcode prompt", StringComparison.Ordinal)
-                   && combinedLowerText.Contains("not needed", StringComparison.Ordinal));
+                   && combinedLowerText.Contains("not needed", StringComparison.Ordinal))
+               || (combinedLowerText.Contains("already active", StringComparison.Ordinal)
+                   && combinedLowerText.Contains("did not request any ui action", StringComparison.Ordinal))
+               || (combinedLowerText.Contains("already on", StringComparison.Ordinal)
+                   && combinedLowerText.Contains("did not request any ui action", StringComparison.Ordinal))
+               || ((combinedLowerText.Contains("did not type the pin", StringComparison.Ordinal)
+                    || combinedLowerText.Contains("didn't type the pin", StringComparison.Ordinal)
+                    || combinedLowerText.Contains("did not enter the pin", StringComparison.Ordinal)
+                    || combinedLowerText.Contains("didn't enter the pin", StringComparison.Ordinal)
+                    || combinedLowerText.Contains("did not type the passcode", StringComparison.Ordinal)
+                    || combinedLowerText.Contains("didn't type the passcode", StringComparison.Ordinal)
+                    || combinedLowerText.Contains("did not enter the passcode", StringComparison.Ordinal)
+                    || combinedLowerText.Contains("didn't enter the passcode", StringComparison.Ordinal))
+                   && ((combinedLowerText.Contains("not present", StringComparison.Ordinal)
+                        && (combinedLowerText.Contains("prompt", StringComparison.Ordinal)
+                            || combinedLowerText.Contains("passcode", StringComparison.Ordinal)
+                            || combinedLowerText.Contains("pin", StringComparison.Ordinal)))
+                       || combinedLowerText.Contains("no passcode prompt", StringComparison.Ordinal)
+                       || combinedLowerText.Contains("no profile passcode", StringComparison.Ordinal)
+                       || combinedLowerText.Contains("no profile lock prompt", StringComparison.Ordinal)
+                       || combinedLowerText.Contains("pin prompt is not visible", StringComparison.Ordinal)
+                       || combinedLowerText.Contains("passcode prompt is not visible", StringComparison.Ordinal)
+                       || combinedLowerText.Contains("profile lock prompt is not visible", StringComparison.Ordinal))
+                   && (combinedLowerText.Contains("home is visible", StringComparison.Ordinal)
+                       || combinedLowerText.Contains("browse is visible", StringComparison.Ordinal)
+                       || combinedLowerText.Contains("profile lock is gone", StringComparison.Ordinal)
+                       || combinedLowerText.Contains("positive evidence", StringComparison.Ordinal)
+                       || combinedLowerText.Contains("confirmed from the active edge ui snapshot", StringComparison.Ordinal)));
     }
 
     private static async Task<IReadOnlyList<AgentMessage>> CollectAdditionalConfidenceEvidenceAsync(

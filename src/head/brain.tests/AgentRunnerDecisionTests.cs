@@ -107,6 +107,33 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void HasExplicitlyUnresolvedOutcome_ReturnsFalse_ForPinConditionalNoOpWhenHomeIsVisible()
+    {
+        var actual = AgentRunner.HasExplicitlyUnresolvedOutcome(
+            "The active window is Microsoft Edge with the title \"Home - Netflix - Personal - Microsoft Edge\". That is positive evidence that Netflix home is visible; I did not type the PIN because the condition, a profile passcode prompt, is not present.");
+
+        Assert.False(actual);
+    }
+
+    [Fact]
+    public void HasExplicitlyUnresolvedOutcome_ReturnsFalse_ForPasscodeConditionalNoOpWhenHomeIsVisible()
+    {
+        var actual = AgentRunner.HasExplicitlyUnresolvedOutcome(
+            "Confirmed from the active Edge UI snapshot: the focused tab is \"Home - Netflix\" and the Netflix document includes home navigation. No profile passcode or profile lock prompt is visible, so I did not type the passcode.");
+
+        Assert.False(actual);
+    }
+
+    [Fact]
+    public void HasExplicitlyUnresolvedOutcome_ReturnsFalse_ForAlreadyActiveProfileNoOp()
+    {
+        var actual = AgentRunner.HasExplicitlyUnresolvedOutcome(
+            "The previous confirmed screen was Home - Netflix, and it included the visible control \"Min - Account & Settings\". That indicates the Min profile is already active, so I did not request any UI action.");
+
+        Assert.False(actual);
+    }
+
+    [Fact]
     public void AlignReplyOutcomeConsistency_UsesLogSummary_WhenSayContradictsLog()
     {
         var reply = new AgentReply(
