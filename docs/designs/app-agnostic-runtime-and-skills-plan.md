@@ -1,7 +1,7 @@
 # App-Agnostic Runtime and Skills Plan
 
 Last updated: 2026-04-19
-Status: proposed
+Status: in progress
 Depends on: `docs/designs/brain-debuggability-and-rewrite-guardrails.md`
 
 ## Summary
@@ -14,6 +14,36 @@ This plan defines the follow-on migration after the debuggability work:
 
 The goal is to make `heronwin` easier to extend, easier to debug, and less
 likely to accumulate one-off app branches in `Conversation.cs`.
+
+## Implementation Status
+
+Completed on 2026-04-19:
+
+- active-skill affordance parsing landed in `AgentPrompts`, and the Netflix
+  skills now advertise `website_fallback`,
+  `named_choice_continuation`, `discrete_slot_text_entry`, and
+  `discrete_slot_text_rewrite`
+- website fallback moved from an app-name allowlist to active-skill
+  affordance gating
+- cross-app and browser-host prompt guidance was cleaned up so Netflix-shaped
+  workflow wording lives in Netflix skills instead of generic prompts
+- `Conversation.cs` now uses generic named-choice continuation,
+  discrete-slot continuation, discrete-slot rewrite, and sequential
+  discrete-slot entry primitives with generic debug traces
+- production runtime no longer contains Netflix-specific continuation or PIN
+  helper names
+- the regression suite was reclassified around the generic primitive names;
+  `dotnet test src/head/brain.tests/HeronWin.Brain.Tests.csproj --no-restore`
+  passed `234` tests after the migration
+
+Remaining work under the broader app-agnostic plan:
+
+- retire or genericize the remaining profile-picker-specific blocker and
+  surface heuristics in `Conversation.cs`
+- add the planned boundary-enforcement scan or test coverage for core
+  runtime, core prompts, and cross-app skills
+- keep pushing app-specific no-op and surface wording out of generic runtime
+  helpers when traces show those phrases are still coupled to one app family
 
 ## Why This Plan Exists
 
@@ -114,26 +144,24 @@ For Netflix today, this means the behavior should live primarily in:
 
 ## Current Migration Targets
 
-The first pass should inventory and then remove or genericize app-specific
-logic that currently lives in runtime code.
+The first two migration slices removed the highest-risk Netflix-shaped runtime
+branches. Completed targets include:
 
-Current Netflix-shaped hotspots include:
+- the old Netflix continuation helpers
+- the old Netflix PIN helpers and structured PIN executor
+- the app-name website-fallback allowlist branch
+- Netflix-shaped wording in generic prompts and cross-app/browser-host skills
 
-- `MaybeContinueNetflixProfileSelectionAsync(...)`
-- `MaybeContinueNetflixPinEntryAsync(...)`
-- `TryFindNetflixProfileSelectionTargetPath(...)`
-- `TryBuildRemainingNetflixPinDigits(...)`
-- `ShouldRefreshNetflixPinFocusBeforeContinuation(...)`
-- `ExecuteStructuredNetflixPinEntryAsync(...)`
-- `SnapshotLooksLikeNetflixPinFocus(...)`
-- `SnapshotLooksLikeNetflixPinWindow(...)`
-- `TryExtractNetflixPinInputOrdinal(...)`
-- `ElementLooksLikeNetflixPinInput(...)`
-- `RequestedAppLikelySupportsWebsiteFallback(...)` app-name allowlists
-- any other app-name switch or allowlist in `Conversation.cs` that changes
-  behavior based on the requested product
+The remaining migration debt is narrower and should still be treated as debt,
+not as architecture to extend. Current follow-on targets include:
 
-These should be treated as migration debt, not architecture to extend.
+- `ShouldBlockUnnamedProfilePickerAction(...)`
+- `SnapshotContainsVisibleProfilePicker(...)`
+- `ElementLooksLikeProfilePickerTile(...)`
+- `ElementLooksLikeProfilePickerCue(...)`
+- any remaining reply-consistency or no-op heuristics in `Conversation.cs`
+  that are still keyed to one app's profile-picker or profile-lock wording
+- the boundary-enforcement checks described in Phase 5
 
 ## Target Architecture
 
@@ -198,6 +226,14 @@ Scenarios may mention app-specific goals such as "select the Min profile" or
 agent how to perform those app-native steps.
 
 ## Migration Strategy
+
+## Progress Against Plan
+
+- Phase 0 is materially complete enough for migration work: the generic trace
+  family, rewrite evaluation trace, and continuation instrumentation landed
+- Phases 1 through 4 are complete for the Netflix pilot
+- Phase 5 is still open and is now the main remaining work for this broader
+  plan
 
 ## Phase 0. Finish Debuggability Work First
 

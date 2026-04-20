@@ -1,7 +1,7 @@
 # Generic Continuations and Discrete Entry Plan
 
 Last updated: 2026-04-19
-Status: proposed
+Status: completed
 Depends on:
 - `docs/designs/app-agnostic-runtime-and-skills-plan.md`
 - `docs/designs/brain-debuggability-and-rewrite-guardrails.md`
@@ -23,6 +23,31 @@ app-boundary cleanup:
 This is the detailed execution plan for the hardest part of
 `app-agnostic-runtime-and-skills`.
 
+## Implementation Result
+
+Implemented on 2026-04-19.
+
+Landed runtime pieces:
+
+- affordance-gated named-choice continuation and discrete-slot continuation in
+  `Conversation.cs`
+- affordance-gated `type_window_text` rewrite for structured multi-slot entry
+- generic sequential discrete-slot executor:
+  `ExecuteSequentialDiscreteTextEntryAsync(...)`
+- generic builders and detectors:
+  `TryBuildVisibleNamedChoiceContinuation(...)`,
+  `TryBuildDiscreteSlotTextContinuation(...)`,
+  `TryExtractStructuredDiscreteSlotText(...)`,
+  `SnapshotLooksLikeDiscreteSlotTextWindow(...)`,
+  `SnapshotLooksLikeDiscreteSlotTextFocus(...)`,
+  `TryExtractDiscreteSlotInputOrdinal(...)`, and
+  `ElementLooksLikeDiscreteTextSlot(...)`
+- generic trace families including
+  `agent.discrete_slot_text_rewrite_evaluated` and
+  `agent.discrete_slot_text_entry.*`
+- reclassified continuation, decision, and debug tests; the full
+  `HeronWin.Brain.Tests` suite passed with `234` tests after the cutover
+
 ## Why This Needs Its Own Plan
 
 The remaining Netflix-shaped code is not one isolated helper. It is spread
@@ -37,7 +62,7 @@ not just move one function to a new file.
 
 ## Current Runtime Hotspots
 
-The remaining app-specific debt is concentrated in:
+These were the original hotspots that motivated this plan:
 
 - `MaybeContinueNetflixProfileSelectionAsync(...)`
 - `MaybeContinueNetflixPinEntryAsync(...)`
@@ -51,6 +76,10 @@ The remaining app-specific debt is concentrated in:
 - `SnapshotLooksLikeNetflixPinWindow(...)`
 - `TryExtractNetflixPinInputOrdinal(...)`
 - `ElementLooksLikeNetflixPinInput(...)`
+
+Those Netflix-specific helpers have now been removed from production runtime
+and replaced by the generic primitives listed in the implementation result
+above.
 
 Related regression coverage already exists in:
 
@@ -256,15 +285,16 @@ Expected behavior:
 - verify focus or slot progression after each character when possible
 - stop on first deterministic tool failure
 - redact sensitive text in display output and traces
-- emit generic trace events instead of `agent.netflix_pin_entry.*`
+- emit the landed generic trace family `agent.discrete_slot_text_entry.*`
+  instead of the old `agent.netflix_pin_entry.*`
 
 Expected generic trace family:
 
-- `agent.sequential_text_entry_started`
-- `agent.sequential_text_entry_step_completed`
-- `agent.sequential_text_entry_focus_verified`
-- `agent.sequential_text_entry_aborted`
-- `agent.sequential_text_entry_completed`
+- `agent.discrete_slot_text_entry.start`
+- `agent.discrete_slot_text_entry.character_input`
+- `agent.discrete_slot_text_entry.focus_verification`
+- `agent.discrete_slot_text_entry.aborted`
+- `agent.discrete_slot_text_entry.completed`
 
 ## 4. Generic Preflight Refresh
 
@@ -343,6 +373,9 @@ cross-app cue family such as `PIN`, `passcode`, `verification code`, or `OTP`,
 not product-specific strings.
 
 ## Migration Phases
+
+All phases A through F were completed on 2026-04-19. The sections below are
+kept as the execution record and rationale for the migration.
 
 ## Phase A. Freeze Current Behavior
 

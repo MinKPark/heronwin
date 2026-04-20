@@ -1,7 +1,7 @@
 # Brain Debuggability and Rewrite Guardrails
 
 Last updated: 2026-04-19
-Status: proposed
+Status: in progress
 
 ## Summary
 
@@ -21,6 +21,24 @@ The goal is to improve two things together:
   manual log archaeology
 - rewrite guardrails, so passive observation text does not become an
   actionable click target
+
+## Implementation Status
+
+Landed on 2026-04-19:
+
+- `agent.named_target_rewrite_evaluated`
+- the generic internal continuation lifecycle events plus preflight window and
+  focus snapshot events
+- activation-intent guardrails on generic named-target rewrites
+- sensitive `type_window_text` argument redaction in debug previews
+- follow-on generic continuation and discrete-slot migration under
+  `docs/designs/generic-continuations-and-discrete-entry-plan.md`, which
+  removed the old Netflix-specific continuation and PIN helper names from
+  production runtime
+
+What remains open here is mostly documentation and follow-through at the
+broader app-boundary level. That work continues under
+`docs/designs/app-agnostic-runtime-and-skills-plan.md`.
 
 ## Visual Overview
 
@@ -202,10 +220,10 @@ Implementation shape:
 
 First adopters:
 
-- `policyName = "netflix_profile_selection"`
-  - `continuationKind = "select_named_target"`
-- `policyName = "netflix_pin_entry"`
-  - `continuationKind = "enter_sequential_text"`
+- `policyName = "netflix_named_choice_continuation"`
+  - `continuationKind = "select_visible_named_choice"`
+- `policyName = "netflix_discrete_slot_text_entry"`
+  - `continuationKind = "enter_remaining_discrete_text"`
 
 Why this matters:
 
