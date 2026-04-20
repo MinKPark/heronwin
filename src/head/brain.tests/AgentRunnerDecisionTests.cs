@@ -691,7 +691,8 @@ public sealed class AgentRunnerDecisionTests
                 "ControlType": "Window"
               }
             }
-            """);
+            """,
+            CreateActiveSkills("netflix", "website_fallback"));
 
         Assert.True(actual);
     }
@@ -716,7 +717,8 @@ public sealed class AgentRunnerDecisionTests
                 "ControlType": "Window"
               }
             }
-            """);
+            """,
+            CreateActiveSkills("netflix", "website_fallback"));
 
         Assert.False(actual);
     }
@@ -741,7 +743,34 @@ public sealed class AgentRunnerDecisionTests
                 "ControlType": "Window"
               }
             }
-            """);
+            """,
+            CreateActiveSkills("netflix", "website_fallback"));
+
+        Assert.False(actual);
+    }
+
+    [Fact]
+    public void ShouldAskToFallbackToWebsite_ReturnsFalse_WhenNoActiveSkillAllowsWebsiteFallback()
+    {
+        var actual = AgentRunner.ShouldAskToFallbackToWebsite(
+            "Open Netflix.",
+            "Netflix",
+            """{"SelectedWindow":null}""",
+            """
+            {
+              "Window": {
+                "Handle": "0x00010001",
+                "Title": "Search",
+                "ClassName": "Windows.UI.Core.CoreWindow"
+              },
+              "ElementTree": {
+                "Path": "root",
+                "UiPath": "root",
+                "ControlType": "Window"
+              }
+            }
+            """,
+            CreateActiveSkills("netflix"));
 
         Assert.False(actual);
     }
@@ -2781,5 +2810,22 @@ public sealed class AgentRunnerDecisionTests
         Assert.NotNull(actual);
         Assert.Contains("ask for clarification", actual!, StringComparison.OrdinalIgnoreCase);
     }
+
+    private static IReadOnlyList<AgentSkillPrompt> CreateActiveSkills(string group, params string[] affordances)
+        => [
+            new AgentSkillPrompt(
+                $"{group}-surface-and-state",
+                $"skills/{group}/{group}-surface-and-state.skill.md",
+                "# Skill",
+                new AgentSkillMetadata(
+                    $"{group}-surface-and-state",
+                    Summary: null,
+                    PreferredTools: [],
+                    AppliesWhen: [],
+                    Group: group,
+                    Priority: 100,
+                    Activation: new AgentSkillActivation([], [], [], [], [], [], [], []),
+                    Affordances: affordances))
+        ];
 }
 

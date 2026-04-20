@@ -60,7 +60,7 @@ applies_when:
 - If the current visible window is not a browser, do not treat visible controls in that non-browser window as part of the website-opening flow; first select or launch the browser itself.
 - In Microsoft Edge, if the user wants to open a different website or new web page, prefer creating a new tab for that destination before navigating unless they explicitly asked to reuse the current tab.
 - Do not satisfy a direct website request by staying on a search results page unless the user explicitly asked to search the web or click a specific search result.
-- Prefer a clean canonical URL such as `https://www.netflix.com` or the plain domain when appropriate.
+- Prefer a clean canonical URL such as `https://example.com` or the plain domain when appropriate.
 - Do not mix search text, prior address-bar contents, or extra words into the URL.
 - Do not append a URL to the existing page query or malformed address-bar text.
 
@@ -98,7 +98,7 @@ applies_when:
 
 - Use this as the fallback when no more-specific app or site skill clearly covers the requested product-specific workflow, or when the current UI does not expose enough app-specific guidance to act confidently.
 - For well-known apps and services, prefer official help, support, or documentation pages before third-party blogs, forums, or videos.
-- If the official help site is obvious, go there directly. Examples include domains such as `support.microsoft.com`, `support.apple.com`, `support.google.com`, or `help.netflix.com`.
+- If the official help site is obvious, go there directly. Examples include domains such as `support.microsoft.com`, `support.apple.com`, `support.google.com`, or the vendor's own help center domain.
 - If the official help site is not obvious, search the web for the app or service name plus the requested task and then prefer the official result.
 - When scanning search results for instructions, prioritize official domains, product help centers, and vendor support pages over SEO-style blog posts.
 - After opening an instruction page, verify from the visible page content that it really belongs to the expected vendor or product support surface before relying on it.

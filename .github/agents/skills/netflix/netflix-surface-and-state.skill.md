@@ -3,6 +3,8 @@ id: netflix-surface-and-state
 group: netflix
 priority: 350
 summary: "Shared Netflix surface model and state-verification rules."
+affordances:
+  - website_fallback
 preferred_tools:
   - cognition/describe_window
   - cognition/capture_window_screenshot

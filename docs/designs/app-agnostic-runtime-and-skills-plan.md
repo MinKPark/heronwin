@@ -101,6 +101,10 @@ Skills should own:
 - app-specific ASR repair hints
 - app-specific examples and phrasing
 
+Cross-app skills such as `any-app`, `generic-app`, or browser-host skills may
+keep generic workflow rules, but product-specific playbooks should live in the
+matching app skill group instead of being scattered across unrelated skills.
+
 For Netflix today, this means the behavior should live primarily in:
 
 - `.github/agents/skills/netflix/netflix-surface-and-state.skill.md`
@@ -125,6 +129,9 @@ Current Netflix-shaped hotspots include:
 - `SnapshotLooksLikeNetflixPinWindow(...)`
 - `TryExtractNetflixPinInputOrdinal(...)`
 - `ElementLooksLikeNetflixPinInput(...)`
+- `RequestedAppLikelySupportsWebsiteFallback(...)` app-name allowlists
+- any other app-name switch or allowlist in `Conversation.cs` that changes
+  behavior based on the requested product
 
 These should be treated as migration debt, not architecture to extend.
 
@@ -169,6 +176,12 @@ Examples of acceptable generic primitives:
 - a generic visible picker selection helper
 - a generic wait-refresh-verify loop
 
+Every generic primitive also needs a generic trigger contract. The runtime
+should not guess "this is the Netflix case again" and silently branch. Instead,
+the primitive should be activated by reusable evidence- and pattern-based
+conditions, or by a model-visible continuation contract that is itself named
+after the UI pattern rather than the app.
+
 Examples of unacceptable runtime features:
 
 - `if Netflix profile picker is visible, do X`
@@ -210,6 +223,10 @@ Create a small migration checklist of every app-specific item currently in:
 - `src/head/brain/AgentPrompts.cs`
 - `.github/agents/her.agent.md`
 - `.github/agents/her.agent.core.md`
+- cross-app skill files that currently mention a specific product outside that
+  product's own skill group, especially under `.github/agents/skills/any-app`,
+  `.github/agents/skills/generic-app`, and browser-host skills such as
+  `.github/agents/skills/edge`
 
 For each item, classify it as one of:
 
@@ -283,21 +300,29 @@ Candidate enforcement mechanisms:
 
 - a unit test or script that scans core runtime and core prompt files for
   app-specific names
+- a unit test or script that scans cross-app skill groups for foreign
+  product-specific workflow guidance
 - an allowlist of approved locations for app-specific vocabulary
 - review checklist updates for app-boundary decisions
 
 Approved locations should include:
 
-- `.github/agents/skills/**`
+- `.github/agents/skills/<app>/**` for that app's playbooks
 - `src/scenarios/**`
 - tests that explicitly exercise a named app flow
 - design docs
 
+Cross-app skill groups should stay app agnostic, aside from neutral examples
+such as a bare domain or vendor name when no product-specific workflow rule is
+being taught.
+
 Restricted locations should include:
 
-- `src/head/brain/Conversation.cs`
+- production code under `src/head/brain/**/*.cs`
 - `.github/agents/her.agent.md`
 - `.github/agents/her.agent.core.md`
+- cross-app skill groups such as `.github/agents/skills/any-app/**` and
+  `.github/agents/skills/generic-app/**` for app-specific workflow policy
 
 ## Implementation Principles
 

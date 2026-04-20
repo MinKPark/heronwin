@@ -1925,7 +1925,8 @@ internal static class AgentRunner
                                 userText,
                                 requestedLaunchAppName,
                                 toolOutput.Text,
-                                postActionSnapshot.Text))
+                                postActionSnapshot.Text,
+                                composedPrompt.ActiveSkills))
                         {
                             forcedReply = BuildWebsiteFallbackConfirmationReply(requestedLaunchAppName);
                             DebugTrace.WriteStructuredEvent(
@@ -4392,11 +4393,12 @@ internal static class AgentRunner
         string userText,
         string requestedAppName,
         string? launchToolOutputText,
-        string? postActionSnapshotText)
+        string? postActionSnapshotText,
+        IReadOnlyList<AgentSkillPrompt> activeSkills)
     {
         if (string.IsNullOrWhiteSpace(requestedAppName) ||
             UserRequestLooksLikeWebsiteNavigation(userText) ||
-            !RequestedAppLikelySupportsWebsiteFallback(userText, requestedAppName))
+            !ActiveSkillsAllowWebsiteFallback(activeSkills, requestedAppName))
         {
             return false;
         }
@@ -4444,46 +4446,31 @@ internal static class AgentRunner
                && TextContainsNormalizedName(windowTitle!, requestedAppName);
     }
 
-    private static bool RequestedAppLikelySupportsWebsiteFallback(string userText, string requestedAppName)
+    private static bool ActiveSkillsAllowWebsiteFallback(
+        IReadOnlyList<AgentSkillPrompt> activeSkills,
+        string requestedAppName)
     {
-        var normalizedRequest = NormalizeForNameMatching(userText);
-        if (normalizedRequest.Contains(" watch ", StringComparison.Ordinal)
-            || normalizedRequest.Contains(" stream ", StringComparison.Ordinal)
-            || normalizedRequest.Contains(" play ", StringComparison.Ordinal)
-            || normalizedRequest.Contains(" listen ", StringComparison.Ordinal)
-            || normalizedRequest.Contains(" sign in ", StringComparison.Ordinal)
-            || normalizedRequest.Contains(" log in ", StringComparison.Ordinal)
-            || normalizedRequest.Contains(" profile ", StringComparison.Ordinal)
-            || normalizedRequest.Contains(" episode ", StringComparison.Ordinal)
-            || normalizedRequest.Contains(" movie ", StringComparison.Ordinal)
-            || normalizedRequest.Contains(" show ", StringComparison.Ordinal)
-            || normalizedRequest.Contains(" playlist ", StringComparison.Ordinal)
-            || normalizedRequest.Contains(" search within ", StringComparison.Ordinal))
+        if (string.IsNullOrWhiteSpace(requestedAppName) ||
+            activeSkills.Count == 0)
         {
-            return true;
+            return false;
         }
 
-        return NormalizeForNameMatching(requestedAppName).Trim() switch
+        foreach (var skill in activeSkills)
         {
-            "chatgpt" => true,
-            "claude" => true,
-            "discord" => true,
-            "facebook" => true,
-            "gmail" => true,
-            "hulu" => true,
-            "instagram" => true,
-            "linkedin" => true,
-            "max" => true,
-            "netflix" => true,
-            "prime video" => true,
-            "reddit" => true,
-            "slack" => true,
-            "spotify" => true,
-            "teams" => true,
-            "tiktok" => true,
-            "youtube" => true,
-            _ => false,
-        };
+            if (!skill.Metadata.Affordances.Contains("website_fallback", StringComparer.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (TextContainsNormalizedName(skill.Metadata.Group, requestedAppName)
+                || TextContainsNormalizedName(skill.Key, requestedAppName))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool SnapshotContainsBrowserAddressBar(string? snapshotText)

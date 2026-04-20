@@ -31,7 +31,8 @@ internal sealed record AgentSkillMetadata(
     IReadOnlyList<string> AppliesWhen,
     string Group,
     int Priority,
-    AgentSkillActivation Activation)
+    AgentSkillActivation Activation,
+    IReadOnlyList<string> Affordances)
 {
     public bool HasStructuredActivation => Activation.HasCriteria;
 }
@@ -219,7 +220,8 @@ internal static class AgentPromptLoader
                 ReadStringValues(mapping, "applies_when"),
                 NormalizeSkillGroup(string.IsNullOrWhiteSpace(group) ? fallbackGroup : group.Trim()),
                 priority ?? 1000,
-                ParseSkillActivation(mapping));
+                ParseSkillActivation(mapping),
+                ReadStringValues(mapping, "affordances"));
         }
         catch (Exception ex)
         {
@@ -237,7 +239,8 @@ internal static class AgentPromptLoader
             AppliesWhen: [],
             Group: NormalizeSkillGroup(fallbackGroup),
             Priority: 1000,
-            Activation: new AgentSkillActivation([], [], [], [], [], [], [], []));
+            Activation: new AgentSkillActivation([], [], [], [], [], [], [], []),
+            Affordances: []);
 
     private static AgentSkillActivation ParseSkillActivation(BrainYamlMapping mapping)
     {

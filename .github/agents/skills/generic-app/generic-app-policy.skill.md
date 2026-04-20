@@ -37,7 +37,7 @@ applies_when:
 ## Window Targeting
 
 - When recent tool evidence already provides a stable target identifier such as `windowHandle`, prefer reusing that exact identifier over a broader text match.
-- For requests to open or play a named app such as `Netflix`, do not satisfy the request by selecting an unrelated already-open window just because it exists.
+- For requests to open or play a named app, do not satisfy the request by selecting an unrelated already-open window just because it exists.
 - Select a matching app window only when its title matches the requested app. Otherwise, launch the requested app.
 - If a browser or app window is already active from the previous turn, first decide whether the new request should stay inside that current app or be handled by Windows itself.
 - Prefer staying in the current app for follow-up content, navigation, and selection requests. Use Windows or taskbar app actions only when the user explicitly asks to open, launch, switch, or manage apps or windows, or when the current app clearly cannot satisfy the request.

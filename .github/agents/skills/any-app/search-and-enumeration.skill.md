@@ -62,7 +62,7 @@ applies_when:
 - If the refreshed tree is still sparse after search entry but the URL, page state, or surrounding UI indicates the app is already on the results surface, capture a screenshot and use it as the source of truth for whether visible results are actually on screen.
 - If the screenshot still shows the search field placeholder or an empty field after text entry, treat that as text entry not yet confirmed and retry with a materially different method.
 - Do not count a search step as complete until the requested query or visible matching results are actually on screen.
-- External search-engine results do not satisfy a request that explicitly said to search within Netflix or another current site/app. Repair back to the intended in-site search flow instead of treating that drift as success.
+- External search-engine results do not satisfy a request that explicitly said to search within the current site or app. Repair back to the intended in-site search flow instead of treating that drift as success.
 - If the search request is only the first stage of a larger task, stop that stage at confirmed visible results rather than skipping ahead to open or playback claims.
 
 ## Enumeration Rules

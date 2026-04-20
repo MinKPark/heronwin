@@ -1,4 +1,5 @@
-﻿using Xunit;
+using System.Text.RegularExpressions;
+using Xunit;
 
 namespace HeronWin.Brain.Tests;
 
@@ -98,6 +99,7 @@ public sealed class AgentPromptLoaderTests
 
         Assert.Contains("layered surface", surfacePrompt.PromptText, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("title-detail state", surfacePrompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("website_fallback", surfacePrompt.Metadata.Affordances, StringComparer.OrdinalIgnoreCase);
 
         Assert.Contains("Profile Lock And PIN Rules", profilePrompt.PromptText, StringComparison.Ordinal);
         Assert.Contains("one digit at a time", profilePrompt.PromptText, StringComparison.OrdinalIgnoreCase);
@@ -138,7 +140,8 @@ public sealed class AgentPromptLoaderTests
         Assert.Contains("instruction lookup", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("official help, support, or documentation pages", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("support.microsoft.com", prompt.PromptText, StringComparison.Ordinal);
-        Assert.Contains("help.netflix.com", prompt.PromptText, StringComparison.Ordinal);
+        Assert.Contains("vendor's own help center domain", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("help.netflix.com", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -154,6 +157,64 @@ public sealed class AgentPromptLoaderTests
         Assert.Contains("prefer closing the currently selected window", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Alt+F4", prompt.PromptText, StringComparison.Ordinal);
         Assert.Contains("official help, support, or documentation pages", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void RepositoryCoreAndCrossAppPrompts_AvoidAppSpecificWorkflowNames()
+    {
+        var repoRoot = FindRepoRoot();
+        var restrictedPaths = new List<string>
+        {
+            Path.Combine(repoRoot, ".github", "agents", "her.agent.md"),
+            Path.Combine(repoRoot, ".github", "agents", "her.agent.core.md")
+        };
+
+        restrictedPaths.AddRange(Directory.GetFiles(
+            Path.Combine(repoRoot, ".github", "agents", "skills", "any-app"),
+            "*.skill.md",
+            SearchOption.AllDirectories));
+        restrictedPaths.AddRange(Directory.GetFiles(
+            Path.Combine(repoRoot, ".github", "agents", "skills", "generic-app"),
+            "*.skill.md",
+            SearchOption.AllDirectories));
+        restrictedPaths.AddRange(Directory.GetFiles(
+            Path.Combine(repoRoot, ".github", "agents", "skills", "edge"),
+            "*.skill.md",
+            SearchOption.AllDirectories));
+
+        var forbiddenTerms = new[]
+        {
+            "netflix",
+            "spotify",
+            "youtube",
+            "outlook",
+            "hulu",
+            "prime video",
+            "discord",
+            "gmail",
+            "chatgpt",
+            "claude",
+            "reddit",
+            "slack",
+            "teams",
+            "tiktok",
+            "linkedin",
+            "instagram",
+            "facebook",
+            "max"
+        };
+
+        foreach (var path in restrictedPaths)
+        {
+            var content = File.ReadAllText(path);
+            foreach (var term in forbiddenTerms)
+            {
+                var pattern = $@"\b{Regex.Escape(term)}\b";
+                Assert.False(
+                    Regex.IsMatch(content, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
+                    $"Restricted prompt file '{path}' contains app-specific term '{term}'.");
+            }
+        }
     }
 
     private static string FindRepoRoot()

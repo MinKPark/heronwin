@@ -165,6 +165,6 @@ public sealed class AppSkillGenerationCoordinatorTests
             key,
             $"skills/{group}/{key}.skill.md",
             $"# Skill\n{key}",
-            new AgentSkillMetadata(key, null, [], [], group, 100, activation));
+            new AgentSkillMetadata(key, null, [], [], group, 100, activation, []));
     }
 }

@@ -550,7 +550,8 @@ public sealed class AgentPromptComposerTests
                 AppliesWhen: [],
                 Group: group,
                 Priority: priority,
-                Activation: activation));
+                Activation: activation,
+                Affordances: []));
 
     private static AgentSkillActivation Activation(
         string[]? whenAnyIntents = null,
