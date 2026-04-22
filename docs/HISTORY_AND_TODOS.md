@@ -32,11 +32,45 @@ part of committed repo history.
 - First step for the next session:
   - use the latest passing Netflix smoke logs to measure where the roughly
     seven-minute runtime is being spent before changing behavior.
+  - superseded by the 2026-04-21 notes below.
+- Local 2026-04-21 progress:
+  - updated [docs/designs/netflix-smoke-runtime-performance-plan.md](./designs/netflix-smoke-runtime-performance-plan.md)
+    so the data-shaped sections stay deferred until a fresh baseline exists,
+    and so runtime optimization work requires focused automated coverage before
+    behavior changes.
+  - captured a partial live baseline under
+    `.tmp/netflix-smoke-runtime/2026-04-21-baseline-failed-turn2/`, including
+    `brain.debug.jsonl`, `brain.debug.log`, console logs, and
+    `turn-by-turn-report.md`.
+  - the partial baseline is already useful for analysis, but it is not yet the
+    full passing P0 baseline:
+    - turn 1 passed in `233027 ms`
+    - turn 2 reached the Netflix PIN prompt, then failed because reply-contract
+      handling still tripped contradiction and unresolved-outcome checks
+  - the turn-by-turn report shows that the observed runtime is dominated by LLM
+    wait on turns 1 and 2, while tool time and post-action snapshots are much
+    smaller on the measured turns.
+  - attempted a scripted-run Edge-cleanup code change only for scripted test
+    scenarios, so later scenario runs start from a cleaner slate without
+    affecting general interactive/runtime behavior, but that change did not
+    land today and the targeted brain test run was interrupted before
+    verification.
+  - the interrupted `dotnet test` child processes from the late-night targeted
+    run were stopped during wrap-up so the next session starts cleaner.
+- First step for the next session:
+  - rerun the targeted `src\head\brain.tests\HeronWin.Brain.Tests.csproj`
+    work from a clean start, add focused coverage around
+    `ScriptedConversationRunner` before touching shutdown behavior, then land
+    the scripted test-scenario Edge cleanup and resume the full passing Netflix
+    baseline collection.
 
 ## Daily Repo History
 
 Source shape: `git log --date=short --pretty=format:"%ad %h %s"`
 
+- `2026-04-21` (1 commit): added the scripted Netflix smoke runtime
+  performance plan documentation and made the runtime-cut P0 investigation
+  explicit in repo docs.
 - `2026-04-19` (20 commits): landed the app-agnostic runtime-and-skills
   migration, generic continuations and discrete-slot entry primitives,
   additional debug instrumentation and argument previews, refreshed plan and
