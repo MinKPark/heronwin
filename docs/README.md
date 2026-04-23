@@ -14,9 +14,9 @@ runtime-loaded prompt and skill files under `.github/agents`.
 
 ## Current Snapshot
 
-Last updated: 2026-04-19
+Last updated: 2026-04-22
 
-- Git baseline: `main` at `8b4899a`, tracking `origin/main`.
+- Git baseline: `main` at `be8509f`, tracking `origin/main`.
 - The active implementation lives under `src`.
 - The `body` refactor is landed:
   - `src/body` is the active tree.
@@ -27,35 +27,38 @@ Last updated: 2026-04-19
     `cognition`, and `execution`.
   - the empty historical `src\herbody` directory is gone.
 - the removed obsolete Node.js runtime is no longer part of the repository.
-- Latest verified work in the current refactor pass:
+- Latest verified work in the current scripted-runtime performance pass:
+  - `.\buildandrun.ps1 -BrainOnly -Scenario src\scenarios\netflix-boyfriend-on-demand.yml`
+    passed on 2026-04-22 and established the fresh baseline at `882.255 s`.
+    Raw artifacts are under `.tmp/netflix-smoke-runtime/2026-04-22-baseline/`
+    and the tracked summary is
+    [docs/perfbase/2026-04-22-netflix-smoke-baseline.md](./perfbase/2026-04-22-netflix-smoke-baseline.md).
+  - `dotnet test src\head\brain.tests\HeronWin.Brain.Tests.csproj --filter "FullyQualifiedName~TraceReportTests|FullyQualifiedName~ScriptedModeTests"`
+    passed after the trace-report implementation work.
+  - `brain.exe --trace-report <path>` now provides a repo-native Markdown
+    summary for saved JSONL traces; the first saved report is
+    `.tmp/netflix-smoke-runtime/2026-04-22-baseline/trace-report.md`.
+- Earlier broad repo-wide verification still comes from the 2026-04-19
+  snapshot:
   - `dotnet build src\heronwin.sln` passed with 0 warnings and 0 errors.
   - `dotnet test src\heronwin.sln` passed with 295 total tests.
   - `dotnet test src\head\brain.tests\HeronWin.Brain.Tests.csproj` passed
-    with 245 total tests after adding browser-request guardrails, app-first
-    website-fallback confirmation, screenshot-gating checks, generic runtime
-    continuation coverage, Netflix profile-selection and PIN coverage, and the
-    reply-outcome / extra-evidence regression checks for the PIN-prompt retry
-    bug.
+    with 245 total tests after the Netflix/browser/runtime guardrail work from
+    that pass.
   - `npm run build` passed in `src\body\process-manager`.
-  - `.\buildandrun.ps1 -BrainOnly -Scenario src\scenarios\netflix-boyfriend-on-demand.yml`
-    passed end to end after the stale-PIN-continuation and PIN-prompt
-    contradiction fixes, but the live smoke still takes roughly seven minutes
-    and needs aggressive runtime-performance cleanup.
-  - ordinary app launch requests now stay app-first, and the brain asks before
-    falling back to a website when a likely web-backed app launch remains
-    unconfirmed.
-  - post-action screenshot capture now stays behind the refreshed UIAutomation
-    tree instead of running by default when the tree already changed.
-  - the build break from the previous session turned out to be a repo-local ACL
-    issue on generated `obj` and `bin` output folders, not low disk space.
 - Current follow-up:
-  - start with the latest passing Netflix smoke trace and break the roughly
-    seven-minute runtime down by turn, try, LLM reply, tool call, and evidence
-    refresh cost; then remove the worst avoidable repair, retry, evidence, and
-    tool-call latency until the same scenario finishes in under one minute,
-    ideally much faster,
+  - implement the first behavior-changing slice from
+    [Scripted Cross-Turn Evidence Reuse Plan](./designs/scripted-cross-turn-evidence-reuse-plan.md):
+    conservative turn-start ready state, carry-forward evidence reuse, and the
+    logging upgrades needed to tell whether discovery cost truly went away,
+  - rerun the same Netflix smoke and compare the new trace report against the
+    2026-04-22 baseline before taking the next slice,
   - add a separate scripted smoke if we want explicit app-first launch coverage;
     the current Netflix smoke is now an explicit website-navigation scenario.
+- Working-tree status at wrap-up: only the doc-only handoff updates in
+  `docs/HISTORY_AND_TODOS.md`, `docs/README.md`, and
+  `docs/designs/scripted-cross-turn-evidence-reuse-plan.md` are left
+  uncommitted.
 - Local tool versions used for the snapshot:
   - .NET SDK `10.0.201`
   - Node.js `v24.14.1`

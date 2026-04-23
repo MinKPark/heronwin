@@ -16,7 +16,7 @@ This file has two jobs:
 
 | Status | Priority | Item | Next move |
 |--------|----------|------|-----------|
-| `next` | `P0` | Cut scripted Netflix smoke runtime below one minute. | Start from the latest passing Netflix smoke trace, quantify wall-clock cost by turn, try, LLM reply, tool call, and evidence refresh, then remove the biggest avoidable repair loops, extra evidence refreshes, and redundant tool calls so the same scenario completes in under one minute, ideally much faster. |
+| `next` | `P0` | Cut scripted Netflix smoke runtime below one minute. | Start with the first scripted-turn state reuse slice from [Scripted Cross-Turn Evidence Reuse Plan](./designs/scripted-cross-turn-evidence-reuse-plan.md): add conservative turn-start ready-state and carry-forward evidence handling, add the planned trace/logging fields, then rerun the same Netflix smoke and compare the new trace report against the 2026-04-22 baseline. |
 | `next` | `P1` | Decide whether to add separate scripted coverage for app-first launch. | The current Netflix smoke is now explicitly website-navigation-based; add another smoke if we want deterministic coverage for the app-first fallback-confirmation path. |
 | `next` | `P1` | Finish the compact-tree rollout in `cognition`. | Add the opt-in screenshot-vs-compact evaluation harness, then run the documented parity checks, benchmarks, and manual evaluation passes in [Cognition Compact Tree Migration](./designs/cognition-compact-tree-migration.md). |
 | `next` | `P1` | Add dedicated coverage for the WPF `face` app. | Start with settings edits, status mapping, and view-model state transitions. |
@@ -28,46 +28,56 @@ This file has two jobs:
 These notes describe local work that exists in the working tree but is not yet
 part of committed repo history.
 
-- No uncommitted local changes at the end of the 2026-04-19 session.
-- First step for the next session:
-  - use the latest passing Netflix smoke logs to measure where the roughly
-    seven-minute runtime is being spent before changing behavior.
-  - superseded by the 2026-04-21 notes below.
-- Local 2026-04-21 progress:
+- The only uncommitted local changes at the end of the 2026-04-22 session are
+  the wrap-up doc updates in:
+  - `docs/HISTORY_AND_TODOS.md`
+  - `docs/README.md`
+  - `docs/designs/scripted-cross-turn-evidence-reuse-plan.md`
+- Local 2026-04-22 progress:
+  - captured a fresh passing scripted Netflix smoke baseline under
+    `.tmp/netflix-smoke-runtime/2026-04-22-baseline/`, with tracked summary in
+    [docs/perfbase/2026-04-22-netflix-smoke-baseline.md](./perfbase/2026-04-22-netflix-smoke-baseline.md).
+  - landed the repo-native trace report workflow via
+    `brain.exe --trace-report <path>` and saved the baseline report beside the
+    raw artifacts at
+    `.tmp/netflix-smoke-runtime/2026-04-22-baseline/trace-report.md`.
   - updated [docs/designs/netflix-smoke-runtime-performance-plan.md](./designs/netflix-smoke-runtime-performance-plan.md)
-    so the data-shaped sections stay deferred until a fresh baseline exists,
-    and so runtime optimization work requires focused automated coverage before
-    behavior changes.
-  - captured a partial live baseline under
-    `.tmp/netflix-smoke-runtime/2026-04-21-baseline-failed-turn2/`, including
-    `brain.debug.jsonl`, `brain.debug.log`, console logs, and
-    `turn-by-turn-report.md`.
-  - the partial baseline is already useful for analysis, but it is not yet the
-    full passing P0 baseline:
-    - turn 1 passed in `233027 ms`
-    - turn 2 reached the Netflix PIN prompt, then failed because reply-contract
-      handling still tripped contradiction and unresolved-outcome checks
-  - the turn-by-turn report shows that the observed runtime is dominated by LLM
-    wait on turns 1 and 2, while tool time and post-action snapshots are much
-    smaller on the measured turns.
-  - attempted a scripted-run Edge-cleanup code change only for scripted test
-    scenarios, so later scenario runs start from a cleaner slate without
-    affecting general interactive/runtime behavior, but that change did not
-    land today and the targeted brain test run was interrupted before
-    verification.
-  - the interrupted `dotnet test` child processes from the late-night targeted
-    run were stopped during wrap-up so the next session starts cleaner.
+    with the measured baseline, hotspot ranking, and next-slice ordering.
+  - drafted and refined
+    [docs/designs/scripted-cross-turn-evidence-reuse-plan.md](./designs/scripted-cross-turn-evidence-reuse-plan.md)
+    around the first behavior-changing slice:
+    conservative turn-start ready state, carry-forward evidence reuse,
+    phase-oriented direction for later work, and logging upgrades needed for
+    before/after analysis.
+  - completed a code-and-trace cross-check before implementation:
+    the repeated turn-start `list_windows` and `describe_window` pattern is
+    LLM-driven in the ordinary loop, while brain-owned preflight and
+    post-action snapshot paths remain separate helper work.
+  - verified in this session:
+    - `.\buildandrun.ps1 -BrainOnly -Scenario src\scenarios\netflix-boyfriend-on-demand.yml`
+      passed on the first try with scenario elapsed `882.255 s`.
+    - `dotnet test src\head\brain.tests\HeronWin.Brain.Tests.csproj --filter "FullyQualifiedName~TraceReportTests|FullyQualifiedName~ScriptedModeTests"`
+      passed after the trace-report implementation work.
+  - no behavior-changing optimization has landed yet; the current state is
+    planning, reporting, and handoff readiness.
 - First step for the next session:
-  - rerun the targeted `src\head\brain.tests\HeronWin.Brain.Tests.csproj`
-    work from a clean start, add focused coverage around
-    `ScriptedConversationRunner` before touching shutdown behavior, then land
-    the scripted test-scenario Edge cleanup and resume the full passing Netflix
-    baseline collection.
+  - review or commit the doc-only handoff updates, then inspect the current
+    tests around
+    `Conversation.RunTurnAsync`, `DesktopSessionContext`, and `TraceReportTests`,
+    then implement the first slice from
+    [Scripted Cross-Turn Evidence Reuse Plan](./designs/scripted-cross-turn-evidence-reuse-plan.md):
+    turn-start ready-state tracing, carry-forward evidence injection, and the
+    helper-timing / prompt-size logging upgrades before rerunning the Netflix
+    smoke and generating a fresh comparison report.
 
 ## Daily Repo History
 
 Source shape: `git log --date=short --pretty=format:"%ad %h %s"`
 
+- `2026-04-22` (1 commit): added the scripted cross-turn evidence reuse plan,
+  the tracked Netflix smoke baseline summary under `docs/perfbase`, and the
+  repo-native trace-report implementation and focused tests that make later
+  before/after runtime comparisons repeatable.
 - `2026-04-21` (1 commit): added the scripted Netflix smoke runtime
   performance plan documentation and made the runtime-cut P0 investigation
   explicit in repo docs.

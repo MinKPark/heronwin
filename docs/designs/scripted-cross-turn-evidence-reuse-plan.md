@@ -55,6 +55,20 @@ This is intentionally separate from:
 - fully general same-surface continuation optimization
 - model/provider changes
 
+## Current Status
+
+- Status in the 2026-04-22 wrap-up pass:
+  - fresh passing Netflix baseline captured and saved
+  - repo-native trace report landed and verified with focused tests
+  - first-slice design aligned against code, trace data, and explicit
+    assumptions
+  - no behavior-changing runtime implementation has started yet
+- Exact first step for the next session:
+  - inspect existing coverage around turn-start state in
+    `Conversation.RunTurnAsync`, add the planned ready-state and carry-forward
+    logging fields, then implement conservative scripted turn-start reuse and
+    rerun the same scenario with a fresh trace report for comparison
+
 ## Goals
 
 - Let the next scripted turn start from a runtime-owned ready state:
