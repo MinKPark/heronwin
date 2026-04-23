@@ -1,5 +1,8 @@
 ﻿using System.Text.Json;
 
+using System.Globalization;
+using System.Text;
+
 namespace HeronWin.Brain;
 
 internal sealed record BrainScenarioAssertions(
@@ -34,7 +37,8 @@ internal sealed record BrainTraceRecord(
     long Sequence,
     string Category,
     JsonElement Data,
-    string DataRawText)
+    string DataRawText,
+    DateTimeOffset? Timestamp = null)
 {
     public bool TryGetInt64(string propertyName, out long value)
     {
@@ -320,6 +324,15 @@ internal static class BrainTraceLogReader
                 var category = root.TryGetProperty("category", out var categoryElement)
                     ? categoryElement.GetString() ?? string.Empty
                     : string.Empty;
+                var timestamp = root.TryGetProperty("timestamp", out var timestampElement) &&
+                                timestampElement.ValueKind == JsonValueKind.String &&
+                                DateTimeOffset.TryParse(
+                                    timestampElement.GetString(),
+                                    CultureInfo.InvariantCulture,
+                                    DateTimeStyles.RoundtripKind,
+                                    out var parsedTimestamp)
+                    ? parsedTimestamp
+                    : (DateTimeOffset?)null;
                 var data = root.TryGetProperty("data", out var dataElement)
                     ? dataElement.Clone()
                     : default;
@@ -329,7 +342,7 @@ internal static class BrainTraceLogReader
 
                 if (!string.IsNullOrWhiteSpace(category))
                 {
-                    records.Add(new BrainTraceRecord(sequence, category, data, rawDataText));
+                    records.Add(new BrainTraceRecord(sequence, category, data, rawDataText, timestamp));
                 }
             }
             catch
@@ -339,6 +352,491 @@ internal static class BrainTraceLogReader
         }
 
         return records;
+    }
+}
+
+internal sealed record BrainTraceAttemptReport(
+    long TurnId,
+    int Attempt,
+    double ElapsedMs,
+    IReadOnlyList<string> ExecutedTools,
+    string ResponsePreview);
+
+internal sealed record BrainTraceTurnReport(
+    long TurnId,
+    string ScenarioName,
+    string Command,
+    double TurnElapsedMs,
+    int AttemptCount,
+    double LlmTimeMs,
+    double AverageLlmAttemptMs,
+    int ToolCallCount,
+    double ToolTimeMs,
+    int PostActionSnapshotCount,
+    double PostActionSnapshotTimeMs,
+    int FocusSnapshotCount,
+    double FocusSnapshotTimeMs,
+    int AdditionalEvidenceCount,
+    double AdditionalEvidenceTimeMs,
+    int ReplyRepairCount,
+    double ReplyRepairTimeMs,
+    int InternalContinuationConsideredCount,
+    int InternalContinuationExecutedCount,
+    IReadOnlyList<string> ExecutedTools,
+    IReadOnlyList<BrainTraceAttemptReport> Attempts);
+
+internal sealed record BrainTraceBucketSummary(
+    string Name,
+    int Count,
+    double ElapsedMs);
+
+internal sealed record BrainTraceToolSummary(
+    string Tool,
+    int Count,
+    double TotalElapsedMs,
+    double MaxElapsedMs);
+
+internal sealed record BrainTraceSlowEvent(
+    string Category,
+    long? TurnId,
+    double ElapsedMs,
+    string Detail);
+
+internal sealed record BrainTraceReport(
+    string SourcePath,
+    string? Provider,
+    string? Model,
+    string? ScenarioName,
+    DateTimeOffset? SessionStart,
+    DateTimeOffset? ScenarioCompletedAt,
+    double ScenarioElapsedMs,
+    int TurnCount,
+    int TotalLlmAttemptCount,
+    double TotalLlmTimeMs,
+    double AverageLlmAttemptMs,
+    int BlockedToolCallCount,
+    IReadOnlyList<BrainTraceTurnReport> Turns,
+    IReadOnlyList<BrainTraceBucketSummary> Buckets,
+    IReadOnlyList<BrainTraceToolSummary> SlowTools,
+    IReadOnlyList<BrainTraceSlowEvent> SlowEvents)
+{
+    public string ToMarkdown()
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("# Brain Trace Report");
+        builder.AppendLine();
+        builder.AppendLine($"- Trace: `{SourcePath}`");
+        if (!string.IsNullOrWhiteSpace(ScenarioName))
+        {
+            builder.AppendLine($"- Scenario: `{ScenarioName}`");
+        }
+
+        if (!string.IsNullOrWhiteSpace(Provider) || !string.IsNullOrWhiteSpace(Model))
+        {
+            builder.AppendLine($"- Provider / model: `{Provider ?? "(unknown)"} / {Model ?? "(unknown)"}`");
+        }
+
+        if (SessionStart is { } sessionStart)
+        {
+            builder.AppendLine($"- Session start: `{sessionStart:O}`");
+        }
+
+        if (ScenarioCompletedAt is { } scenarioCompletedAt)
+        {
+            builder.AppendLine($"- Scenario completed: `{scenarioCompletedAt:O}`");
+        }
+
+        builder.AppendLine($"- Scenario elapsed: `{FormatSeconds(ScenarioElapsedMs)}`");
+        builder.AppendLine($"- Turns: `{TurnCount}`");
+        builder.AppendLine($"- Total LLM responses: `{TotalLlmAttemptCount}`");
+        builder.AppendLine($"- Average LLM attempt: `{FormatSeconds(AverageLlmAttemptMs)}`");
+        builder.AppendLine();
+
+        builder.AppendLine("## Turn Summary");
+        builder.AppendLine();
+        builder.AppendLine("| Turn | Elapsed s | Attempts | LLM s | Avg attempt s | Tool calls | Tool s | Retry signals | Command |");
+        builder.AppendLine("| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |");
+        foreach (var turn in Turns)
+        {
+            var retrySignals =
+                $"repairs={turn.ReplyRepairCount}, extra={turn.AdditionalEvidenceCount}, followup={turn.PostActionSnapshotCount}, continuations={turn.InternalContinuationConsideredCount}/{turn.InternalContinuationExecutedCount}";
+            builder.AppendLine(
+                $"| {turn.TurnId} | {FormatSecondsValue(turn.TurnElapsedMs)} | {turn.AttemptCount} | {FormatSecondsValue(turn.LlmTimeMs)} | {FormatSecondsValue(turn.AverageLlmAttemptMs)} | {turn.ToolCallCount} | {FormatSecondsValue(turn.ToolTimeMs)} | {EscapeMarkdownCell(retrySignals)} | {EscapeMarkdownCell(DebugTrace.Preview(turn.Command, 120))} |");
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("## Latency Buckets");
+        builder.AppendLine();
+        builder.AppendLine("| Bucket | Count | Total s |");
+        builder.AppendLine("| --- | ---: | ---: |");
+        foreach (var bucket in Buckets)
+        {
+            builder.AppendLine(
+                $"| {EscapeMarkdownCell(bucket.Name)} | {bucket.Count} | {FormatSecondsValue(bucket.ElapsedMs)} |");
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("## Counts");
+        builder.AppendLine();
+        builder.AppendLine($"- Blocked tool calls: `{BlockedToolCallCount}`");
+        builder.AppendLine();
+
+        builder.AppendLine("## Top Slow Executed Tools");
+        builder.AppendLine();
+        builder.AppendLine("| Tool | Count | Total s | Max s |");
+        builder.AppendLine("| --- | ---: | ---: | ---: |");
+        foreach (var tool in SlowTools)
+        {
+            builder.AppendLine(
+                $"| {EscapeMarkdownCell(tool.Tool)} | {tool.Count} | {FormatSecondsValue(tool.TotalElapsedMs)} | {FormatSecondsValue(tool.MaxElapsedMs)} |");
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("## Top Slow Events");
+        builder.AppendLine();
+        builder.AppendLine("| Category | Turn | Elapsed s | Detail |");
+        builder.AppendLine("| --- | ---: | ---: | --- |");
+        foreach (var slowEvent in SlowEvents)
+        {
+            builder.AppendLine(
+                $"| {EscapeMarkdownCell(slowEvent.Category)} | {(slowEvent.TurnId?.ToString(CultureInfo.InvariantCulture) ?? "-")} | {FormatSecondsValue(slowEvent.ElapsedMs)} | {EscapeMarkdownCell(DebugTrace.Preview(slowEvent.Detail, 120))} |");
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("## Attempt Breakdown");
+        builder.AppendLine();
+        foreach (var turn in Turns)
+        {
+            builder.AppendLine($"### Turn {turn.TurnId}");
+            builder.AppendLine();
+            builder.AppendLine("| Attempt | LLM s | Tools after response |");
+            builder.AppendLine("| --- | ---: | --- |");
+            foreach (var attempt in turn.Attempts)
+            {
+                var tools = attempt.ExecutedTools.Count == 0
+                    ? "(none)"
+                    : string.Join(", ", attempt.ExecutedTools);
+                builder.AppendLine(
+                    $"| {attempt.Attempt} | {FormatSecondsValue(attempt.ElapsedMs)} | {EscapeMarkdownCell(tools)} |");
+            }
+
+            builder.AppendLine();
+        }
+
+        return builder.ToString().TrimEnd();
+    }
+
+    private static string EscapeMarkdownCell(string value)
+        => value.Replace("|", "\\|", StringComparison.Ordinal);
+
+    private static string FormatSeconds(double milliseconds)
+        => $"{FormatSecondsValue(milliseconds)} s";
+
+    private static string FormatSecondsValue(double milliseconds)
+        => (milliseconds / 1000d).ToString("0.000", CultureInfo.InvariantCulture);
+}
+
+internal static class BrainTraceReporter
+{
+    public static string GenerateMarkdown(string path)
+        => Generate(path).ToMarkdown();
+
+    public static BrainTraceReport Generate(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        if (!File.Exists(fullPath))
+        {
+            throw new FileNotFoundException("Trace file was not found.", fullPath);
+        }
+
+        var records = BrainTraceLogReader.ReadAll(fullPath)
+            .OrderBy(record => record.Sequence)
+            .ToArray();
+        if (records.Length == 0)
+        {
+            throw new InvalidOperationException("Trace file did not contain any readable records.");
+        }
+
+        var sessionStartRecord = records.FirstOrDefault(static record => record.Category == "session.start");
+        var provider = sessionStartRecord?.GetString("llmProvider");
+        var model = sessionStartRecord?.GetString("openAiModel");
+        var scriptedTurns = records
+            .Where(static record => record.Category == "agent.turn.scripted_begin")
+            .Select(
+                static record => new
+                {
+                    TurnId = record.TryGetInt64("turn", out var turnId) ? turnId : 0,
+                    ScenarioName = record.GetString("scenario") ?? string.Empty,
+                    Command = record.GetString("command") ?? string.Empty,
+                })
+            .Where(static item => item.TurnId > 0)
+            .OrderBy(static item => item.TurnId)
+            .ToArray();
+        var llmAttempts = BuildAttemptReports(records);
+        var turns = scriptedTurns
+            .Select(turn => BuildTurnReport(records, llmAttempts, turn.TurnId, turn.ScenarioName, turn.Command))
+            .ToArray();
+        var scenarioName = scriptedTurns
+            .Select(static turn => turn.ScenarioName)
+            .FirstOrDefault(static name => !string.IsNullOrWhiteSpace(name));
+        var scenarioCompletedAt = records
+            .Where(
+                static record => record.Category == "display.info" &&
+                                 record.Timestamp is not null &&
+                                 (record.GetString("message")?.StartsWith("Scenario passed:", StringComparison.Ordinal) == true ||
+                                  record.GetString("message")?.StartsWith("Scenario failed:", StringComparison.Ordinal) == true))
+            .Select(static record => record.Timestamp)
+            .OfType<DateTimeOffset>()
+            .LastOrDefault();
+        if (scenarioCompletedAt == default)
+        {
+            scenarioCompletedAt = records.LastOrDefault(static record => record.Timestamp is not null)?.Timestamp ?? default;
+        }
+
+        var sessionStart = sessionStartRecord?.Timestamp
+            ?? records.FirstOrDefault(static record => record.Timestamp is not null)?.Timestamp;
+        var scenarioElapsedMs = sessionStart is { } start && scenarioCompletedAt != default
+            ? Math.Max(0d, (scenarioCompletedAt - start).TotalMilliseconds)
+            : 0d;
+        var slowTools = records
+            .Where(static record => record.Category == "agent.tool_call_completed")
+            .Select(
+                static record => new
+                {
+                    Tool = record.GetString("executedTool") ?? record.GetString("tool") ?? "(unknown)",
+                    ElapsedMs = GetElapsedMs(record),
+                })
+            .GroupBy(static item => item.Tool, StringComparer.Ordinal)
+            .Select(
+                static group => new BrainTraceToolSummary(
+                    group.Key,
+                    group.Count(),
+                    group.Sum(static item => item.ElapsedMs),
+                    group.Max(static item => item.ElapsedMs)))
+            .OrderByDescending(static item => item.TotalElapsedMs)
+            .ThenBy(static item => item.Tool, StringComparer.Ordinal)
+            .Take(10)
+            .ToArray();
+        var slowEvents = records
+            .Select(record => (Record: record, ElapsedMs: GetElapsedMs(record)))
+            .Where(static item => item.ElapsedMs > 0d)
+            .OrderByDescending(static item => item.ElapsedMs)
+            .ThenBy(item => item.Record.Sequence)
+            .Take(12)
+            .Select(
+                static item => new BrainTraceSlowEvent(
+                    item.Record.Category,
+                    item.Record.TryGetInt64("turn", out var turnId) ? turnId : null,
+                    item.ElapsedMs,
+                    SummarizeEvent(item.Record)))
+            .ToArray();
+
+        return new BrainTraceReport(
+            fullPath,
+            provider,
+            model,
+            scenarioName,
+            sessionStart,
+            scenarioCompletedAt == default ? null : scenarioCompletedAt,
+            scenarioElapsedMs,
+            turns.Length,
+            llmAttempts.Length,
+            llmAttempts.Sum(static attempt => attempt.ElapsedMs),
+            llmAttempts.Length == 0 ? 0d : llmAttempts.Average(static attempt => attempt.ElapsedMs),
+            records.Count(static record => record.Category == "agent.tool_call_blocked"),
+            turns,
+            BuildBuckets(records, llmAttempts),
+            slowTools,
+            slowEvents);
+    }
+
+    private static BrainTraceAttemptReport[] BuildAttemptReports(IReadOnlyList<BrainTraceRecord> records)
+    {
+        var requests = new Dictionary<(long TurnId, int Attempt), BrainTraceRecord>();
+        var attempts = new List<(long TurnId, int Attempt, long RequestSequence, long ResponseSequence, double ElapsedMs, string ResponsePreview)>();
+
+        foreach (var record in records)
+        {
+            if (record.Category == "llm.request" &&
+                record.TryGetInt64("turn", out var turnId) &&
+                record.TryGetInt64("attempt", out var attemptId))
+            {
+                requests[(turnId, (int)attemptId)] = record;
+                continue;
+            }
+
+            if (record.Category == "llm.response" &&
+                record.TryGetInt64("turn", out var responseTurnId) &&
+                record.TryGetInt64("attempt", out var responseAttemptId) &&
+                requests.TryGetValue((responseTurnId, (int)responseAttemptId), out var request))
+            {
+                var elapsedMs = request.Timestamp is { } startedAt && record.Timestamp is { } completedAt
+                    ? Math.Max(0d, (completedAt - startedAt).TotalMilliseconds)
+                    : 0d;
+                attempts.Add(
+                    (
+                        responseTurnId,
+                        (int)responseAttemptId,
+                        request.Sequence,
+                        record.Sequence,
+                        elapsedMs,
+                        record.GetString("textPreview") ?? string.Empty));
+            }
+        }
+
+        var toolRecords = records
+            .Where(static record => record.Category == "agent.tool_call_completed")
+            .OrderBy(static record => record.Sequence)
+            .ToArray();
+        var grouped = attempts
+            .OrderBy(static attempt => attempt.TurnId)
+            .ThenBy(static attempt => attempt.Attempt)
+            .GroupBy(static attempt => attempt.TurnId)
+            .ToArray();
+        var reports = new List<BrainTraceAttemptReport>();
+
+        foreach (var turnGroup in grouped)
+        {
+            var turnAttempts = turnGroup.OrderBy(static attempt => attempt.Attempt).ToArray();
+            for (var index = 0; index < turnAttempts.Length; index += 1)
+            {
+                var current = turnAttempts[index];
+                var nextRequestSequence = index + 1 < turnAttempts.Length
+                    ? turnAttempts[index + 1].RequestSequence
+                    : long.MaxValue;
+                var executedTools = toolRecords
+                    .Where(
+                        record => record.TryGetInt64("turn", out var toolTurnId) &&
+                                  toolTurnId == current.TurnId &&
+                                  record.Sequence > current.ResponseSequence &&
+                                  record.Sequence < nextRequestSequence)
+                    .Select(record => record.GetString("executedTool") ?? record.GetString("tool") ?? "(unknown)")
+                    .ToArray();
+                reports.Add(
+                    new BrainTraceAttemptReport(
+                        current.TurnId,
+                        current.Attempt,
+                        current.ElapsedMs,
+                        executedTools,
+                        current.ResponsePreview));
+            }
+        }
+
+        return reports.ToArray();
+    }
+
+    private static BrainTraceTurnReport BuildTurnReport(
+        IReadOnlyList<BrainTraceRecord> records,
+        IReadOnlyList<BrainTraceAttemptReport> llmAttempts,
+        long turnId,
+        string scenarioName,
+        string command)
+    {
+        var turnRecords = records
+            .Where(record => record.TryGetInt64("turn", out var candidateTurnId) && candidateTurnId == turnId)
+            .OrderBy(static record => record.Sequence)
+            .ToArray();
+        var assistantReply = turnRecords.LastOrDefault(static record => record.Category == "assistant.reply");
+        var turnElapsedMs = assistantReply is not null &&
+                            assistantReply.TryGetInt64("elapsedMs", out var elapsedMs)
+            ? elapsedMs
+            : 0d;
+        var attemptReports = llmAttempts
+            .Where(attempt => attempt.TurnId == turnId)
+            .OrderBy(static attempt => attempt.Attempt)
+            .ToArray();
+        var toolRecords = turnRecords
+            .Where(static record => record.Category == "agent.tool_call_completed")
+            .ToArray();
+        var postSnapshots = turnRecords
+            .Where(static record => record.Category == "agent.desktop_followup_snapshot")
+            .ToArray();
+        var focusSnapshots = turnRecords
+            .Where(static record => record.Category == "agent.desktop_followup_focus_snapshot")
+            .ToArray();
+        var additionalEvidence = turnRecords
+            .Where(static record => record.Category == "agent.additional_desktop_evidence_completed")
+            .ToArray();
+        var replyRepairs = turnRecords
+            .Where(static record => record.Category == "agent.reply_repair_completed")
+            .ToArray();
+
+        return new BrainTraceTurnReport(
+            turnId,
+            scenarioName,
+            command,
+            turnElapsedMs,
+            attemptReports.Length == 0 && assistantReply is not null && assistantReply.TryGetInt64("attempts", out var attemptsFromReply)
+                ? (int)attemptsFromReply
+                : attemptReports.Length,
+            attemptReports.Sum(static attempt => attempt.ElapsedMs),
+            attemptReports.Length == 0 ? 0d : attemptReports.Average(static attempt => attempt.ElapsedMs),
+            toolRecords.Length,
+            toolRecords.Sum(GetElapsedMs),
+            postSnapshots.Length,
+            postSnapshots.Sum(GetElapsedMs),
+            focusSnapshots.Length,
+            focusSnapshots.Sum(GetElapsedMs),
+            additionalEvidence.Length,
+            additionalEvidence.Sum(GetElapsedMs),
+            replyRepairs.Length,
+            replyRepairs.Sum(GetElapsedMs),
+            turnRecords.Count(static record => record.Category == "agent.internal_continuation_considered"),
+            turnRecords.Count(static record => record.Category == "agent.internal_continuation_completed"),
+            toolRecords
+                .Select(record => record.GetString("executedTool") ?? record.GetString("tool") ?? "(unknown)")
+                .Distinct(StringComparer.Ordinal)
+                .ToArray(),
+            attemptReports);
+    }
+
+    private static BrainTraceBucketSummary[] BuildBuckets(
+        IReadOnlyList<BrainTraceRecord> records,
+        IReadOnlyList<BrainTraceAttemptReport> llmAttempts)
+    {
+        return
+        [
+            new BrainTraceBucketSummary("LLM time", llmAttempts.Count, llmAttempts.Sum(static attempt => attempt.ElapsedMs)),
+            BuildBucket(records, "Reply repair time", static record => record.Category == "agent.reply_repair_completed"),
+            BuildBucket(records, "Requested tool time", static record => record.Category == "agent.tool_call_completed"),
+            BuildBucket(
+                records,
+                "Browser helper time",
+                static record => record.Category.StartsWith("agent.browser_", StringComparison.Ordinal) ||
+                                 record.Category.StartsWith("agent.activate_window_preflight_", StringComparison.Ordinal)),
+            BuildBucket(records, "Automatic post-action snapshot time", static record => record.Category == "agent.desktop_followup_snapshot"),
+            BuildBucket(records, "Automatic focus snapshot time", static record => record.Category == "agent.desktop_followup_focus_snapshot"),
+            BuildBucket(records, "Extra evidence refresh time", static record => record.Category == "agent.additional_desktop_evidence_completed"),
+            BuildBucket(records, "Internal continuation time", static record => record.Category == "agent.internal_continuation_completed"),
+        ];
+    }
+
+    private static BrainTraceBucketSummary BuildBucket(
+        IReadOnlyList<BrainTraceRecord> records,
+        string name,
+        Func<BrainTraceRecord, bool> predicate)
+    {
+        var matching = records.Where(predicate).ToArray();
+        return new BrainTraceBucketSummary(name, matching.Length, matching.Sum(GetElapsedMs));
+    }
+
+    private static double GetElapsedMs(BrainTraceRecord record)
+        => record.TryGetInt64("elapsedMs", out var elapsedMs)
+            ? elapsedMs
+            : 0d;
+
+    private static string SummarizeEvent(BrainTraceRecord record)
+    {
+        return record.Category switch
+        {
+            "agent.tool_call_completed" => record.GetString("executedTool") ?? record.GetString("tool") ?? string.Empty,
+            "assistant.reply" => record.GetString("sayPreview") ?? record.GetString("sayText") ?? string.Empty,
+            "llm.response" => record.GetString("textPreview") ?? string.Empty,
+            "agent.desktop_followup_snapshot" => record.GetString("tool") ?? record.GetString("snapshotWindow") ?? string.Empty,
+            "agent.internal_continuation_completed" => record.GetString("policyName") ?? string.Empty,
+            "mcp.call.complete" => record.GetString("tool") ?? string.Empty,
+            _ => record.DataRawText,
+        };
     }
 }
 

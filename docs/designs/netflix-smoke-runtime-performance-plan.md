@@ -1,47 +1,49 @@
 # Scripted Netflix Smoke Runtime Performance Plan
 
-Last updated: 2026-04-21
-Status: proposed
+Last updated: 2026-04-22
+Status: in progress
 Depends on:
 - `docs/HISTORY_AND_TODOS.md`
 - `src/scenarios/netflix-boyfriend-on-demand.yml`
 
 ## Summary
 
-The latest documented scripted Netflix smoke passes, but the current runtime
-figure in repo docs is only historical context until we capture a fresh
-baseline in this workspace. The P0 goal is to bring the same scenario under one
-minute without weakening the scenario contract or adding Netflix-specific
-runtime branches.
+The scripted Netflix smoke now has a fresh workspace baseline from
+2026-04-22: `882.255 s` (`14m 42.255s`) for
+`src/scenarios/netflix-boyfriend-on-demand.yml` on commit
+`2d994a83b32bb23c54f205c3d2b29a0202b6105b`. The P0 goal is still to bring the
+same scenario under one minute without weakening the scenario contract or
+adding Netflix-specific runtime branches.
 
-This plan starts with trace-based measurement instead of guesswork. We already
-have most of the timing hooks we need in the debug JSONL trace. The missing
-piece is a repeatable report that turns that trace into a per-turn and
-per-latency-bucket summary, so we can remove the biggest avoidable costs first
-and keep them from quietly returning later.
+The reporter-backed baseline readout makes the dominant constraint clear:
+ordinary LLM wait, not repair churn, is the main runtime cost. The saved
+baseline shows `822.765 s` of LLM time across `26` responses, or about
+`93.3%` of total runtime. Requested tools took `32.523 s`, automatic
+post-action snapshots took `10.093 s`, reply repairs were `0`, and additional
+evidence passes were `0`.
 
-A fresh baseline capture is required in the current workspace. There is no
-current `brain.debug.jsonl` under `src/head/brain/bin/**/logs`.
+The main finding from the first trace report is that the runtime is paying a
+full LLM response for most individual action steps. Turns `2` through `5` each
+begin by reacquiring state with `list_windows` and then `describe_window`,
+while turn `3` spends four more LLM responses entering the four PIN digits and
+turn `5` spends two more LLM responses on two sequential invoke actions. The
+next optimization slices therefore need to reduce generic scripted-turn LLM
+round trips before smaller tool or snapshot improvements can matter.
 
-## Deferred Data Sections
+A repeatable repo-native trace report now exists via
+`brain.exe --trace-report <path>`. The fresh baseline artifacts are saved under
+ignored `.tmp/`, and the tracked summary lives under `docs/perfbase/`.
 
-The following parts of this plan should be updated only after baseline data
-exists:
+## Remaining Deferred Sections
 
-- Summary:
-  replace the historical runtime wording with the measured baseline runtime and
-  a short statement of the top confirmed latency buckets.
-- Baseline findings:
-  add the actual measured totals after the first trace-report run instead of
-  predicting them now.
-- Section 4:
-  choose the first optimization slice only from measured report output.
+The 2026-04-22 baseline and first readout are now recorded in this document.
+The main sections still intentionally deferred are:
+
 - Section 6 numeric guardrails:
   set warning thresholds or budgets only after we have baseline and
   post-optimization comparison data.
-
-Until then, this document should stay focused on workflow, questions, and
-decision rules rather than expected outcomes.
+- Any hard claim that the `< 60 s` target is achievable on the current provider
+  and model without reducing ordinary LLM latency or LLM round trips first.
 
 ## Goals
 
@@ -102,7 +104,7 @@ Then copy the generated JSONL trace from the normal `brain` logs directory into
 an ignored folder such as:
 
 ```text
-.tmp/netflix-smoke-runtime/2026-04-21-baseline/brain.debug.jsonl
+.tmp/netflix-smoke-runtime/<date>-baseline/brain.debug.jsonl
 ```
 
 Alongside that trace, record:
@@ -115,11 +117,19 @@ Alongside that trace, record:
 
 This gives us a stable baseline before any behavior changes.
 
-### 2. Add A Repeatable Trace Report
+Completed baseline capture:
 
-Land a small repo-native reporting path that reads a JSONL trace and emits a
-Markdown or JSON summary. Reuse `BrainTraceLogReader` instead of inventing a
-second parser.
+- raw artifacts:
+  `.tmp/netflix-smoke-runtime/2026-04-22-baseline/brain.debug.jsonl`
+- raw metadata:
+  `.tmp/netflix-smoke-runtime/2026-04-22-baseline/README.md`
+- tracked summary:
+  `docs/perfbase/2026-04-22-netflix-smoke-baseline.md`
+
+### 2. Use The Repeatable Trace Report
+
+A repo-native reporting path now reads a JSONL trace and emits a Markdown
+summary. It reuses `BrainTraceLogReader` instead of inventing a second parser.
 
 Recommended output:
 
@@ -143,31 +153,64 @@ Recommended output:
 Recommended implementation home:
 
 - reporting logic near `src/head/brain/ScenarioTesting.cs`
-- optional CLI switch on `brain`, such as `--trace-report <path>`
+- CLI switch on `brain`: `--trace-report <path>`
 - tests in `src/head/brain.tests`
 
-This should be the first code change in the P0 work so every later fix has a
-before/after summary.
+Completed implementation:
+
+- runtime entry point:
+  `src/head/brain/Program.cs`
+- CLI parsing:
+  `src/head/brain/ConsoleMode.cs`
+- reporting logic:
+  `src/head/brain/ScenarioTesting.cs`
+- focused tests:
+  `src/head/brain.tests/TraceReportTests.cs`
+
+Saved baseline report:
+
+- `.tmp/netflix-smoke-runtime/2026-04-22-baseline/trace-report.md`
+
+This report is now the before/after source of truth for every later runtime
+slice.
 
 ### Baseline Findings
 
-This section is intentionally deferred until the first fresh passing baseline
-and trace-report output exist.
-
-When baseline data is available, capture:
-
 | Field | Value |
 | --- | --- |
-| Baseline run date | `TBD after baseline` |
-| Commit SHA | `TBD after baseline` |
-| Provider | `TBD after baseline` |
-| Scenario wall-clock runtime | `TBD after baseline` |
-| Slowest turn | `TBD after baseline` |
-| Total LLM time | `TBD after baseline` |
-| Total tool time | `TBD after baseline` |
-| Total extra evidence time | `TBD after baseline` |
-| Total post-action refresh time | `TBD after baseline` |
-| Total internal continuation time | `TBD after baseline` |
+| Baseline run date | `2026-04-22` |
+| Commit SHA | `2d994a83b32bb23c54f205c3d2b29a0202b6105b` |
+| Provider / model | `OpenAiCodex / gpt-5.4-mini` |
+| Scenario wall-clock runtime | `882.255 s` |
+| Trace report artifact | `.tmp/netflix-smoke-runtime/2026-04-22-baseline/trace-report.md` |
+| Slowest turn | `Turn 3 at 241.045 s` |
+| Total LLM time | `822.765 s` across `26` responses |
+| Average LLM attempt time | `31.645 s` |
+| Total tool time | `32.523 s` across `21` tool calls |
+| Total extra evidence time | `0.000 s` across `0` extra evidence passes |
+| Total post-action refresh time | `10.093 s` across `12` follow-up snapshots |
+| Reply repairs | `0` |
+| Internal continuation activity | `10` considered, `0` executed |
+
+First readout from the baseline:
+
+- LLM wait is the dominant bucket at about `93.3%` of total runtime.
+- The scenario averaged `5.2` LLM responses per turn.
+- Turns `2` through `5` each spent their first LLM response on `list_windows`
+  and their second on `describe_window`, for about `240.287 s` of LLM time
+  before the first user-progressing action on those turns.
+- Turn `3` is expensive because it pays four additional LLM responses to enter
+  four PIN digits through `set_window_element_text`.
+- Turn `5` is expensive because it pays two additional LLM responses to perform
+  two sequential `invoke_window_element` actions after state reacquisition.
+- Turn `5` is the most expensive model turn by average attempt latency:
+  `39.954 s` per response over `5` responses.
+- The slowest tools were `set_window_element_text` at `13.105 s` total and
+  `invoke_window_element` at `8.496 s` total, but tool time is still a distant
+  secondary bucket compared with ordinary model wait.
+- Message count grows materially within the hot turns:
+  turn `3` grows from `5` to `25` messages and turn `5` grows from `9` to
+  `21`, which likely contributes to the late-attempt slowdown.
 
 ### 3. Rank Culprits Before Fixing
 
@@ -189,22 +232,34 @@ The initial report should answer these questions:
 
 Only after those questions are answered should behavior changes begin.
 
+Fresh baseline answers from 2026-04-22:
+
+- The slowest turn was turn `3` at `241.045 s`, followed by turn `5` at
+  `208.425 s`.
+- Model wait dominated the runtime: `822.765 s` LLM time versus `32.523 s`
+  tool time and `10.093 s` post-action snapshot time.
+- There were no extra LLM calls from reply repair: reply repairs were `0`.
+- There were no extra evidence passes: `0`.
+- Turns `2` through `5` all spent their first LLM response on `list_windows`
+  and their second on `describe_window`, even though the previous turn had just
+  ended with fresh Netflix evidence.
+- Turn `3` then spent four more LLM responses on four `set_window_element_text`
+  calls for the PIN digits.
+- Turn `5` then spent two more LLM responses on two `invoke_window_element`
+  calls to open the title and start episode 1.
+- Post-action snapshots happened `12` times, so they are worth auditing, but
+  they are not the primary cause of the multi-minute runtime.
+- Internal continuations were considered `10` times and executed `0` times,
+  which suggests some runtime logic is still checking follow-through paths even
+  when they do not end up acting.
+
 ### 4. Choose The First Optimization Slice From Baseline Data
-
-This section is intentionally deferred until we have a fresh passing baseline
-trace and the first generated trace report.
-
-We should not predict the culprit in advance. Once the baseline exists, update
-this section with the actual top latency buckets and pick the first fix slice
-from measured evidence only.
-
-When we revisit this section, capture:
 
 | Rank | Measured culprit | Evidence from the report | Planned fix slice | Success metric |
 | --- | --- | --- | --- | --- |
-| 1 | `TBD after baseline` | `TBD after baseline` | `TBD after baseline` | `TBD after baseline` |
-| 2 | `TBD after baseline` | `TBD after baseline` | `TBD after baseline` | `TBD after baseline` |
-| 3 | `TBD after baseline` | `TBD after baseline` | `TBD after baseline` | `TBD after baseline` |
+| 1 | Repeated scripted-turn state reacquisition | Turns `2` through `5` each begin with LLM -> `list_windows` and LLM -> `describe_window`; those reacquisition attempts alone cost about `240.287 s` of LLM time before the first user-progressing action on those turns | Reuse fresh carried-forward window and UI evidence at scripted turn boundaries when the active window and surface are still valid, and only reacquire state when current evidence is stale, missing, or contradicted | On the next rerun, remove at least one initial LLM/tool pair from turns `2` through `5` and cut total LLM time by at least `120.000 s` without weakening scenario assertions |
+| 2 | Deterministic same-surface continuation still paying full LLM round trips | Turn `3` pays four extra LLM responses for four `set_window_element_text` PIN digits; turn `5` pays two extra LLM responses for two `invoke_window_element` actions after the relevant surface is already visible | Add generic within-turn follow-through for deterministic slot entry and obvious next-step activation on the same validated surface, instead of sending each step back through a full model loop | Reduce turn `3` from `7` responses to `4` or fewer and turn `5` from `5` responses to `3` or fewer on a fresh passing rerun |
+| 3 | Automatic post-action snapshot churn | `12` follow-up snapshots costing `10.093 s` total; every state-changing tool still refreshes evidence even when the tool result already contains usable confirmation data | Audit whether scripted mode can reuse the triggering tool payload or skip some follow-up snapshots when the result already provides fresh enough confirmation | Reduce follow-up snapshots from `12` to `8` or fewer and cut snapshot time below `7.000 s` without introducing stale-evidence false positives |
 
 Rules for filling this in:
 
@@ -214,6 +269,20 @@ Rules for filling this in:
 - define the expected before-and-after metric before making the change
 - keep unselected hypotheses out of the active fix slice unless later data
   promotes them
+
+Immediate next steps from the baseline:
+
+1. Use `brain.exe --trace-report` as the default before/after workflow for each
+   rerun and save the generated Markdown beside the raw `.tmp` artifacts.
+2. Start the first behavior-changing slice with scripted-turn state reuse, since
+   repeated `list_windows` plus `describe_window` is the clearest generic
+   source of avoidable LLM round trips.
+3. Follow that with deterministic same-surface continuation for flows like PIN
+   entry and obvious next-step invokes once the report confirms the first slice
+   landed cleanly.
+4. Reassess after those two slices whether the remaining gap to `< 60 s` is
+   still dominated by ordinary model latency, in which case prompt weight or
+   provider/model choices may need their own P0 discussion.
 
 ### 5. Lock Down Coverage Before Changing Behavior
 

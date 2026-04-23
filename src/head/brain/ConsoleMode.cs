@@ -3,11 +3,16 @@
 internal sealed record BrainConsoleOptions(
     bool ShowHelp,
     string? ScenarioFilePath,
-    IReadOnlyList<string> Commands)
+    IReadOnlyList<string> Commands,
+    string? TraceReportPath)
 {
     public bool IsScripted =>
         !ShowHelp &&
         (!string.IsNullOrWhiteSpace(ScenarioFilePath) || Commands.Count > 0);
+
+    public bool IsTraceReport =>
+        !ShowHelp &&
+        !string.IsNullOrWhiteSpace(TraceReportPath);
 
     public bool RequiresDebugTrace => IsScripted;
 }
@@ -18,12 +23,13 @@ internal static class BrainConsoleMode
     {
         if (args.Length == 0)
         {
-            return new BrainConsoleOptions(false, null, []);
+            return new BrainConsoleOptions(false, null, [], null);
         }
 
         var showHelp = false;
         string? scenarioFilePath = null;
         var commands = new List<string>();
+        string? traceReportPath = null;
 
         for (var index = 0; index < args.Length; index += 1)
         {
@@ -52,6 +58,15 @@ internal static class BrainConsoleMode
                     scenarioFilePath = Path.GetFullPath(RequireValue(args, ref index, arg));
                     break;
 
+                case "--trace-report":
+                    if (!string.IsNullOrWhiteSpace(traceReportPath))
+                    {
+                        throw new InvalidOperationException("Only one --trace-report path can be provided.");
+                    }
+
+                    traceReportPath = Path.GetFullPath(RequireValue(args, ref index, arg));
+                    break;
+
                 default:
                     throw new InvalidOperationException(
                         $"Unknown argument \"{arg}\". Use --help to see supported options.");
@@ -64,7 +79,14 @@ internal static class BrainConsoleMode
                 "Use either scripted commands (--command / --commands-file) or --scenario, not both together.");
         }
 
-        return new BrainConsoleOptions(showHelp, scenarioFilePath, commands);
+        if (!string.IsNullOrWhiteSpace(traceReportPath) &&
+            (!string.IsNullOrWhiteSpace(scenarioFilePath) || commands.Count > 0))
+        {
+            throw new InvalidOperationException(
+                "Use either scripted execution (--command / --commands-file / --scenario) or --trace-report, not both together.");
+        }
+
+        return new BrainConsoleOptions(showHelp, scenarioFilePath, commands, traceReportPath);
     }
 
     public static void PrintHelp()
@@ -77,6 +99,8 @@ internal static class BrainConsoleMode
         Console.WriteLine("                                           Run multiple scripted commands");
         Console.WriteLine("  brain.exe --commands-file .\\steps.yml  Run scripted commands from a YAML file");
         Console.WriteLine("  brain.exe --scenario .\\scenario.yml    Run a YAML scenario with log-based assertions");
+        Console.WriteLine("  brain.exe --trace-report .\\brain.debug.jsonl");
+        Console.WriteLine("                                           Print a markdown latency report for a saved JSONL trace");
         Console.WriteLine("  brain.exe --help                        Show this help");
         Console.WriteLine();
         Console.WriteLine("Command file format:");

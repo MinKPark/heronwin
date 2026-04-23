@@ -20,6 +20,21 @@ if (consoleOptions.ShowHelp)
     return;
 }
 
+if (consoleOptions.IsTraceReport)
+{
+    try
+    {
+        Console.WriteLine(BrainTraceReporter.GenerateMarkdown(consoleOptions.TraceReportPath!));
+    }
+    catch (Exception ex) when (ex is InvalidOperationException or FileNotFoundException)
+    {
+        Console.Error.WriteLine($"x  {ex.Message}");
+        Environment.ExitCode = 1;
+    }
+
+    return;
+}
+
 var cancellationSource = new CancellationTokenSource();
 Console.CancelKeyPress += (_, eventArgs) =>
 {
