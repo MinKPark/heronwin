@@ -132,7 +132,8 @@ internal static class BrainTurnProcessor
             mcpManager,
             desktopSession,
             cancellationToken,
-            intermediateStepNarrator);
+            intermediateStepNarrator,
+            scriptedMode: string.Equals(turnSource, "scripted", StringComparison.Ordinal));
 
         AppConfig? updatedConfig = null;
         var deferredGenerationSummary = string.Empty;
@@ -198,7 +199,8 @@ internal static class BrainTurnProcessor
                 desktopSession,
                 cancellationToken,
                 intermediateStepNarrator,
-                displayUserMessage: false);
+                displayUserMessage: false,
+                scriptedMode: string.Equals(turnSource, "scripted", StringComparison.Ordinal));
 
             var combinedLog = string.IsNullOrWhiteSpace(deferredGenerationSummary)
                 ? continuationReply.LogText

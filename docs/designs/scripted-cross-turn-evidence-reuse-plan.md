@@ -1,11 +1,12 @@
 # Scripted Cross-Turn Evidence Reuse Plan
 
-Last updated: 2026-04-22
-Status: proposed
+Last updated: 2026-04-25
+Status: first slice landed, follow-up measurement in progress
 Depends on:
 - `docs/designs/netflix-smoke-runtime-performance-plan.md`
 - `docs/perfbase/2026-04-22-netflix-smoke-baseline.md`
 - `.tmp/netflix-smoke-runtime/2026-04-22-baseline/trace-report.md`
+- `docs/perfbase/2026-04-25-netflix-smoke-carry-forward-slice.md`
 - `src/head/brain/Conversation.cs`
 - `src/head/brain/DesktopSessionContext.cs`
 - `src/head/brain/TurnProcessor.cs`
@@ -57,17 +58,33 @@ This is intentionally separate from:
 
 ## Current Status
 
-- Status in the 2026-04-22 wrap-up pass:
-  - fresh passing Netflix baseline captured and saved
-  - repo-native trace report landed and verified with focused tests
-  - first-slice design aligned against code, trace data, and explicit
-    assumptions
-  - no behavior-changing runtime implementation has started yet
-- Exact first step for the next session:
-  - inspect existing coverage around turn-start state in
-    `Conversation.RunTurnAsync`, add the planned ready-state and carry-forward
-    logging fields, then implement conservative scripted turn-start reuse and
-    rerun the same scenario with a fresh trace report for comparison
+- Status after the 2026-04-25 implementation pass:
+  - the first scripted-only carry-forward slice is now landed in code:
+    `DesktopSessionContext` carries UI-tree and focus freshness metadata,
+    `Conversation.RunTurnAsync(...)` can inject carry-forward current-screen
+    evidence before the first LLM request of later scripted turns, and
+    `TurnProcessor` now flags scripted turns explicitly for that path
+  - focused tests cover fresh injection, stale skip fallback, and the new
+    trace-report helper bucket
+  - the fresh scripted rerun passed in `776.349 s`, saved under
+    `.tmp/netflix-smoke-runtime/2026-04-25-carry-forward-slice/`, with tracked
+    summary in
+    [docs/perfbase/2026-04-25-netflix-smoke-carry-forward-slice.md](../perfbase/2026-04-25-netflix-smoke-carry-forward-slice.md)
+  - the new trace shows `agent.turn.ready_state_used` and
+    `agent.turn.carry_forward_evidence_used` on turns `2` through `5`
+  - turns `2` through `5` no longer start with the old
+    `list_windows` then `describe_window` discovery pattern
+  - comparison caveat:
+    the 2026-04-25 rerun landed directly on Netflix home in turn `1`, so turns
+    `2` and `3` became valid no-op checks instead of replaying the older
+    profile-picker and PIN path
+- Exact follow-up from here:
+  - preserve this first-slice result as the new base, then capture a more
+    controlled rerun that reaches the earlier profile-picker or PIN path before
+    judging the next runtime slice
+  - investigate turn `1` browser-entry churn from the 2026-04-25 trace, which
+    became the new top hotspot even though later scripted turns stopped paying
+    turn-start rediscovery cost
 
 ## Goals
 

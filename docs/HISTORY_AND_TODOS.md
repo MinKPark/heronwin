@@ -16,7 +16,7 @@ This file has two jobs:
 
 | Status | Priority | Item | Next move |
 |--------|----------|------|-----------|
-| `next` | `P0` | Cut scripted Netflix smoke runtime below one minute. | Start with the first scripted-turn state reuse slice from [Scripted Cross-Turn Evidence Reuse Plan](./designs/scripted-cross-turn-evidence-reuse-plan.md): add conservative turn-start ready-state and carry-forward evidence handling, add the planned trace/logging fields, then rerun the same Netflix smoke and compare the new trace report against the 2026-04-22 baseline. |
+| `next` | `P0` | Cut scripted Netflix smoke runtime below one minute. | Use the landed scripted turn-start carry-forward slice as the new base, then attack turn-1 browser-entry churn and capture a more apples-to-apples rerun that reaches the profile-picker or PIN path before judging the next runtime slice. |
 | `next` | `P1` | Decide whether to add separate scripted coverage for app-first launch. | The current Netflix smoke is now explicitly website-navigation-based; add another smoke if we want deterministic coverage for the app-first fallback-confirmation path. |
 | `next` | `P1` | Finish the compact-tree rollout in `cognition`. | Add the opt-in screenshot-vs-compact evaluation harness, then run the documented parity checks, benchmarks, and manual evaluation passes in [Cognition Compact Tree Migration](./designs/cognition-compact-tree-migration.md). |
 | `next` | `P1` | Add dedicated coverage for the WPF `face` app. | Start with settings edits, status mapping, and view-model state transitions. |
@@ -28,47 +28,61 @@ This file has two jobs:
 These notes describe local work that exists in the working tree but is not yet
 part of committed repo history.
 
-- The only uncommitted local changes at the end of the 2026-04-22 session are
-  the wrap-up doc updates in:
-  - `docs/HISTORY_AND_TODOS.md`
-  - `docs/README.md`
-  - `docs/designs/scripted-cross-turn-evidence-reuse-plan.md`
-- Local 2026-04-22 progress:
-  - captured a fresh passing scripted Netflix smoke baseline under
-    `.tmp/netflix-smoke-runtime/2026-04-22-baseline/`, with tracked summary in
-    [docs/perfbase/2026-04-22-netflix-smoke-baseline.md](./perfbase/2026-04-22-netflix-smoke-baseline.md).
-  - landed the repo-native trace report workflow via
-    `brain.exe --trace-report <path>` and saved the baseline report beside the
-    raw artifacts at
-    `.tmp/netflix-smoke-runtime/2026-04-22-baseline/trace-report.md`.
-  - updated [docs/designs/netflix-smoke-runtime-performance-plan.md](./designs/netflix-smoke-runtime-performance-plan.md)
-    with the measured baseline, hotspot ranking, and next-slice ordering.
-  - drafted and refined
-    [docs/designs/scripted-cross-turn-evidence-reuse-plan.md](./designs/scripted-cross-turn-evidence-reuse-plan.md)
-    around the first behavior-changing slice:
-    conservative turn-start ready state, carry-forward evidence reuse,
-    phase-oriented direction for later work, and logging upgrades needed for
-    before/after analysis.
-  - completed a code-and-trace cross-check before implementation:
-    the repeated turn-start `list_windows` and `describe_window` pattern is
-    LLM-driven in the ordinary loop, while brain-owned preflight and
-    post-action snapshot paths remain separate helper work.
-  - verified in this session:
-    - `.\buildandrun.ps1 -BrainOnly -Scenario src\scenarios\netflix-boyfriend-on-demand.yml`
-      passed on the first try with scenario elapsed `882.255 s`.
-    - `dotnet test src\head\brain.tests\HeronWin.Brain.Tests.csproj --filter "FullyQualifiedName~TraceReportTests|FullyQualifiedName~ScriptedModeTests"`
-      passed after the trace-report implementation work.
-  - no behavior-changing optimization has landed yet; the current state is
-    planning, reporting, and handoff readiness.
-- First step for the next session:
-  - review or commit the doc-only handoff updates, then inspect the current
-    tests around
-    `Conversation.RunTurnAsync`, `DesktopSessionContext`, and `TraceReportTests`,
-    then implement the first slice from
+- Current uncommitted local changes now include the first scripted carry-forward
+  implementation pass in:
+  - `src/head/brain/DesktopSessionContext.cs`
+  - `src/head/brain/Conversation.cs`
+  - `src/head/brain/DebugTrace.cs`
+  - `src/head/brain/ScenarioTesting.cs`
+  - `src/head/brain/TurnProcessor.cs`
+  - `src/head/brain.tests/AgentRunnerContinuationTests.cs`
+  - `src/head/brain.tests/TraceReportTests.cs`
+  - the updated repo docs in this folder and under `docs/perfbase/`
+- Local 2026-04-25 progress:
+  - landed the first scripted-only turn-start reuse slice from
     [Scripted Cross-Turn Evidence Reuse Plan](./designs/scripted-cross-turn-evidence-reuse-plan.md):
-    turn-start ready-state tracing, carry-forward evidence injection, and the
-    helper-timing / prompt-size logging upgrades before rerunning the Netflix
-    smoke and generating a fresh comparison report.
+    `DesktopSessionContext` now carries freshness/provenance metadata for UI
+    tree and focus evidence, and `Conversation.RunTurnAsync(...)` can inject
+    conservative carry-forward current-screen evidence before the first LLM
+    request of later scripted turns.
+  - added explicit turn-start trace events:
+    `agent.turn.ready_state_used`,
+    `agent.turn.ready_state_skipped`,
+    `agent.turn.carry_forward_evidence_used`, and
+    `agent.turn.carry_forward_evidence_skipped`.
+  - added `promptTokenEstimate` to `llm.request` and a new
+    `Turn-start helper time` bucket in the repo-native trace report.
+  - extended focused tests around scripted carry-forward injection, stale-skip
+    fallback, and trace-report helper bucketing.
+  - verified in this session:
+    - `dotnet test src\head\brain.tests\HeronWin.Brain.Tests.csproj` passed
+      with `252` total tests.
+    - `.\buildandrun.ps1 -BrainOnly -Scenario src\scenarios\netflix-boyfriend-on-demand.yml`
+      passed on 2026-04-25 with scenario elapsed `776.349 s`.
+  - saved the fresh rerun artifacts under
+    `.tmp/netflix-smoke-runtime/2026-04-25-carry-forward-slice/`, with tracked
+    summary in
+    [docs/perfbase/2026-04-25-netflix-smoke-carry-forward-slice.md](./perfbase/2026-04-25-netflix-smoke-carry-forward-slice.md).
+  - the fresh rerun clearly used turn-start carry-forward on scripted turns
+    `2` through `5`, and turns `2` through `5` no longer opened with the old
+    `list_windows` then `describe_window` discovery pair.
+  - caveat: the 2026-04-25 rerun landed directly on Netflix home in turn `1`,
+    so turns `2` and `3` became valid no-op checks instead of exercising the
+    older profile-picker and PIN path. That means the runtime win is real, but
+    the turn-by-turn comparison with the 2026-04-22 profile-flow baseline is
+    not perfectly apples to apples.
+  - new top hotspot exposed by the rerun:
+    turn `1` browser entry and site navigation regressed to `457.760 s`, so
+    the next P0 slice should target browser-entry stability or a cleaner
+    scenario start state.
+- First step for the next session:
+  - commit this first-slice carry-forward pass and its measurement docs, then
+    capture a more controlled rerun that forces the earlier profile-picker or
+    PIN path before deciding the next runtime slice.
+  - in parallel, inspect turn `1` browser-entry churn from the 2026-04-25
+    trace and decide whether the next fix should stabilize direct Netflix tab
+    navigation, open a cleaner browser surface first, or tighten the
+    address-bar retry path.
 
 ## Daily Repo History
 

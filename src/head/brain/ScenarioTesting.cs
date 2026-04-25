@@ -801,6 +801,10 @@ internal static class BrainTraceReporter
             BuildBucket(records, "Requested tool time", static record => record.Category == "agent.tool_call_completed"),
             BuildBucket(
                 records,
+                "Turn-start helper time",
+                static record => record.Category.StartsWith("agent.turn.ready_state_", StringComparison.Ordinal)),
+            BuildBucket(
+                records,
                 "Browser helper time",
                 static record => record.Category.StartsWith("agent.browser_", StringComparison.Ordinal) ||
                                  record.Category.StartsWith("agent.activate_window_preflight_", StringComparison.Ordinal)),

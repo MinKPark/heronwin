@@ -119,6 +119,66 @@ public sealed class TraceReportTests
         }
     }
 
+    [Fact]
+    public void Generate_IncludesTurnStartHelperBucket()
+    {
+        var tracePath = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllLines(
+                tracePath,
+                [
+                    CreateTraceLine(
+                        "2026-04-22T21:00:00.0000000-07:00",
+                        1,
+                        "session.start",
+                        """{"llmProvider":"OpenAiCodex","openAiModel":"gpt-5.4-mini"}"""),
+                    CreateTraceLine(
+                        "2026-04-22T21:00:01.0000000-07:00",
+                        2,
+                        "agent.turn.scripted_begin",
+                        """{"turn":1,"scenario":"Smoke","command":"open netflix"}"""),
+                    CreateTraceLine(
+                        "2026-04-22T21:00:01.0500000-07:00",
+                        3,
+                        "agent.turn.ready_state_used",
+                        """{"turn":1,"elapsedMs":45,"sourceTurn":0}"""),
+                    CreateTraceLine(
+                        "2026-04-22T21:00:02.0000000-07:00",
+                        4,
+                        "llm.request",
+                        """{"turn":1,"attempt":1,"promptTokenEstimate":1234}"""),
+                    CreateTraceLine(
+                        "2026-04-22T21:00:04.0000000-07:00",
+                        5,
+                        "llm.response",
+                        """{"turn":1,"attempt":1,"textPreview":"done"}"""),
+                    CreateTraceLine(
+                        "2026-04-22T21:00:05.0000000-07:00",
+                        6,
+                        "assistant.reply",
+                        """{"turn":1,"elapsedMs":4000,"attempts":1,"sayText":"Netflix is open.","logText":"Netflix is open."}"""),
+                    CreateTraceLine(
+                        "2026-04-22T21:00:06.0000000-07:00",
+                        7,
+                        "display.info",
+                        """{"message":"Scenario passed: Smoke"}""")
+                ]);
+
+            var report = BrainTraceReporter.Generate(tracePath);
+
+            Assert.Contains(
+                report.Buckets,
+                bucket => bucket.Name == "Turn-start helper time"
+                          && bucket.Count == 1
+                          && bucket.ElapsedMs == 45d);
+        }
+        finally
+        {
+            File.Delete(tracePath);
+        }
+    }
+
     private static string CreateTraceLine(string timestamp, long sequence, string category, string dataJson)
     {
         using var data = JsonDocument.Parse(dataJson);

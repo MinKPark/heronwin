@@ -460,6 +460,247 @@ public sealed class AgentRunnerContinuationTests
         }
     }
 
+    [Fact]
+    public async Task RunTurnAsync_InjectsAndTracesScriptedCarryForwardEvidence_WhenFreshSnapshotExists()
+    {
+        DebugTrace.Configure(true);
+
+        try
+        {
+            var llmClient = new QueuedLlmClient(
+            [
+                new ChatResult(
+                    """
+                    {
+                      "say": "Netflix Home is visible for Min.",
+                      "log": "Netflix Home is visible for Min."
+                    }
+                    """,
+                    [])
+            ]);
+            await using var mcpManager = new McpClientManager(
+                _ => Task.FromResult<IReadOnlyList<ToolDefinition>>([]),
+                toolCallTimeoutOverride: null,
+                callToolOverride: (_, _, _) => throw new InvalidOperationException("No MCP call expected."));
+            var desktopSession = new DesktopSessionContext
+            {
+                CurrentWindowHandle = "0x009C0680",
+                CurrentWindowTitle = "Home - Netflix - Microsoft Edge",
+                RecentWindowContext = BuildFreshNetflixHomeSnapshot(),
+                RecentUiTreeContext = BuildFreshNetflixHomeSnapshot(),
+                RecentUiTreeEvidenceMetadata = CreateEvidenceMetadata(
+                    sourceTurnId: 1,
+                    sourceKind: "describe_window",
+                    age: TimeSpan.FromSeconds(1),
+                    isPostActionSnapshot: true),
+            };
+
+            var reply = await AgentRunner.RunTurnAsync(
+                turnId: 2,
+                userText: "Search Netflix for Boyfriend on Demand.",
+                history: [],
+                tools: [],
+                composedPrompt: CreatePrompt(),
+                llmClient,
+                mcpManager,
+                desktopSession,
+                CancellationToken.None,
+                displayUserMessage: false,
+                scriptedMode: true);
+
+            Assert.Equal("Netflix Home is visible for Min.", reply.SpokenText);
+            Assert.Single(llmClient.Requests);
+            Assert.Contains(
+                llmClient.Requests[0],
+                message => message is AgentMessage.Summary summary
+                           && summary.Content.Contains("Scripted turn start:", StringComparison.Ordinal)
+                           && summary.Content.Contains("carry-forward evidence", StringComparison.Ordinal));
+            Assert.Contains(
+                llmClient.Requests[0],
+                message => message is AgentMessage.User user
+                           && user.Content.Contains("Carry-forward current-screen evidence", StringComparison.Ordinal)
+                           && user.Content.Contains("Home - Netflix - Microsoft Edge", StringComparison.Ordinal));
+
+            var jsonLogPath = DebugTrace.JsonLogFilePath;
+            Assert.False(string.IsNullOrWhiteSpace(jsonLogPath));
+            Assert.True(File.Exists(jsonLogPath));
+
+            var readyStateUsed = false;
+            var carryForwardUsed = false;
+            var promptEstimateFound = false;
+            foreach (var line in ReadLinesWithSharedAccess(jsonLogPath!))
+            {
+                using var document = JsonDocument.Parse(line);
+                var root = document.RootElement;
+                var category = root.GetProperty("category").GetString();
+                var data = root.GetProperty("data");
+                if (string.Equals(category, "agent.turn.ready_state_used", StringComparison.Ordinal) &&
+                    data.TryGetProperty("sourceTurn", out var sourceTurnElement) &&
+                    sourceTurnElement.GetInt64() == 1)
+                {
+                    readyStateUsed = true;
+                }
+
+                if (string.Equals(category, "agent.turn.carry_forward_evidence_used", StringComparison.Ordinal) &&
+                    data.TryGetProperty("sourceTurn", out sourceTurnElement) &&
+                    sourceTurnElement.GetInt64() == 1)
+                {
+                    carryForwardUsed = true;
+                }
+
+                if (string.Equals(category, "llm.request", StringComparison.Ordinal) &&
+                    data.TryGetProperty("promptTokenEstimate", out var promptEstimateElement) &&
+                    promptEstimateElement.GetInt32() > 0)
+                {
+                    promptEstimateFound = true;
+                }
+            }
+
+            Assert.True(readyStateUsed);
+            Assert.True(carryForwardUsed);
+            Assert.True(promptEstimateFound);
+        }
+        finally
+        {
+            DebugTrace.Configure(false);
+        }
+    }
+
+    [Fact]
+    public async Task RunTurnAsync_SkipsScriptedCarryForwardEvidence_WhenStoredSnapshotIsStale()
+    {
+        DebugTrace.Configure(true);
+
+        try
+        {
+            var llmClient = new QueuedLlmClient(
+            [
+                new ChatResult(
+                    """
+                    {
+                      "say": "Netflix Home is visible for Min.",
+                      "log": "Netflix Home is visible for Min."
+                    }
+                    """,
+                    [])
+            ]);
+            await using var mcpManager = new McpClientManager(
+                _ => Task.FromResult<IReadOnlyList<ToolDefinition>>([]),
+                toolCallTimeoutOverride: null,
+                callToolOverride: (_, _, _) => throw new InvalidOperationException("No MCP call expected."));
+            var desktopSession = new DesktopSessionContext
+            {
+                CurrentWindowHandle = "0x009C0680",
+                CurrentWindowTitle = "Home - Netflix - Microsoft Edge",
+                RecentWindowContext = BuildFreshNetflixHomeSnapshot(),
+                RecentUiTreeContext = BuildFreshNetflixHomeSnapshot(),
+                RecentUiTreeEvidenceMetadata = CreateEvidenceMetadata(
+                    sourceTurnId: 1,
+                    sourceKind: "describe_window",
+                    age: TimeSpan.FromMinutes(2),
+                    isPostActionSnapshot: true),
+            };
+
+            await AgentRunner.RunTurnAsync(
+                turnId: 2,
+                userText: "Search Netflix for Boyfriend on Demand.",
+                history: [],
+                tools: [],
+                composedPrompt: CreatePrompt(),
+                llmClient,
+                mcpManager,
+                desktopSession,
+                CancellationToken.None,
+                displayUserMessage: false,
+                scriptedMode: true);
+
+            Assert.Single(llmClient.Requests);
+            Assert.DoesNotContain(
+                llmClient.Requests[0],
+                message => message is AgentMessage.Summary summary
+                           && summary.Content.Contains("Scripted turn start:", StringComparison.Ordinal));
+
+            var jsonLogPath = DebugTrace.JsonLogFilePath;
+            Assert.False(string.IsNullOrWhiteSpace(jsonLogPath));
+            Assert.True(File.Exists(jsonLogPath));
+
+            var skippedReasonFound = false;
+            foreach (var line in ReadLinesWithSharedAccess(jsonLogPath!))
+            {
+                using var document = JsonDocument.Parse(line);
+                var root = document.RootElement;
+                if (!string.Equals(root.GetProperty("category").GetString(), "agent.turn.carry_forward_evidence_skipped", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var data = root.GetProperty("data");
+                if (data.TryGetProperty("skipReason", out var skipReasonElement) &&
+                    string.Equals(skipReasonElement.GetString(), "ui_tree_evidence_stale", StringComparison.Ordinal))
+                {
+                    skippedReasonFound = true;
+                    break;
+                }
+            }
+
+            Assert.True(skippedReasonFound);
+        }
+        finally
+        {
+            DebugTrace.Configure(false);
+        }
+    }
+
+    [Fact]
+    public async Task RunTurnAsync_DoesNotInjectCarryForwardEvidence_WhenNotScripted()
+    {
+        var llmClient = new QueuedLlmClient(
+        [
+            new ChatResult(
+                """
+                {
+                  "say": "Netflix Home is visible for Min.",
+                  "log": "Netflix Home is visible for Min."
+                }
+                """,
+                [])
+        ]);
+        await using var mcpManager = new McpClientManager(
+            _ => Task.FromResult<IReadOnlyList<ToolDefinition>>([]),
+            toolCallTimeoutOverride: null,
+            callToolOverride: (_, _, _) => throw new InvalidOperationException("No MCP call expected."));
+        var desktopSession = new DesktopSessionContext
+        {
+            CurrentWindowHandle = "0x009C0680",
+            CurrentWindowTitle = "Home - Netflix - Microsoft Edge",
+            RecentWindowContext = BuildFreshNetflixHomeSnapshot(),
+            RecentUiTreeContext = BuildFreshNetflixHomeSnapshot(),
+            RecentUiTreeEvidenceMetadata = CreateEvidenceMetadata(
+                sourceTurnId: 1,
+                sourceKind: "describe_window",
+                age: TimeSpan.FromSeconds(1),
+                isPostActionSnapshot: true),
+        };
+
+        await AgentRunner.RunTurnAsync(
+            turnId: 2,
+            userText: "Search Netflix for Boyfriend on Demand.",
+            history: [],
+            tools: [],
+            composedPrompt: CreatePrompt(),
+            llmClient,
+            mcpManager,
+            desktopSession,
+            CancellationToken.None,
+            displayUserMessage: false);
+
+        Assert.Single(llmClient.Requests);
+        Assert.DoesNotContain(
+            llmClient.Requests[0],
+            message => message is AgentMessage.Summary summary
+                       && summary.Content.Contains("Scripted turn start:", StringComparison.Ordinal));
+    }
+
     private static ComposedAgentPrompt CreatePrompt()
         => new(
             SystemPrompt: "test prompt",
@@ -508,6 +749,17 @@ public sealed class AgentRunnerContinuationTests
 
         return lines;
     }
+
+    private static DesktopEvidenceMetadata CreateEvidenceMetadata(
+        long sourceTurnId,
+        string sourceKind,
+        TimeSpan age,
+        bool isPostActionSnapshot)
+        => new(
+            sourceTurnId,
+            sourceKind,
+            DateTimeOffset.UtcNow - age,
+            isPostActionSnapshot);
 
     private static string BuildStaleNetflixPinSnapshot()
         => """
@@ -585,6 +837,8 @@ public sealed class AgentRunnerContinuationTests
     {
         private readonly Queue<ChatResult> _responses = new(responses);
 
+        public List<IReadOnlyList<AgentMessage>> Requests { get; } = [];
+
         public LlmProviderId ProviderId => LlmProviderId.OpenAiApi;
 
         public string DisplayName => "Queued Test LLM";
@@ -608,6 +862,7 @@ public sealed class AgentRunnerContinuationTests
                 throw new InvalidOperationException("No queued LLM responses remain.");
             }
 
+            Requests.Add(messages.ToList());
             return Task.FromResult(_responses.Dequeue());
         }
     }

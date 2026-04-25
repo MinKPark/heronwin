@@ -203,13 +203,17 @@ internal static class DebugTrace
             return;
         }
 
+        var promptTokenEstimate = ContextManager.EstimateTokens(
+            messages,
+            systemPrompt ?? string.Empty);
         var lines = new List<string>
         {
             $"turn={turnId}",
             $"attempt={attempt}",
             $"provider={providerName}",
             $"messages={messages.Count}",
-            $"tools={tools.Count}"
+            $"tools={tools.Count}",
+            $"promptTokenEstimate={promptTokenEstimate}"
         };
 
         if (!string.IsNullOrWhiteSpace(promptSource))
@@ -249,6 +253,7 @@ internal static class DebugTrace
                 ["messages"] = describedMessages,
                 ["toolCount"] = tools.Count,
                 ["toolNames"] = toolNames,
+                ["promptTokenEstimate"] = promptTokenEstimate,
                 ["promptSource"] = promptSource,
                 ["systemPromptChars"] = string.IsNullOrWhiteSpace(systemPrompt) ? 0 : systemPrompt.Length,
                 ["systemPromptPreview"] = string.IsNullOrWhiteSpace(systemPrompt) ? null : Preview(systemPrompt, 900),

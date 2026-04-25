@@ -14,9 +14,9 @@ runtime-loaded prompt and skill files under `.github/agents`.
 
 ## Current Snapshot
 
-Last updated: 2026-04-22
+Last updated: 2026-04-25
 
-- Git baseline: `main` at `be8509f`, tracking `origin/main`.
+- Git baseline: `main` at `f96fc1a`.
 - The active implementation lives under `src`.
 - The `body` refactor is landed:
   - `src/body` is the active tree.
@@ -28,6 +28,23 @@ Last updated: 2026-04-22
   - the empty historical `src\herbody` directory is gone.
 - the removed obsolete Node.js runtime is no longer part of the repository.
 - Latest verified work in the current scripted-runtime performance pass:
+  - the first scripted turn-start carry-forward slice is now implemented in
+    `brain`: conservative scripted-only carry-forward evidence injection,
+    desktop-session freshness/provenance metadata, turn-start trace events, and
+    `promptTokenEstimate` on `llm.request`.
+  - `dotnet test src\head\brain.tests\HeronWin.Brain.Tests.csproj` passed on
+    2026-04-25 with `252` total tests after the carry-forward slice and trace
+    updates.
+  - `.\buildandrun.ps1 -BrainOnly -Scenario src\scenarios\netflix-boyfriend-on-demand.yml`
+    passed on 2026-04-25 in `776.349 s`.
+    Raw artifacts are under
+    `.tmp/netflix-smoke-runtime/2026-04-25-carry-forward-slice/`, and the
+    tracked summary is
+    [docs/perfbase/2026-04-25-netflix-smoke-carry-forward-slice.md](./perfbase/2026-04-25-netflix-smoke-carry-forward-slice.md).
+  - the fresh rerun shows `agent.turn.ready_state_used` and
+    `agent.turn.carry_forward_evidence_used` on turns `2` through `5`, and the
+    old turn-start `list_windows` then `describe_window` discovery pair is gone
+    from turns `2` through `5`.
   - `.\buildandrun.ps1 -BrainOnly -Scenario src\scenarios\netflix-boyfriend-on-demand.yml`
     passed on 2026-04-22 and established the fresh baseline at `882.255 s`.
     Raw artifacts are under `.tmp/netflix-smoke-runtime/2026-04-22-baseline/`
@@ -42,23 +59,19 @@ Last updated: 2026-04-22
   snapshot:
   - `dotnet build src\heronwin.sln` passed with 0 warnings and 0 errors.
   - `dotnet test src\heronwin.sln` passed with 295 total tests.
-  - `dotnet test src\head\brain.tests\HeronWin.Brain.Tests.csproj` passed
-    with 245 total tests after the Netflix/browser/runtime guardrail work from
-    that pass.
   - `npm run build` passed in `src\body\process-manager`.
 - Current follow-up:
-  - implement the first behavior-changing slice from
-    [Scripted Cross-Turn Evidence Reuse Plan](./designs/scripted-cross-turn-evidence-reuse-plan.md):
-    conservative turn-start ready state, carry-forward evidence reuse, and the
-    logging upgrades needed to tell whether discovery cost truly went away,
-  - rerun the same Netflix smoke and compare the new trace report against the
-    2026-04-22 baseline before taking the next slice,
+  - keep the first scripted carry-forward slice as the new runtime base,
+  - capture a more controlled apples-to-apples rerun that exercises the older
+    profile-picker or PIN path before judging the next slice,
+  - investigate turn `1` browser-entry churn from the 2026-04-25 rerun, which
+    became the new top hotspot even though later scripted turns stopped doing
+    redundant discovery,
   - add a separate scripted smoke if we want explicit app-first launch coverage;
     the current Netflix smoke is now an explicit website-navigation scenario.
-- Working-tree status at wrap-up: only the doc-only handoff updates in
-  `docs/HISTORY_AND_TODOS.md`, `docs/README.md`, and
-  `docs/designs/scripted-cross-turn-evidence-reuse-plan.md` are left
-  uncommitted.
+- Working-tree status in the current session:
+  - first-slice carry-forward code, focused tests, and updated perf/handoff
+    docs are uncommitted local changes.
 - Local tool versions used for the snapshot:
   - .NET SDK `10.0.201`
   - Node.js `v24.14.1`

@@ -17,6 +17,16 @@ internal sealed record AgentReply(string LogText, string SpokenText, string RawT
 
 internal sealed record ToolStepNarrationPlan(string Text, string Source);
 
+internal sealed record ScriptedTurnStartCarryForwardContext(
+    long SourceTurnId,
+    string SourceKind,
+    long EvidenceAgeMs,
+    string? WindowHandle,
+    string? WindowTitle,
+    string UiContext,
+    string? FocusContext,
+    bool IsPostActionSnapshot);
+
 internal abstract record AgentMessage(string Role)
 {
     public sealed record User(string Content) : AgentMessage("user");
@@ -58,6 +68,8 @@ internal interface IAudioTranscriber
 
 internal static class AgentRunner
 {
+    private static readonly TimeSpan ScriptedTurnStartEvidenceMaxAge = TimeSpan.FromSeconds(30);
+
     public static async Task<AgentReply> RunTurnAsync(
         long turnId,
         string userText,
@@ -69,7 +81,8 @@ internal static class AgentRunner
         DesktopSessionContext desktopSession,
         CancellationToken cancellationToken,
         Func<string, CancellationToken, Task>? intermediateStepNarrator = null,
-        bool displayUserMessage = true)
+        bool displayUserMessage = true,
+        bool scriptedMode = false)
     {
         var turnStopwatch = Stopwatch.StartNew();
         var messages = history.ToList();
@@ -80,6 +93,125 @@ internal static class AgentRunner
         if (!string.IsNullOrWhiteSpace(ordinalActionSummary))
         {
             messages.Add(new AgentMessage.Summary(ordinalActionSummary));
+        }
+
+        var usedAnyTools = false;
+        var performedDesktopAction = false;
+        var additionalDesktopEvidenceAttempts = 0;
+        const int maxAdditionalDesktopEvidenceAttempts = 2;
+        var llmAttempt = 0;
+        var attemptedNamedChoiceAutoFollowThrough = false;
+        var attemptedDiscreteSlotAutoFollowThrough = false;
+        var internalContinuationSequence = 0;
+        string? recentListWindowsOutput = desktopSession.RecentListWindowsOutput;
+        string? recentWindowContext = desktopSession.RecentWindowContext;
+        string? recentUiTreeContext = desktopSession.RecentUiTreeContext;
+        DesktopEvidenceMetadata? recentUiTreeEvidenceMetadata = desktopSession.RecentUiTreeEvidenceMetadata;
+        string? recentFocusContext = desktopSession.RecentFocusContext;
+        DesktopEvidenceMetadata? recentFocusEvidenceMetadata = desktopSession.RecentFocusEvidenceMetadata;
+        string? currentUiElementContext = desktopSession.CurrentUiElementContext;
+        string? currentFocusElementContext = desktopSession.CurrentFocusElementContext;
+        string? lastCompletedToolNameInTurn = null;
+        AgentReply? forcedReply = null;
+        var scriptedTurnStartCarryForwardUsed = false;
+
+        void SyncDesktopSession()
+        {
+            desktopSession.RecentListWindowsOutput = recentListWindowsOutput;
+            desktopSession.RecentWindowContext = recentWindowContext;
+            desktopSession.RecentUiTreeContext = recentUiTreeContext;
+            desktopSession.RecentUiTreeEvidenceMetadata = recentUiTreeEvidenceMetadata;
+            desktopSession.RecentFocusContext = recentFocusContext;
+            desktopSession.RecentFocusEvidenceMetadata = recentFocusEvidenceMetadata;
+            desktopSession.CurrentUiElementContext = currentUiElementContext;
+            desktopSession.CurrentFocusElementContext = currentFocusElementContext;
+        }
+
+        if (scriptedMode)
+        {
+            var readyStateStopwatch = Stopwatch.StartNew();
+            var carryForwardContext = TryGetScriptedTurnStartCarryForwardContext(
+                turnId,
+                userText,
+                desktopSession,
+                DateTimeOffset.UtcNow,
+                out var carryForwardSkipReason);
+            var readyStateElapsedMs = (int)Math.Round(
+                readyStateStopwatch.Elapsed.TotalMilliseconds,
+                MidpointRounding.AwayFromZero);
+
+            if (carryForwardContext is not null)
+            {
+                scriptedTurnStartCarryForwardUsed = true;
+                messages.Add(new AgentMessage.Summary(BuildScriptedTurnStartCarryForwardSummary(carryForwardContext)));
+                messages.Add(new AgentMessage.User(BuildScriptedTurnStartCarryForwardUserMessage(carryForwardContext)));
+                DebugTrace.WriteStructuredEvent(
+                    "agent.turn.ready_state_used",
+                    new Dictionary<string, object?>
+                    {
+                        ["turn"] = turnId,
+                        ["sourceTurn"] = carryForwardContext.SourceTurnId,
+                        ["windowHandle"] = carryForwardContext.WindowHandle,
+                        ["windowTitle"] = carryForwardContext.WindowTitle,
+                        ["evidenceAgeMs"] = carryForwardContext.EvidenceAgeMs,
+                        ["snapshotSource"] = carryForwardContext.SourceKind,
+                        ["snapshotWasPostAction"] = carryForwardContext.IsPostActionSnapshot,
+                        ["hadUiTree"] = true,
+                        ["hadFocusContext"] = !string.IsNullOrWhiteSpace(carryForwardContext.FocusContext),
+                        ["activationAttempted"] = false,
+                        ["activationSucceeded"] = false,
+                        ["elapsedMs"] = readyStateElapsedMs,
+                    });
+                DebugTrace.WriteStructuredEvent(
+                    "agent.turn.carry_forward_evidence_used",
+                    new Dictionary<string, object?>
+                    {
+                        ["turn"] = turnId,
+                        ["sourceTurn"] = carryForwardContext.SourceTurnId,
+                        ["windowHandle"] = carryForwardContext.WindowHandle,
+                        ["windowTitle"] = carryForwardContext.WindowTitle,
+                        ["evidenceAgeMs"] = carryForwardContext.EvidenceAgeMs,
+                        ["snapshotSource"] = carryForwardContext.SourceKind,
+                        ["snapshotWasPostAction"] = carryForwardContext.IsPostActionSnapshot,
+                        ["hadUiTree"] = true,
+                        ["hadFocusContext"] = !string.IsNullOrWhiteSpace(carryForwardContext.FocusContext),
+                    });
+            }
+            else
+            {
+                DebugTrace.WriteStructuredEvent(
+                    "agent.turn.ready_state_skipped",
+                    new Dictionary<string, object?>
+                    {
+                        ["turn"] = turnId,
+                        ["sourceTurn"] = recentUiTreeEvidenceMetadata?.SourceTurnId,
+                        ["windowHandle"] = desktopSession.CurrentWindowHandle,
+                        ["windowTitle"] = desktopSession.CurrentWindowTitle,
+                        ["evidenceAgeMs"] = GetEvidenceAgeMs(recentUiTreeEvidenceMetadata, DateTimeOffset.UtcNow),
+                        ["snapshotSource"] = recentUiTreeEvidenceMetadata?.SourceKind,
+                        ["snapshotWasPostAction"] = recentUiTreeEvidenceMetadata?.IsPostActionSnapshot,
+                        ["hadUiTree"] = SnapshotContainsElementTree(GetCurrentUiTreeContext(recentWindowContext, recentUiTreeContext)),
+                        ["hadFocusContext"] = !string.IsNullOrWhiteSpace(currentFocusElementContext)
+                                              || !string.IsNullOrWhiteSpace(recentFocusContext),
+                        ["activationAttempted"] = false,
+                        ["activationSucceeded"] = false,
+                        ["skipReason"] = carryForwardSkipReason,
+                        ["elapsedMs"] = readyStateElapsedMs,
+                    });
+                DebugTrace.WriteStructuredEvent(
+                    "agent.turn.carry_forward_evidence_skipped",
+                    new Dictionary<string, object?>
+                    {
+                        ["turn"] = turnId,
+                        ["sourceTurn"] = recentUiTreeEvidenceMetadata?.SourceTurnId,
+                        ["windowHandle"] = desktopSession.CurrentWindowHandle,
+                        ["windowTitle"] = desktopSession.CurrentWindowTitle,
+                        ["evidenceAgeMs"] = GetEvidenceAgeMs(recentUiTreeEvidenceMetadata, DateTimeOffset.UtcNow),
+                        ["snapshotSource"] = recentUiTreeEvidenceMetadata?.SourceKind,
+                        ["snapshotWasPostAction"] = recentUiTreeEvidenceMetadata?.IsPostActionSnapshot,
+                        ["skipReason"] = carryForwardSkipReason,
+                    });
+            }
         }
 
         messages.Add(new AgentMessage.User(userText));
@@ -94,36 +226,12 @@ internal static class AgentRunner
                 ["promptSource"] = composedPrompt.SourceDescription,
                 ["usedFallbackPrompt"] = composedPrompt.UsesFallbackDefinition,
                 ["activeSkills"] = composedPrompt.ActiveSkills.Select(skill => skill.Key).ToArray(),
+                ["scriptedMode"] = scriptedMode,
+                ["turnStartCarryForwardUsed"] = scriptedTurnStartCarryForwardUsed,
             });
         if (displayUserMessage)
         {
             Display.UserMessage(userText);
-        }
-        var usedAnyTools = false;
-        var performedDesktopAction = false;
-        var additionalDesktopEvidenceAttempts = 0;
-        const int maxAdditionalDesktopEvidenceAttempts = 2;
-        var llmAttempt = 0;
-        var attemptedNamedChoiceAutoFollowThrough = false;
-        var attemptedDiscreteSlotAutoFollowThrough = false;
-        var internalContinuationSequence = 0;
-        string? recentListWindowsOutput = desktopSession.RecentListWindowsOutput;
-        string? recentWindowContext = desktopSession.RecentWindowContext;
-        string? recentUiTreeContext = desktopSession.RecentUiTreeContext;
-        string? recentFocusContext = desktopSession.RecentFocusContext;
-        string? currentUiElementContext = desktopSession.CurrentUiElementContext;
-        string? currentFocusElementContext = desktopSession.CurrentFocusElementContext;
-        string? lastCompletedToolNameInTurn = null;
-        AgentReply? forcedReply = null;
-
-        void SyncDesktopSession()
-        {
-            desktopSession.RecentListWindowsOutput = recentListWindowsOutput;
-            desktopSession.RecentWindowContext = recentWindowContext;
-            desktopSession.RecentUiTreeContext = recentUiTreeContext;
-            desktopSession.RecentFocusContext = recentFocusContext;
-            desktopSession.CurrentUiElementContext = currentUiElementContext;
-            desktopSession.CurrentFocusElementContext = currentFocusElementContext;
         }
 
         AgentReply FinalizeTurnReply(AgentReply reply)
@@ -150,7 +258,10 @@ internal static class AgentRunner
             return reply;
         }
 
-        void RememberRecentWindowSnapshot(string snapshotText, string? snapshotToolName = null)
+        void RememberRecentWindowSnapshot(
+            string snapshotText,
+            string? snapshotToolName = null,
+            bool isPostActionSnapshot = false)
         {
             if (DescribePrimaryWindowFromToolOutput(snapshotText) is not null)
             {
@@ -166,6 +277,11 @@ internal static class AgentRunner
             if (SnapshotContainsElementTree(snapshotText))
             {
                 recentUiTreeContext = snapshotText;
+                recentUiTreeEvidenceMetadata = new DesktopEvidenceMetadata(
+                    turnId,
+                    snapshotToolName ?? "window_snapshot",
+                    DateTimeOffset.UtcNow,
+                    isPostActionSnapshot);
                 currentUiElementContext = null;
                 currentFocusElementContext = null;
 
@@ -214,7 +330,10 @@ internal static class AgentRunner
             return currentFocusElementContext;
         }
 
-        void RememberRecentFocusSnapshot(string snapshotText)
+        void RememberRecentFocusSnapshot(
+            string snapshotText,
+            string sourceKind = "describe_window_focus",
+            bool isPostActionSnapshot = false)
         {
             if (string.IsNullOrWhiteSpace(snapshotText))
             {
@@ -228,6 +347,11 @@ internal static class AgentRunner
             }
 
             recentFocusContext = snapshotText;
+            recentFocusEvidenceMetadata = new DesktopEvidenceMetadata(
+                turnId,
+                sourceKind,
+                DateTimeOffset.UtcNow,
+                isPostActionSnapshot);
             currentFocusElementContext = GetCompactSnapshotModelContext(snapshotText);
             SyncDesktopSession();
         }
@@ -235,6 +359,7 @@ internal static class AgentRunner
         void InvalidateRecentFocusSnapshot()
         {
             recentFocusContext = null;
+            recentFocusEvidenceMetadata = null;
             currentFocusElementContext = null;
             SyncDesktopSession();
         }
@@ -373,7 +498,7 @@ internal static class AgentRunner
                 "describe_window",
                 BuildWindowSnapshotArguments(debugMode: DebugTrace.IsEnabled));
             Display.ToolResult("describe_window", postActionSnapshot.Text, postActionSnapshot.Images.Count);
-            RememberRecentWindowSnapshot(postActionSnapshot.Text, "describe_window");
+            RememberRecentWindowSnapshot(postActionSnapshot.Text, "describe_window", isPostActionSnapshot: true);
             if (!string.IsNullOrWhiteSpace(currentUiElementContext))
             {
                 messages.Add(new AgentMessage.User(
@@ -1963,6 +2088,11 @@ internal static class AgentRunner
                         if (toolCall.Name == "focus_window_element")
                         {
                             recentFocusContext = toolOutput.Text;
+                            recentFocusEvidenceMetadata = new DesktopEvidenceMetadata(
+                                turnId,
+                                executableToolName,
+                                DateTimeOffset.UtcNow,
+                                false);
                             currentFocusElementContext = GetCompactSnapshotModelContext(toolOutput.Text);
                             freshToolFocusElementContext = currentFocusElementContext;
                         }
@@ -2065,7 +2195,7 @@ internal static class AgentRunner
                             "describe_window",
                             BuildWindowSnapshotArguments(debugMode: DebugTrace.IsEnabled));
                         Display.ToolResult("describe_window", postActionSnapshot.Text, postActionSnapshot.Images.Count);
-                        RememberRecentWindowSnapshot(postActionSnapshot.Text, "describe_window");
+                        RememberRecentWindowSnapshot(postActionSnapshot.Text, "describe_window", isPostActionSnapshot: true);
                         freshToolUiElementContext = currentUiElementContext;
                         if (!string.IsNullOrWhiteSpace(currentUiElementContext))
                         {
@@ -2123,7 +2253,7 @@ internal static class AgentRunner
                                 "describe_window_focus",
                                 BuildFocusSnapshotArguments(debugMode: DebugTrace.IsEnabled));
                             Display.ToolResult("describe_window_focus", focusSnapshot.Text, focusSnapshot.Images.Count);
-                            RememberRecentFocusSnapshot(focusSnapshot.Text);
+                            RememberRecentFocusSnapshot(focusSnapshot.Text, isPostActionSnapshot: true);
                             freshToolFocusElementContext = currentFocusElementContext;
                             var compactFocusSnapshot = ResolveCurrentFocusElementContext() ?? focusSnapshot.Text;
                             followUpEvidence.Add(new AgentMessage.User(
@@ -3143,6 +3273,212 @@ internal static class AgentRunner
         {
             ["debugMode"] = debugMode,
         };
+
+    internal static ScriptedTurnStartCarryForwardContext? TryGetScriptedTurnStartCarryForwardContext(
+        long turnId,
+        string userText,
+        DesktopSessionContext desktopSession,
+        DateTimeOffset nowUtc,
+        out string skipReason)
+    {
+        skipReason = string.Empty;
+        if (turnId <= 1)
+        {
+            skipReason = "first_scripted_turn";
+            return null;
+        }
+
+        if (UserExplicitlyRequestsFreshDesktopDiscovery(userText))
+        {
+            skipReason = "user_requested_fresh_discovery";
+            return null;
+        }
+
+        var uiTreeMetadata = desktopSession.RecentUiTreeEvidenceMetadata;
+        if (uiTreeMetadata is null)
+        {
+            skipReason = "no_stored_ui_tree_evidence";
+            return null;
+        }
+
+        if (uiTreeMetadata.SourceTurnId <= 0 || uiTreeMetadata.SourceTurnId >= turnId)
+        {
+            skipReason = "no_prior_turn_ui_tree_evidence";
+            return null;
+        }
+
+        if (!uiTreeMetadata.IsPostActionSnapshot &&
+            !string.Equals(uiTreeMetadata.SourceKind, "describe_window", StringComparison.Ordinal))
+        {
+            skipReason = "ui_tree_source_not_trusted";
+            return null;
+        }
+
+        var uiTreeEvidenceAgeMs = GetEvidenceAgeMs(uiTreeMetadata, nowUtc);
+        if (uiTreeEvidenceAgeMs is null ||
+            uiTreeEvidenceAgeMs.Value > ScriptedTurnStartEvidenceMaxAge.TotalMilliseconds)
+        {
+            skipReason = "ui_tree_evidence_stale";
+            return null;
+        }
+
+        var actionableUiTreeContext = GetCurrentUiTreeContext(
+            desktopSession.RecentWindowContext,
+            desktopSession.RecentUiTreeContext);
+        if (!SnapshotContainsElementTree(actionableUiTreeContext))
+        {
+            skipReason = "ui_tree_not_available";
+            return null;
+        }
+
+        var uiContext = ResolveCarryForwardModelContext(
+            desktopSession.CurrentUiElementContext,
+            actionableUiTreeContext);
+        if (string.IsNullOrWhiteSpace(uiContext))
+        {
+            skipReason = "ui_model_context_unavailable";
+            return null;
+        }
+
+        var windowHandle = desktopSession.CurrentWindowHandle;
+        var windowTitle = desktopSession.CurrentWindowTitle;
+        if (string.IsNullOrWhiteSpace(windowHandle) &&
+            string.IsNullOrWhiteSpace(windowTitle))
+        {
+            TryGetPrimaryWindowReference(
+                actionableUiTreeContext!,
+                out windowHandle,
+                out windowTitle);
+        }
+
+        string? focusContext = null;
+        var focusMetadata = desktopSession.RecentFocusEvidenceMetadata;
+        if (focusMetadata is not null &&
+            focusMetadata.SourceTurnId > 0 &&
+            focusMetadata.SourceTurnId == uiTreeMetadata.SourceTurnId &&
+            focusMetadata.CapturedAtUtc >= uiTreeMetadata.CapturedAtUtc)
+        {
+            var focusEvidenceAgeMs = GetEvidenceAgeMs(focusMetadata, nowUtc);
+            if (focusEvidenceAgeMs is not null &&
+                focusEvidenceAgeMs.Value <= ScriptedTurnStartEvidenceMaxAge.TotalMilliseconds)
+            {
+                focusContext = ResolveCarryForwardModelContext(
+                    desktopSession.CurrentFocusElementContext,
+                    desktopSession.RecentFocusContext);
+            }
+        }
+
+        return new ScriptedTurnStartCarryForwardContext(
+            uiTreeMetadata.SourceTurnId,
+            uiTreeMetadata.SourceKind,
+            uiTreeEvidenceAgeMs.Value,
+            windowHandle,
+            windowTitle,
+            uiContext!,
+            focusContext,
+            uiTreeMetadata.IsPostActionSnapshot);
+    }
+
+    internal static string BuildScriptedTurnStartCarryForwardSummary(
+        ScriptedTurnStartCarryForwardContext context)
+    {
+        var windowSummary = BuildWindowSummary(context.WindowHandle, context.WindowTitle);
+        if (string.IsNullOrWhiteSpace(windowSummary))
+        {
+            return "Scripted turn start: the previous turn ended with fresh current-screen evidence. Treat that carry-forward evidence as the current screen unless a later tool result contradicts it, and use it before requesting fresh discovery.";
+        }
+
+        return $"Scripted turn start: the previous turn ended with fresh current-screen evidence for {windowSummary}. Treat that carry-forward evidence as the current screen unless a later tool result contradicts it, and use it before requesting fresh discovery.";
+    }
+
+    internal static string BuildScriptedTurnStartCarryForwardUserMessage(
+        ScriptedTurnStartCarryForwardContext context)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine($"Carry-forward current-screen evidence from the end of scripted turn {context.SourceTurnId}:");
+        var windowSummary = BuildWindowSummary(context.WindowHandle, context.WindowTitle);
+        if (!string.IsNullOrWhiteSpace(windowSummary))
+        {
+            builder.AppendLine($"Window: {windowSummary}");
+        }
+
+        builder.AppendLine("Current UI snapshot:");
+        builder.AppendLine(context.UiContext);
+
+        if (!string.IsNullOrWhiteSpace(context.FocusContext))
+        {
+            builder.AppendLine();
+            builder.AppendLine("Focused element snapshot:");
+            builder.AppendLine(context.FocusContext);
+        }
+
+        return builder.ToString().TrimEnd();
+    }
+
+    internal static long? GetEvidenceAgeMs(
+        DesktopEvidenceMetadata? metadata,
+        DateTimeOffset nowUtc)
+    {
+        if (metadata is null)
+        {
+            return null;
+        }
+
+        var age = nowUtc - metadata.CapturedAtUtc;
+        return age < TimeSpan.Zero
+            ? 0
+            : (long)Math.Round(age.TotalMilliseconds, MidpointRounding.AwayFromZero);
+    }
+
+    private static string? ResolveCarryForwardModelContext(
+        string? preferredContext,
+        string? snapshotText)
+    {
+        if (!string.IsNullOrWhiteSpace(preferredContext))
+        {
+            return preferredContext;
+        }
+
+        if (string.IsNullOrWhiteSpace(snapshotText))
+        {
+            return null;
+        }
+
+        return GetCompactSnapshotModelContext(snapshotText);
+    }
+
+    private static string BuildWindowSummary(string? windowHandle, string? windowTitle)
+    {
+        if (!string.IsNullOrWhiteSpace(windowTitle) &&
+            !string.IsNullOrWhiteSpace(windowHandle))
+        {
+            return $"{windowTitle} ({windowHandle})";
+        }
+
+        if (!string.IsNullOrWhiteSpace(windowTitle))
+        {
+            return windowTitle;
+        }
+
+        return windowHandle ?? string.Empty;
+    }
+
+    private static bool UserExplicitlyRequestsFreshDesktopDiscovery(string userText)
+    {
+        if (string.IsNullOrWhiteSpace(userText))
+        {
+            return false;
+        }
+
+        return userText.Contains("list windows", StringComparison.OrdinalIgnoreCase)
+               || userText.Contains("what windows", StringComparison.OrdinalIgnoreCase)
+               || userText.Contains("which windows", StringComparison.OrdinalIgnoreCase)
+               || userText.Contains("describe_window", StringComparison.OrdinalIgnoreCase)
+               || userText.Contains("describe the window", StringComparison.OrdinalIgnoreCase)
+               || userText.Contains("what's on screen", StringComparison.OrdinalIgnoreCase)
+               || userText.Contains("what is on screen", StringComparison.OrdinalIgnoreCase)
+               || userText.Contains("take a screenshot", StringComparison.OrdinalIgnoreCase);
+    }
 
     internal static IReadOnlyDictionary<string, object?>? TryBuildLaunchFollowUpSelectionArguments(string toolOutputText)
     {
