@@ -27,6 +27,10 @@ applies_when:
 
 # Skill: Desktop Launch And First Look
 
+Treat this skill as the startup phase for a larger task. It is complete once the
+intended app window is foregrounded and the first visible state is verified from
+fresh evidence.
+
 ## Workflow
 
 1. First check whether a likely app window is already visible.
@@ -35,6 +39,7 @@ applies_when:
 4. Prefer taskbar-based launch paths before asking the user to launch the app manually.
 5. After selecting or launching the app, verify that the selected window is the intended target before going deeper.
 6. Describe the first visible state from evidence before taking more actions.
+7. Once startup is verified, continue from that fresh first-look state instead of repeating startup discovery inside the next phase.
 
 ## Tool Preference
 

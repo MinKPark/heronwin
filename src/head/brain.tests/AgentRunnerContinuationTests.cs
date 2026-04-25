@@ -701,31 +701,146 @@ public sealed class AgentRunnerContinuationTests
                        && summary.Content.Contains("Scripted turn start:", StringComparison.Ordinal));
     }
 
-    private static ComposedAgentPrompt CreatePrompt()
-        => new(
-            SystemPrompt: "test prompt",
-            SourceDescription: "unit test",
-            UsesFallbackDefinition: true,
-            ActiveSkills:
+    [Fact]
+    public async Task RunTurnAsync_InjectsStartupInventoryBeforeFirstLlmCall_WhenLaunchSkillIsActive()
+    {
+        DebugTrace.Configure(true);
+
+        try
+        {
+            var llmClient = new QueuedLlmClient(
             [
+                new ChatResult(
+                    """
+                    {
+                      "say": "Edge is available.",
+                      "log": "Edge is available."
+                    }
+                    """,
+                    [])
+            ]);
+            var toolCalls = new List<(string ToolName, IReadOnlyDictionary<string, object?> Args)>();
+            await using var mcpManager = new McpClientManager(
+                _ => Task.FromResult<IReadOnlyList<ToolDefinition>>([]),
+                toolCallTimeoutOverride: null,
+                callToolOverride: (toolName, args, _) =>
+                {
+                    toolCalls.Add((toolName, new Dictionary<string, object?>(args, StringComparer.Ordinal)));
+                    return toolName switch
+                    {
+                        "list_windows" => Task.FromResult(new ToolCallOutcome(BuildListWindowsOutput(), [])),
+                        _ => throw new InvalidOperationException($"Unexpected tool call: {toolName}"),
+                    };
+                });
+
+            var desktopSession = new DesktopSessionContext();
+
+            var reply = await AgentRunner.RunTurnAsync(
+                turnId: 1,
+                userText: "Go to the Netflix website.",
+                history: [],
+                tools:
+                [
+                    CreateToolDefinition("list_windows"),
+                ],
+                composedPrompt: CreatePrompt(includeLaunchSkill: true),
+                llmClient,
+                mcpManager,
+                desktopSession,
+                CancellationToken.None,
+                displayUserMessage: false);
+
+            Assert.Equal("Edge is available.", reply.SpokenText);
+            Assert.Single(toolCalls);
+            Assert.Equal("list_windows", toolCalls[0].ToolName);
+            Assert.Single(llmClient.Requests);
+            Assert.Contains(
+                llmClient.Requests[0],
+                message => message is AgentMessage.Summary summary
+                           && summary.Content.Contains("Startup desktop inventory", StringComparison.Ordinal));
+            Assert.Contains(
+                llmClient.Requests[0],
+                message => message is AgentMessage.User user
+                           && user.Content.Contains("selectedWindowHandle", StringComparison.OrdinalIgnoreCase)
+                           && !user.Content.Contains("ProcessId", StringComparison.OrdinalIgnoreCase));
+            Assert.False(string.IsNullOrWhiteSpace(desktopSession.RecentWindowInventoryModelContext));
+
+            var jsonLogPath = DebugTrace.JsonLogFilePath;
+            Assert.False(string.IsNullOrWhiteSpace(jsonLogPath));
+            Assert.True(File.Exists(jsonLogPath));
+
+            var refreshedFound = false;
+            var usedFound = false;
+            foreach (var line in ReadLinesWithSharedAccess(jsonLogPath!))
+            {
+                using var document = JsonDocument.Parse(line);
+                var category = document.RootElement.GetProperty("category").GetString();
+                if (string.Equals(category, "agent.turn.startup_inventory_refreshed", StringComparison.Ordinal))
+                {
+                    refreshedFound = true;
+                }
+
+                if (string.Equals(category, "agent.turn.startup_inventory_used", StringComparison.Ordinal))
+                {
+                    usedFound = true;
+                }
+            }
+
+            Assert.True(refreshedFound);
+            Assert.True(usedFound);
+        }
+        finally
+        {
+            DebugTrace.Configure(false);
+        }
+    }
+
+    private static ComposedAgentPrompt CreatePrompt(bool includeLaunchSkill = false)
+    {
+        var skills = new List<AgentSkillPrompt>();
+        if (includeLaunchSkill)
+        {
+            skills.Add(
                 new AgentSkillPrompt(
-                    "netflix-profile-and-pin",
-                    "skills/netflix/netflix-profile-and-pin.skill.md",
+                    "desktop-launch-and-first-look",
+                    "skills/windows/desktop-launch-and-first-look.skill.md",
                     "# Skill",
                     new AgentSkillMetadata(
-                        "netflix-profile-and-pin",
+                        "desktop-launch-and-first-look",
                         Summary: null,
                         PreferredTools: [],
                         AppliesWhen: [],
-                        Group: "netflix",
+                        Group: "windows",
                         Priority: 100,
                         Activation: new AgentSkillActivation([], [], [], [], [], [], [], []),
-                        Affordances:
-                        [
-                            "discrete_slot_text_entry",
-                            "discrete_slot_text_rewrite",
-                        ]))
-            ]);
+                        Affordances: [])));
+        }
+
+        skills.Add(
+            new AgentSkillPrompt(
+                "netflix-profile-and-pin",
+                "skills/netflix/netflix-profile-and-pin.skill.md",
+                "# Skill",
+                new AgentSkillMetadata(
+                    "netflix-profile-and-pin",
+                    Summary: null,
+                    PreferredTools: [],
+                    AppliesWhen: [],
+                    Group: "netflix",
+                    Priority: 100,
+                    Activation: new AgentSkillActivation([], [], [], [], [], [], [], []),
+                    Affordances:
+                    [
+                        "discrete_slot_text_entry",
+                        "discrete_slot_text_rewrite",
+                    ])));
+
+        return new(
+            SystemPrompt: "test prompt",
+            SourceDescription: "unit test",
+            UsesFallbackDefinition: true,
+            ActiveSkills: skills);
+    }
 
     private static ToolDefinition CreateToolDefinition(string name)
     {
@@ -830,6 +945,31 @@ public sealed class AgentRunnerContinuationTests
             "ControlType": "Edit",
             "ClassName": "pin-number-input focus-visible"
           }
+        }
+        """;
+
+    private static string BuildListWindowsOutput()
+        => """
+        {
+          "SelectedWindowHandle": null,
+          "Windows": [
+            {
+              "Handle": "0x000403D6",
+              "Title": "(89) YouTube - Personal - Microsoft Edge",
+              "ClassName": "Chrome_WidgetWin_1",
+              "ProcessId": 5212,
+              "Bounds": { "Left": -1928, "Top": -8, "Width": 1936, "Height": 1048 },
+              "IsSelected": false
+            },
+            {
+              "Handle": "0x000901FC",
+              "Title": "heronwin - Visual Studio Code",
+              "ClassName": "Chrome_WidgetWin_1",
+              "ProcessId": 8420,
+              "Bounds": { "Left": 0, "Top": 0, "Width": 1936, "Height": 1048 },
+              "IsSelected": false
+            }
+          ]
         }
         """;
 

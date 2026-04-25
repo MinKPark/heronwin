@@ -14,6 +14,10 @@ internal sealed class DesktopSessionContext
 
     public string? RecentListWindowsOutput { get; set; }
 
+    public DesktopEvidenceMetadata? RecentListWindowsEvidenceMetadata { get; set; }
+
+    public string? RecentWindowInventoryModelContext { get; set; }
+
     public string? RecentWindowContext { get; set; }
 
     public string? RecentUiTreeContext { get; set; }

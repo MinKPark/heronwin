@@ -27,6 +27,28 @@ internal sealed record ScriptedTurnStartCarryForwardContext(
     string? FocusContext,
     bool IsPostActionSnapshot);
 
+internal sealed record StartupWindowInventoryContext(
+    long SourceTurnId,
+    string SourceKind,
+    long EvidenceAgeMs,
+    string? SelectedWindowHandle,
+    int WindowCount,
+    int OmittedWindowCount,
+    string InventoryContext);
+
+internal sealed record CompactWindowInventoryWindow(
+    string? Handle,
+    string? Title,
+    string? ClassName,
+    bool IsSelected,
+    bool HasUsableBounds);
+
+internal sealed record CompactWindowInventorySnapshot(
+    string? SelectedWindowHandle,
+    IReadOnlyList<CompactWindowInventoryWindow> Windows,
+    int WindowCount,
+    int OmittedWindowCount);
+
 internal abstract record AgentMessage(string Role)
 {
     public sealed record User(string Content) : AgentMessage("user");
@@ -69,6 +91,7 @@ internal interface IAudioTranscriber
 internal static class AgentRunner
 {
     private static readonly TimeSpan ScriptedTurnStartEvidenceMaxAge = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan StartupWindowInventoryMaxAge = TimeSpan.FromSeconds(30);
 
     public static async Task<AgentReply> RunTurnAsync(
         long turnId,
@@ -104,6 +127,8 @@ internal static class AgentRunner
         var attemptedDiscreteSlotAutoFollowThrough = false;
         var internalContinuationSequence = 0;
         string? recentListWindowsOutput = desktopSession.RecentListWindowsOutput;
+        DesktopEvidenceMetadata? recentListWindowsEvidenceMetadata = desktopSession.RecentListWindowsEvidenceMetadata;
+        string? recentWindowInventoryModelContext = desktopSession.RecentWindowInventoryModelContext;
         string? recentWindowContext = desktopSession.RecentWindowContext;
         string? recentUiTreeContext = desktopSession.RecentUiTreeContext;
         DesktopEvidenceMetadata? recentUiTreeEvidenceMetadata = desktopSession.RecentUiTreeEvidenceMetadata;
@@ -114,10 +139,13 @@ internal static class AgentRunner
         string? lastCompletedToolNameInTurn = null;
         AgentReply? forcedReply = null;
         var scriptedTurnStartCarryForwardUsed = false;
+        var startupWindowInventoryUsed = false;
 
         void SyncDesktopSession()
         {
             desktopSession.RecentListWindowsOutput = recentListWindowsOutput;
+            desktopSession.RecentListWindowsEvidenceMetadata = recentListWindowsEvidenceMetadata;
+            desktopSession.RecentWindowInventoryModelContext = recentWindowInventoryModelContext;
             desktopSession.RecentWindowContext = recentWindowContext;
             desktopSession.RecentUiTreeContext = recentUiTreeContext;
             desktopSession.RecentUiTreeEvidenceMetadata = recentUiTreeEvidenceMetadata;
@@ -214,6 +242,108 @@ internal static class AgentRunner
             }
         }
 
+        var startupInventorySkipReason = "startup_inventory_not_considered";
+        if (ShouldOfferStartupWindowInventory(
+                userText,
+                composedPrompt.ActiveSkills,
+                recentWindowContext,
+                recentUiTreeContext,
+                out startupInventorySkipReason))
+        {
+            var startupInventoryContext = TryGetStartupWindowInventoryContext(
+                recentListWindowsOutput,
+                recentListWindowsEvidenceMetadata,
+                recentWindowInventoryModelContext,
+                DateTimeOffset.UtcNow,
+                out startupInventorySkipReason);
+            var startupInventoryRefreshed = false;
+
+            if (startupInventoryContext is null &&
+                availableToolNames.Contains("list_windows"))
+            {
+                var inventoryStopwatch = Stopwatch.StartNew();
+                try
+                {
+                    var listResult = await CallToolWithDesktopSessionAsync(
+                        "list_windows",
+                        new Dictionary<string, object?>());
+                    var elapsedMs = (int)Math.Round(inventoryStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero);
+                    DebugTrace.WriteStructuredEvent(
+                        "agent.turn.startup_inventory_refreshed",
+                        new Dictionary<string, object?>
+                        {
+                            ["turn"] = turnId,
+                            ["sourceTurn"] = recentListWindowsEvidenceMetadata?.SourceTurnId,
+                            ["snapshotSource"] = recentListWindowsEvidenceMetadata?.SourceKind,
+                            ["isError"] = listResult.IsError,
+                            ["elapsedMs"] = elapsedMs,
+                            ["reason"] = startupInventorySkipReason,
+                            ["resultPreview"] = DebugTrace.Preview(listResult.Text, 700),
+                        });
+
+                    if (!listResult.IsError)
+                    {
+                        startupInventoryRefreshed = true;
+                        RememberRecentWindowInventory(listResult.Text, "list_windows");
+                        startupInventoryContext = TryGetStartupWindowInventoryContext(
+                            recentListWindowsOutput,
+                            recentListWindowsEvidenceMetadata,
+                            recentWindowInventoryModelContext,
+                            DateTimeOffset.UtcNow,
+                            out startupInventorySkipReason);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    DebugTrace.WriteStructuredEvent(
+                        "agent.turn.startup_inventory_refresh_failed",
+                        new Dictionary<string, object?>
+                        {
+                            ["turn"] = turnId,
+                            ["sourceTurn"] = recentListWindowsEvidenceMetadata?.SourceTurnId,
+                            ["snapshotSource"] = recentListWindowsEvidenceMetadata?.SourceKind,
+                            ["reason"] = startupInventorySkipReason,
+                            ["error"] = DebugTrace.Preview(ex.ToString(), 700),
+                        });
+                    startupInventorySkipReason = "startup_inventory_refresh_failed";
+                }
+            }
+
+            if (startupInventoryContext is not null)
+            {
+                startupWindowInventoryUsed = true;
+                messages.Add(new AgentMessage.Summary(BuildStartupWindowInventorySummary(startupInventoryContext)));
+                messages.Add(new AgentMessage.User(BuildStartupWindowInventoryUserMessage(startupInventoryContext)));
+                DebugTrace.WriteStructuredEvent(
+                    startupInventoryRefreshed
+                        ? "agent.turn.startup_inventory_used"
+                        : "agent.turn.startup_inventory_reused",
+                    new Dictionary<string, object?>
+                    {
+                        ["turn"] = turnId,
+                        ["sourceTurn"] = startupInventoryContext.SourceTurnId,
+                        ["snapshotSource"] = startupInventoryContext.SourceKind,
+                        ["evidenceAgeMs"] = startupInventoryContext.EvidenceAgeMs,
+                        ["selectedWindowHandle"] = startupInventoryContext.SelectedWindowHandle,
+                        ["windowCount"] = startupInventoryContext.WindowCount,
+                        ["omittedWindowCount"] = startupInventoryContext.OmittedWindowCount,
+                    });
+            }
+            else
+            {
+                DebugTrace.WriteStructuredEvent(
+                    "agent.turn.startup_inventory_skipped",
+                    new Dictionary<string, object?>
+                    {
+                        ["turn"] = turnId,
+                        ["sourceTurn"] = recentListWindowsEvidenceMetadata?.SourceTurnId,
+                        ["snapshotSource"] = recentListWindowsEvidenceMetadata?.SourceKind,
+                        ["evidenceAgeMs"] = GetEvidenceAgeMs(recentListWindowsEvidenceMetadata, DateTimeOffset.UtcNow),
+                        ["skipReason"] = startupInventorySkipReason,
+                    });
+            }
+        }
+
         messages.Add(new AgentMessage.User(userText));
         DebugTrace.WriteStructuredEvent(
             "agent.turn.start",
@@ -228,6 +358,7 @@ internal static class AgentRunner
                 ["activeSkills"] = composedPrompt.ActiveSkills.Select(skill => skill.Key).ToArray(),
                 ["scriptedMode"] = scriptedMode,
                 ["turnStartCarryForwardUsed"] = scriptedTurnStartCarryForwardUsed,
+                ["startupWindowInventoryUsed"] = startupWindowInventoryUsed,
             });
         if (displayUserMessage)
         {
@@ -291,6 +422,27 @@ internal static class AgentRunner
                 }
             }
 
+            SyncDesktopSession();
+        }
+
+        void RememberRecentWindowInventory(
+            string inventoryText,
+            string sourceKind = "list_windows")
+        {
+            if (string.IsNullOrWhiteSpace(inventoryText))
+            {
+                return;
+            }
+
+            recentListWindowsOutput = inventoryText;
+            recentListWindowsEvidenceMetadata = new DesktopEvidenceMetadata(
+                turnId,
+                sourceKind,
+                DateTimeOffset.UtcNow,
+                false);
+            recentWindowInventoryModelContext = TryBuildCompactWindowInventoryModelContext(inventoryText, out var compactInventoryContext)
+                ? compactInventoryContext
+                : null;
             SyncDesktopSession();
         }
 
@@ -1220,7 +1372,7 @@ internal static class AgentRunner
 
                             if (!listResult.IsError)
                             {
-                                recentListWindowsOutput = listResult.Text;
+                                RememberRecentWindowInventory(listResult.Text, "list_windows");
                             }
                         }
                         catch (Exception ex)
@@ -1533,7 +1685,7 @@ internal static class AgentRunner
 
                         if (!listResult.IsError)
                         {
-                            recentListWindowsOutput = listResult.Text;
+                            RememberRecentWindowInventory(listResult.Text, "list_windows");
                         }
                     }
                     catch (Exception ex)
@@ -2069,7 +2221,7 @@ internal static class AgentRunner
 
                     if (toolCall.Name == "list_windows")
                     {
-                        recentListWindowsOutput = toolOutput.Text;
+                        RememberRecentWindowInventory(toolOutput.Text, executableToolName);
                     }
 
                     if (string.Equals(executableToolName, "describe_window", StringComparison.Ordinal))
@@ -2313,6 +2465,7 @@ internal static class AgentRunner
                     executableToolName,
                     toolOutput.Text,
                     toolOutput.IsError,
+                    recentWindowInventoryModelContext,
                     freshToolUiElementContext
                         ?? (string.Equals(executableToolName, "capture_window_screenshot", StringComparison.Ordinal)
                             ? ResolveCurrentUiElementContext()
@@ -3415,6 +3568,135 @@ internal static class AgentRunner
         return builder.ToString().TrimEnd();
     }
 
+    internal static bool ShouldOfferStartupWindowInventory(
+        string userText,
+        IReadOnlyList<AgentSkillPrompt> activeSkills,
+        string? recentWindowContext,
+        string? recentUiTreeContext,
+        out string skipReason)
+    {
+        skipReason = string.Empty;
+
+        if (!activeSkills.Any(skill => string.Equals(skill.Key, "desktop-launch-and-first-look", StringComparison.Ordinal)))
+        {
+            skipReason = "launch_skill_inactive";
+            return false;
+        }
+
+        if (UserExplicitlyRequestsFreshDesktopDiscovery(userText))
+        {
+            skipReason = "user_requested_fresh_discovery";
+            return false;
+        }
+
+        var currentSurface = GetCurrentUiTreeContext(recentWindowContext, recentUiTreeContext)
+                             ?? recentWindowContext
+                             ?? recentUiTreeContext;
+
+        if (UserRequestLooksLikeWebsiteNavigation(userText))
+        {
+            if (SnapshotLooksLikeBrowserWindow(currentSurface))
+            {
+                skipReason = "current_surface_already_browser";
+                return false;
+            }
+
+            skipReason = string.Empty;
+            return true;
+        }
+
+        if (TryExtractRequestedAppLaunchName(userText, out var requestedAppName))
+        {
+            if (ToolOutputWindowLooksLikeRequestedApp(currentSurface, requestedAppName))
+            {
+                skipReason = "current_surface_already_requested_app";
+                return false;
+            }
+
+            skipReason = string.Empty;
+            return true;
+        }
+
+        if (UserRequestLooksLikeActivation(userText))
+        {
+            skipReason = string.Empty;
+            return true;
+        }
+
+        skipReason = "request_does_not_need_startup_inventory";
+        return false;
+    }
+
+    internal static StartupWindowInventoryContext? TryGetStartupWindowInventoryContext(
+        string? recentListWindowsOutput,
+        DesktopEvidenceMetadata? metadata,
+        string? recentWindowInventoryModelContext,
+        DateTimeOffset nowUtc,
+        out string skipReason)
+    {
+        skipReason = string.Empty;
+        if (metadata is null)
+        {
+            skipReason = "no_stored_window_inventory";
+            return null;
+        }
+
+        var evidenceAgeMs = GetEvidenceAgeMs(metadata, nowUtc);
+        if (evidenceAgeMs is null)
+        {
+            skipReason = "window_inventory_age_unavailable";
+            return null;
+        }
+
+        if (evidenceAgeMs.Value > StartupWindowInventoryMaxAge.TotalMilliseconds)
+        {
+            skipReason = "window_inventory_stale";
+            return null;
+        }
+
+        if (!TryBuildCompactWindowInventorySnapshot(recentListWindowsOutput, out var inventorySnapshot))
+        {
+            skipReason = "window_inventory_parse_failed";
+            return null;
+        }
+
+        var inventoryContext = !string.IsNullOrWhiteSpace(recentWindowInventoryModelContext)
+            ? recentWindowInventoryModelContext
+            : GetCompactWindowInventoryModelContext(recentListWindowsOutput);
+        if (string.IsNullOrWhiteSpace(inventoryContext))
+        {
+            skipReason = "window_inventory_model_context_unavailable";
+            return null;
+        }
+
+        return new StartupWindowInventoryContext(
+            metadata.SourceTurnId,
+            metadata.SourceKind,
+            evidenceAgeMs.Value,
+            inventorySnapshot.SelectedWindowHandle,
+            inventorySnapshot.WindowCount,
+            inventorySnapshot.OmittedWindowCount,
+            inventoryContext);
+    }
+
+    internal static string BuildStartupWindowInventorySummary(StartupWindowInventoryContext context)
+    {
+        var selectedWindowText = string.IsNullOrWhiteSpace(context.SelectedWindowHandle)
+            ? "No selected window is recorded in this inventory."
+            : $"Selected window handle: {context.SelectedWindowHandle}.";
+        return $"Startup desktop inventory is available from {context.SourceKind}. {selectedWindowText} Use it to decide whether to keep the current app, activate an existing window, or launch a new app before deeper in-app actions.";
+    }
+
+    internal static string BuildStartupWindowInventoryUserMessage(StartupWindowInventoryContext context)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine($"Startup desktop inventory from {context.SourceKind} (evidence age {context.EvidenceAgeMs} ms):");
+        builder.AppendLine(context.InventoryContext);
+        builder.AppendLine();
+        builder.Append("Use this inventory only for startup choice: keep the current app, activate an existing window, or launch a new app. After startup, switch back to fresh current-window evidence.");
+        return builder.ToString();
+    }
+
     internal static long? GetEvidenceAgeMs(
         DesktopEvidenceMetadata? metadata,
         DateTimeOffset nowUtc)
@@ -3671,6 +3953,7 @@ internal static class AgentRunner
         string toolName,
         string toolText,
         bool toolIsError,
+        string? currentWindowInventoryContext,
         string? currentUiElementContext,
         string? currentFocusElementContext,
         LlmModelProfile modelProfile)
@@ -3679,6 +3962,13 @@ internal static class AgentRunner
 
         if (!toolIsError)
         {
+            if (toolName == "list_windows")
+            {
+                return !string.IsNullOrWhiteSpace(currentWindowInventoryContext)
+                    ? currentWindowInventoryContext
+                    : GetCompactWindowInventoryModelContext(toolText);
+            }
+
             if (toolName == "describe_window_focus" &&
                 !string.IsNullOrWhiteSpace(currentFocusElementContext))
             {
@@ -3707,6 +3997,196 @@ internal static class AgentRunner
         }
 
         return toolText;
+    }
+
+    private static string GetCompactWindowInventoryModelContext(string? listWindowsOutput)
+        => TryBuildCompactWindowInventoryModelContext(listWindowsOutput, out var modelContext)
+            ? modelContext
+            : listWindowsOutput ?? string.Empty;
+
+    internal static bool TryBuildCompactWindowInventoryModelContext(
+        string? listWindowsOutput,
+        out string modelContext)
+    {
+        modelContext = string.Empty;
+        if (!TryBuildCompactWindowInventorySnapshot(listWindowsOutput, out var inventorySnapshot))
+        {
+            return false;
+        }
+
+        var jsonContext = BuildCompactWindowInventoryJsonContext(inventorySnapshot);
+        var yamlContext = BuildCompactWindowInventoryYamlContext(inventorySnapshot);
+        modelContext = Encoding.UTF8.GetByteCount(yamlContext) < Encoding.UTF8.GetByteCount(jsonContext)
+            ? yamlContext
+            : jsonContext;
+        return true;
+    }
+
+    private static bool TryBuildCompactWindowInventorySnapshot(
+        string? listWindowsOutput,
+        out CompactWindowInventorySnapshot inventorySnapshot)
+    {
+        inventorySnapshot = new CompactWindowInventorySnapshot(null, [], 0, 0);
+        if (string.IsNullOrWhiteSpace(listWindowsOutput))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(listWindowsOutput);
+            var root = document.RootElement;
+            if (!TryGetJsonProperty(root, "windows", out var windowsElement) ||
+                windowsElement.ValueKind != JsonValueKind.Array)
+            {
+                return false;
+            }
+
+            var selectedWindowHandle = TryGetJsonStringProperty(root, "selectedWindowHandle");
+            var windows = new List<CompactWindowInventoryWindow>();
+            var totalWindowCount = 0;
+
+            foreach (var window in windowsElement.EnumerateArray())
+            {
+                totalWindowCount += 1;
+                var handle = TryGetJsonStringProperty(window, "handle");
+                var title = TryGetJsonStringProperty(window, "title");
+                var className = TryGetJsonStringProperty(window, "className");
+                var isSelected = TryGetJsonBooleanProperty(window, "isSelected") == true
+                                 || (!string.IsNullOrWhiteSpace(selectedWindowHandle)
+                                     && string.Equals(handle, selectedWindowHandle, StringComparison.OrdinalIgnoreCase));
+                var hasUsableBounds = HasUsableWindowBounds(window);
+
+                if (string.IsNullOrWhiteSpace(handle) &&
+                    string.IsNullOrWhiteSpace(title) &&
+                    string.IsNullOrWhiteSpace(className) &&
+                    !isSelected)
+                {
+                    continue;
+                }
+
+                windows.Add(new CompactWindowInventoryWindow(
+                    handle,
+                    title,
+                    className,
+                    isSelected,
+                    hasUsableBounds));
+            }
+
+            inventorySnapshot = new CompactWindowInventorySnapshot(
+                selectedWindowHandle,
+                windows,
+                totalWindowCount,
+                Math.Max(0, totalWindowCount - windows.Count));
+            return windows.Count > 0 || totalWindowCount == 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string BuildCompactWindowInventoryJsonContext(CompactWindowInventorySnapshot inventorySnapshot)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+
+            if (inventorySnapshot.SelectedWindowHandle is null)
+            {
+                writer.WriteNull("selectedWindowHandle");
+            }
+            else
+            {
+                writer.WriteString("selectedWindowHandle", inventorySnapshot.SelectedWindowHandle);
+            }
+
+            writer.WriteNumber("windowCount", inventorySnapshot.WindowCount);
+            writer.WriteNumber("omittedWindowCount", inventorySnapshot.OmittedWindowCount);
+            writer.WritePropertyName("windows");
+            writer.WriteStartArray();
+
+            foreach (var window in inventorySnapshot.Windows)
+            {
+                writer.WriteStartObject();
+                if (window.Handle is null)
+                {
+                    writer.WriteNull("handle");
+                }
+                else
+                {
+                    writer.WriteString("handle", window.Handle);
+                }
+
+                if (window.Title is null)
+                {
+                    writer.WriteNull("title");
+                }
+                else
+                {
+                    writer.WriteString("title", window.Title);
+                }
+
+                if (window.ClassName is null)
+                {
+                    writer.WriteNull("className");
+                }
+                else
+                {
+                    writer.WriteString("className", window.ClassName);
+                }
+
+                writer.WriteBoolean("isSelected", window.IsSelected);
+                writer.WriteBoolean("hasUsableBounds", window.HasUsableBounds);
+                writer.WriteEndObject();
+            }
+
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
+
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    private static string BuildCompactWindowInventoryYamlContext(CompactWindowInventorySnapshot inventorySnapshot)
+    {
+        var builder = new StringBuilder();
+        builder.Append('{');
+        builder.Append("selectedWindowHandle: ");
+        builder.Append(inventorySnapshot.SelectedWindowHandle is null
+            ? "null"
+            : FormatYamlScalar(inventorySnapshot.SelectedWindowHandle));
+        builder.Append(",windowCount: ");
+        builder.Append(inventorySnapshot.WindowCount);
+        builder.Append(",omittedWindowCount: ");
+        builder.Append(inventorySnapshot.OmittedWindowCount);
+        builder.Append(",windows: [");
+
+        for (var index = 0; index < inventorySnapshot.Windows.Count; index += 1)
+        {
+            if (index > 0)
+            {
+                builder.Append(',');
+            }
+
+            var window = inventorySnapshot.Windows[index];
+            builder.Append('{');
+            builder.Append("handle: ");
+            builder.Append(window.Handle is null ? "null" : FormatYamlScalar(window.Handle));
+            builder.Append(",title: ");
+            builder.Append(window.Title is null ? "null" : FormatYamlScalar(window.Title));
+            builder.Append(",className: ");
+            builder.Append(window.ClassName is null ? "null" : FormatYamlScalar(window.ClassName));
+            builder.Append(",isSelected: ");
+            builder.Append(window.IsSelected ? "true" : "false");
+            builder.Append(",hasUsableBounds: ");
+            builder.Append(window.HasUsableBounds ? "true" : "false");
+            builder.Append('}');
+        }
+
+        builder.Append("]}");
+        return builder.ToString();
     }
 
     private static string GetCompactSnapshotModelContext(string snapshotText)

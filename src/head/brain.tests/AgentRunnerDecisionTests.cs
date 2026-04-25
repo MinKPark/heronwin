@@ -649,6 +649,46 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void ShouldOfferStartupWindowInventory_ReturnsTrue_ForWebsiteNavigationWithoutBrowserSurface()
+    {
+        var activeSkills =
+            new[]
+            {
+                CreateSkillPrompt("desktop-launch-and-first-look", "windows"),
+            };
+
+        var actual = AgentRunner.ShouldOfferStartupWindowInventory(
+            "Go to the Netflix website.",
+            activeSkills,
+            """{"Window":{"Handle":"0x000901FC","Title":"heronwin - Visual Studio Code","ClassName":"Chrome_WidgetWin_1"}}""",
+            recentUiTreeContext: null,
+            out var skipReason);
+
+        Assert.True(actual);
+        Assert.Equal(string.Empty, skipReason);
+    }
+
+    [Fact]
+    public void ShouldOfferStartupWindowInventory_ReturnsFalse_WhenBrowserSurfaceAlreadyCurrent()
+    {
+        var activeSkills =
+            new[]
+            {
+                CreateSkillPrompt("desktop-launch-and-first-look", "windows"),
+            };
+
+        var actual = AgentRunner.ShouldOfferStartupWindowInventory(
+            "Go to the Netflix website.",
+            activeSkills,
+            """{"Window":{"Handle":"0x00060A88","Title":"Netflix - Microsoft Edge","ClassName":"Chrome_WidgetWin_1"}}""",
+            recentUiTreeContext: null,
+            out var skipReason);
+
+        Assert.False(actual);
+        Assert.Equal("current_surface_already_browser", skipReason);
+    }
+
+    [Fact]
     public void ShouldBlockTaskbarSearchForBrowserContentQuery_ReturnsTrue_ForShowSearchInBrowser()
     {
         var actual = AgentRunner.ShouldBlockTaskbarSearchForBrowserContentQuery(
@@ -1757,6 +1797,7 @@ public sealed class AgentRunnerDecisionTests
             "launch_application",
             rawToolText,
             toolIsError: false,
+            currentWindowInventoryContext: null,
             currentUiElementContext: keptUiElementContext,
             currentFocusElementContext: null,
             profile);
@@ -1775,6 +1816,7 @@ public sealed class AgentRunnerDecisionTests
             "capture_window_screenshot",
             rawToolText,
             toolIsError: false,
+            currentWindowInventoryContext: null,
             currentUiElementContext: keptUiElementContext,
             currentFocusElementContext: null,
             profile);
@@ -1793,6 +1835,7 @@ public sealed class AgentRunnerDecisionTests
             "describe_window_focus",
             rawToolText,
             toolIsError: false,
+            currentWindowInventoryContext: null,
             currentUiElementContext: null,
             currentFocusElementContext: keptFocusContext,
             profile);
@@ -1812,6 +1855,7 @@ public sealed class AgentRunnerDecisionTests
             "describe_window",
             compactToolText,
             toolIsError: false,
+            currentWindowInventoryContext: null,
             currentUiElementContext: null,
             currentFocusElementContext: null,
             profile);
@@ -1877,6 +1921,7 @@ public sealed class AgentRunnerDecisionTests
             "describe_window",
             snapshot,
             toolIsError: false,
+            currentWindowInventoryContext: null,
             currentUiElementContext: null,
             currentFocusElementContext: null,
             profile);
@@ -1895,11 +1940,51 @@ public sealed class AgentRunnerDecisionTests
             "click_window_element",
             rawToolText,
             toolIsError: true,
+            currentWindowInventoryContext: null,
             currentUiElementContext: keptUiElementContext,
             currentFocusElementContext: null,
             profile);
 
         Assert.Equal(rawToolText, actual);
+    }
+
+    [Fact]
+    public void TryBuildCompactWindowInventoryModelContext_RemovesHeavyFields()
+    {
+        var actual = AgentRunner.TryBuildCompactWindowInventoryModelContext(
+            BuildListWindowsOutput(),
+            out var modelContext);
+
+        Assert.True(actual);
+        Assert.Contains("selectedWindowHandle", modelContext, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("windowCount", modelContext, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("windows", modelContext, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ProcessId", modelContext, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Width", modelContext, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Height", modelContext, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ResolveToolResultContextForModel_ReturnsCompactInventory_ForListWindows()
+    {
+        var profile = LlmModelProfiles.Create(LlmProviderId.OpenAiApi, "gpt-5.4-mini");
+        AgentRunner.TryBuildCompactWindowInventoryModelContext(
+            BuildListWindowsOutput(),
+            out var compactInventoryContext);
+
+        var actual = AgentRunner.ResolveToolResultContextForModel(
+            "list_windows",
+            BuildListWindowsOutput(),
+            toolIsError: false,
+            currentWindowInventoryContext: compactInventoryContext,
+            currentUiElementContext: null,
+            currentFocusElementContext: null,
+            profile);
+
+        Assert.Equal(compactInventoryContext, actual);
+        Assert.DoesNotContain("ProcessId", actual, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Width", actual, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Height", actual, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -1968,6 +2053,46 @@ public sealed class AgentRunnerDecisionTests
         Assert.True(rewritten);
         Assert.Equal("1/0/0/1/1/0/0/0/0/0/0/0/0/2/0", rewrittenArgs["elementPath"]);
     }
+
+    private static AgentSkillPrompt CreateSkillPrompt(string key, string group)
+        => new(
+            key,
+            $"skills/{group}/{key}.skill.md",
+            "# Skill",
+            new AgentSkillMetadata(
+                key,
+                Summary: null,
+                PreferredTools: [],
+                AppliesWhen: [],
+                Group: group,
+                Priority: 100,
+                Activation: new AgentSkillActivation([], [], [], [], [], [], [], []),
+                Affordances: []));
+
+    private static string BuildListWindowsOutput()
+        => """
+        {
+          "SelectedWindowHandle": null,
+          "Windows": [
+            {
+              "Handle": "0x000403D6",
+              "Title": "(89) YouTube - Personal - Microsoft Edge",
+              "ClassName": "Chrome_WidgetWin_1",
+              "ProcessId": 5212,
+              "Bounds": { "Left": -1928, "Top": -8, "Width": 1936, "Height": 1048 },
+              "IsSelected": false
+            },
+            {
+              "Handle": "0x000901FC",
+              "Title": "heronwin - Visual Studio Code",
+              "ClassName": "Chrome_WidgetWin_1",
+              "ProcessId": 8420,
+              "Bounds": { "Left": 0, "Top": 0, "Width": 1936, "Height": 1048 },
+              "IsSelected": false
+            }
+          ]
+        }
+        """;
 
     [Fact]
     public void TryRewriteGenericContainerActionToNamedTarget_RewritesWrongHeadingTextToExactNamedListItem()

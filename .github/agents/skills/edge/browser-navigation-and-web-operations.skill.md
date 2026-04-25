@@ -54,6 +54,13 @@ applies_when:
 8. Unless the user explicitly wants to modify the existing address-bar text in place, clear the current address-bar contents before entering a new address or URL.
 9. After navigation or site-search actions, refresh the visible browser state and verify that the page actually changed to the intended site or result state.
 
+## Stable-Phase Guidance
+
+- Treat browser chrome preparation and direct URL entry as one stable phase when the browser window is already validated and the next few actions stay on the same browser-chrome surface.
+- In that stable phase, it is acceptable to return a short bounded sequence such as new tab or address-bar focus, full URL replacement, and submission in one response when those steps are deterministic from the current evidence.
+- Stop that batch at the likely transition boundary such as pressing `Enter`, opening a new page, or invoking a result that should change the visible page.
+- After that transition boundary, wait for fresh browser evidence before deciding whether navigation succeeded, failed, or needs repair.
+
 ## Direct Website Navigation Rules
 
 - When the user says to go to a website, open a site, open a URL, or use the address bar, treat that as direct URL navigation, not a search-engine query.
