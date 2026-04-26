@@ -8,15 +8,17 @@
 heronwin/
 └── src/
     ├── head/
-    │   ├── brain/          # .NET 10 AI agent runtime (voice input, scripted runs, MCP client)
-    │   ├── face/           # WPF desktop companion window for status, settings, and live state
-    │   └── brain.tests/    # xUnit tests for brain
-    ├── body/             # MCP servers and shared desktop automation code
-    │   ├── process-manager/   # Start, stop, and list processes on the local machine
-    │   ├── cognition/         # Inspect Windows UI and window structure
-    │   ├── execution/         # Interact with Windows UI and applications
-    │   └── desktop-automation/# Shared UI Automation library
-    └── scenarios/        # YAML scenarios for scripted runs
+    │   ├── brain/                    # .NET 10 AI agent runtime (voice input, scripted runs, MCP client)
+    │   ├── brain.tests/              # xUnit tests for brain
+    │   └── face/                     # WPF desktop companion window for status, settings, and live state
+    ├── body/                         # MCP servers and shared desktop automation code
+    │   ├── process-manager/          # Start, stop, and list processes on the local machine
+    │   ├── cognition/                # Inspect Windows UI and window structure
+    │   ├── execution/                # Interact with Windows UI and applications
+    │   ├── desktop-automation/       # Shared UI Automation library
+    │   ├── desktop-automation.tests/ # xUnit tests for desktop-automation
+    │   └── micrecorder/              # Microphone capture helper used by brain
+    └── scenarios/                    # YAML scenarios for scripted runs
 ```
 
 ## Quick Start
@@ -59,3 +61,7 @@ The TypeScript MCP server supports `npm run dev` (via [tsx](https://tsx.is)) for
 - [body README](./src/body/README.md)
 - [process-manager README](./src/body/process-manager/README.md)
 - [desktop-automation README](./src/body/desktop-automation/README.md)
+
+## License
+
+This project is licensed under the Apache License 2.0. See [LICENSE](./LICENSE) for the full text.
