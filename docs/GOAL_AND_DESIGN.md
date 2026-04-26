@@ -54,7 +54,9 @@ Current components:
 - `execution`: stateless Windows UI interaction.
 - `desktop-automation`: shared Windows automation library used by `cognition`
   and `execution`.
-- `process-manager`: process listing, start, and stop operations.
+
+`brain` also exposes built-in process listing, start, and stop tools directly,
+without a separate MCP server.
 
 ### Prompt And Skill Layer
 
@@ -74,8 +76,8 @@ The normal runtime flow is:
 
 1. `brain` receives a voice turn or scripted command.
 2. `brain` composes the active prompt and skill set.
-3. `brain` calls local MCP servers such as `cognition`, `execution`, or
-   `process-manager`.
+3. `brain` calls built-in process tools or local MCP servers such as
+   `cognition` and `execution`.
 4. `brain` records traces and artifacts for verification and debugging.
 5. `face` receives status updates from `brain` over a named pipe and reflects
    them in the desktop UI.
@@ -91,8 +93,7 @@ The current design intentionally supports more than one verification path:
 
 ## Current Scope
 
-The active repository implementation is the .NET and TypeScript code under
-`src`.
+The active repository implementation is the .NET code under `src`.
 
 Current areas of emphasis:
 
@@ -106,5 +107,5 @@ Current areas of emphasis:
 These are currently outside the main path:
 
 - browser-backed ChatGPT mode in the .NET `brain`,
-- reintroducing a separate obsolete Node.js agent runtime,
+- reintroducing a separate obsolete JavaScript agent runtime,
 - moving runtime-consumed prompt files out of `.github/agents`.

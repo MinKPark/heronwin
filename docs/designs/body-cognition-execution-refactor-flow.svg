@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1500" height="2280" viewBox="0 0 1500 2280" role="img" aria-labelledby="title desc">
   <title id="title">Brain-orchestrated Netflix smoke flow</title>
-  <desc id="desc">A cleaned-up rendered flowchart showing the main runtime path across brain, process-manager, cognition, and execution.</desc>
+  <desc id="desc">A cleaned-up rendered flowchart showing the main runtime path across brain, built-in process tools, cognition, and execution.</desc>
   <defs>
     <style>
       .bg { fill: #f7f7f8; }
@@ -53,7 +53,7 @@
   <rect class="frame" x="24" y="24" width="1452" height="2232"/>
 
   <text class="title" x="750" y="66" text-anchor="middle">Brain-Orchestrated Request Flow</text>
-  <text class="body" x="750" y="98" text-anchor="middle">Current runtime path for the live Netflix smoke after the split into process-manager, cognition, and execution.</text>
+  <text class="body" x="750" y="98" text-anchor="middle">Current runtime path for the live Netflix smoke after the split into built-in process tools, cognition, and execution.</text>
 
   <rect class="note" x="150" y="128" width="1200" height="62"/>
   <text class="small" x="750" y="153" text-anchor="middle">This scenario explicitly says “Navigate the active browser tab directly to https://www.netflix.com/”, so the website route is intentional here.</text>
@@ -70,7 +70,7 @@
 
     <rect class="pm" x="650" y="216" width="26" height="26" rx="6" ry="6"/>
     <text class="badge" x="663" y="234" text-anchor="middle">P</text>
-    <text class="small" x="686" y="235">Process Manager</text>
+    <text class="small" x="686" y="235">Process Tools</text>
 
     <rect class="cog" x="910" y="216" width="26" height="26" rx="6" ry="6"/>
     <text class="badge" x="923" y="234" text-anchor="middle">C</text>
@@ -101,7 +101,7 @@
 
   <rect class="pm" x="560" y="736" width="380" height="76"/>
   <text class="body" x="750" y="767" text-anchor="middle">Ensure browser session exists</text>
-  <text class="small" x="750" y="792" text-anchor="middle">process-manager keeps the browser route alive</text>
+  <text class="small" x="750" y="792" text-anchor="middle">built-in process tools keep the browser route alive</text>
 
   <rect class="pm" x="560" y="856" width="380" height="76"/>
   <text class="body" x="750" y="887" text-anchor="middle">Navigate active tab to Netflix</text>

@@ -7,6 +7,9 @@ runtime-loaded prompt and skill files under `.github/agents`.
 
 ## Start Here
 
+- [Get Started](./GET_STARTED.md)
+  - [Script Mode](./get-started-script-mode.md)
+  - [Voice Mode](./get-started-voice-mode.md)
 - [Goal and Design](./GOAL_AND_DESIGN.md)
 - [History and Todos](./HISTORY_AND_TODOS.md)
 - [Development Guardrails](./DEVELOPMENT_GUARDRAILS.md)
@@ -46,10 +49,11 @@ Last updated: 2026-04-25
   - `cognition` and `execution` are in the solution and referenced by `brain`.
   - prompts, skills, tests, and repo docs have been retargeted to the new
     server and tool names.
-  - the local untracked `brain/.env` MCP server wiring now points at `process-manager`,
-    `cognition`, and `execution`.
+  - the local untracked `brain/.env` MCP server wiring now points at
+    `cognition` and `execution`; process listing/start/stop tools are built
+    into `brain`.
   - the empty historical `src\herbody` directory is gone.
-- the removed obsolete Node.js runtime is no longer part of the repository.
+- There is no active JavaScript runtime or package under `src`.
 - Latest verified work in the current scripted-runtime performance pass:
   - the first scripted turn-start carry-forward slice is now implemented in
     `brain`: conservative scripted-only carry-forward evidence injection,
@@ -82,7 +86,6 @@ Last updated: 2026-04-25
   snapshot:
   - `dotnet build src\heronwin.sln` passed with 0 warnings and 0 errors.
   - `dotnet test src\heronwin.sln` passed with 295 total tests.
-  - `npm run build` passed in `src\body\process-manager`.
 - Current follow-up:
   - keep the first scripted carry-forward slice as the new runtime base,
   - capture a more controlled apples-to-apples rerun that exercises the older
@@ -97,8 +100,6 @@ Last updated: 2026-04-25
     docs are uncommitted local changes.
 - Local tool versions used for the snapshot:
   - .NET SDK `10.0.201`
-  - Node.js `v24.14.1`
-  - npm `11.11.0`
 
 ## Run And Verify
 
@@ -107,14 +108,6 @@ Build and test the .NET solution:
 ```powershell
 dotnet build src\heronwin.sln
 dotnet test src\heronwin.sln
-```
-
-Build the TypeScript MCP server:
-
-```powershell
-cd src\body\process-manager
-npm install
-npm run build
 ```
 
 Run `brain` directly:
@@ -152,7 +145,6 @@ Useful launcher variants:
 - [brain README](../src/head/brain/README.md)
 - [face README](../src/head/face/README.md)
 - [body README](../src/body/README.md)
-- [process-manager README](../src/body/process-manager/README.md)
 - [desktop-automation README](../src/body/desktop-automation/README.md)
 - [cognition README](../src/body/cognition/README.md)
 - [execution README](../src/body/execution/README.md)

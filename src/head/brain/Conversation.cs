@@ -2147,7 +2147,7 @@ internal static class AgentRunner
                 {
                     Display.ToolCall(executableToolName, effectiveArgumentsText);
                     var blockedMessage =
-                        "Blocked internal policy: this request is about browser navigation or in-browser content, so do not use process-manager to launch a Store link, URI, or other OS process. Use the browser flow instead: select or launch the browser, then use the address bar or the current website's own controls.";
+                        "Blocked internal policy: this request is about browser navigation or in-browser content, so do not use start_process to launch a Store link, URI, or other OS process. Use the browser flow instead: select or launch the browser, then use the address bar or the current website's own controls.";
                     Display.ToolResult(executableToolName, blockedMessage, 0);
                     DebugTrace.WriteStructuredEvent(
                         "agent.tool_call_blocked",

@@ -10,6 +10,7 @@ Current scope:
 - OpenAI API, ChatGPT / Codex sign-in, and Claude API chat backends
 - OpenAI Whisper transcription
 - MCP stdio client integration
+- built-in process listing, start, and stop tools
 
 Development approach:
 

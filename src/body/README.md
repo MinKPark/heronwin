@@ -11,15 +11,15 @@ Each subdirectory is either a standalone MCP server or a shared package used by 
 | [`cognition/`](./cognition/) | C# | Stateless Windows UI inspection tools |
 | [`execution/`](./execution/) | C# | Stateless Windows UI interaction tools |
 | [`desktop-automation/`](./desktop-automation/) | C# | Shared Windows automation library used by cognition and execution |
-| [`process-manager/`](./process-manager/) | TypeScript | Start, stop, and list local processes |
+
+Process listing, start, and stop tools live inside `brain` rather than in a separate MCP server.
 
 ## Adding a New Server
 
 1. Create a new subdirectory such as `src/body/my-server/`.
-2. Implement a stdio-based MCP server using the TypeScript or C# MCP SDK.
+2. Implement a stdio-based MCP server using the C# MCP SDK.
 3. Register the server in the local `src/head/brain/.env` file by adding it to `MCP_SERVERS`. Start from `src/head/brain/.env.example` if you do not have one yet.
 
 ## Prerequisites
 
-- Node.js 18+ for TypeScript services
 - .NET 10+ SDK for C# services

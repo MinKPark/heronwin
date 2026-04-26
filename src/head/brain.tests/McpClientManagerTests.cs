@@ -49,6 +49,32 @@ public sealed class McpClientManagerTests
     }
 
     [Fact]
+    public async Task ListAllToolsAsync_IncludesBuiltInProcessTools_WhenNoOverrideIsUsed()
+    {
+        await using var manager = new McpClientManager();
+
+        var tools = await manager.ListAllToolsAsync(CancellationToken.None);
+
+        Assert.Contains(tools, tool => tool.Name == "list_processes");
+        Assert.Contains(tools, tool => tool.Name == "start_process");
+        Assert.Contains(tools, tool => tool.Name == "stop_process");
+    }
+
+    [Fact]
+    public async Task CallToolAsync_ReturnsToolError_ForInvalidBuiltInStartProcessArguments()
+    {
+        await using var manager = new McpClientManager();
+
+        var result = await manager.CallToolAsync(
+            "start_process",
+            new Dictionary<string, object?>(),
+            CancellationToken.None);
+
+        Assert.True(result.IsError);
+        Assert.Contains("Failed to start process", result.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RunWithTimeoutAsync_ReturnsResult_WhenOperationCompletesInTime()
     {
         var actual = await McpClientManager.RunWithTimeoutAsync(

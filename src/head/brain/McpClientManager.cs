@@ -82,7 +82,10 @@ internal sealed class McpClientManager : IAsyncDisposable
             return _cachedToolDefinitions;
         }
 
-        var result = new List<ToolDefinition>();
+        var result = new List<ToolDefinition>(BuiltInProcessTools.Definitions);
+        DebugTrace.WriteEvent(
+            "mcp.tools.built_in",
+            $"tools={string.Join(", ", BuiltInProcessTools.Definitions.Select(tool => tool.Name))}");
 
         foreach (var (serverName, client) in _clients.ToArray())
         {
@@ -117,6 +120,11 @@ internal sealed class McpClientManager : IAsyncDisposable
         if (_callToolOverride is not null)
         {
             return await _callToolOverride(toolName, dictionaryArgs, cancellationToken);
+        }
+
+        if (BuiltInProcessTools.CanHandle(toolName))
+        {
+            return await CallBuiltInToolAsync(toolName, dictionaryArgs, cancellationToken);
         }
 
         foreach (var (serverName, client) in _clients.ToArray())
@@ -282,6 +290,84 @@ internal sealed class McpClientManager : IAsyncDisposable
 
         DebugTrace.WriteEvent("mcp.call.missing_tool", $"tool={toolName}");
         throw new InvalidOperationException($"Tool \"{toolName}\" not found on any connected MCP server.");
+    }
+
+    private async Task<ToolCallOutcome> CallBuiltInToolAsync(
+        string toolName,
+        IReadOnlyDictionary<string, object?> arguments,
+        CancellationToken cancellationToken)
+    {
+        var mcpCallId = Interlocked.Increment(ref _nextMcpCallId);
+        var stopwatch = Stopwatch.StartNew();
+        const string serverName = "brain";
+
+        DebugTrace.WriteStructuredEvent(
+            "mcp.call.start",
+            new Dictionary<string, object?>
+            {
+                ["mcpCallId"] = mcpCallId,
+                ["server"] = serverName,
+                ["tool"] = toolName,
+                ["arguments"] = arguments,
+                ["builtIn"] = true,
+            });
+
+        try
+        {
+            var result = await BuiltInProcessTools.CallAsync(toolName, arguments, cancellationToken);
+            var elapsedMs = RoundElapsedMs(stopwatch.Elapsed);
+
+            DebugTrace.WriteStructuredEvent(
+                "mcp.call.end",
+                new Dictionary<string, object?>
+                {
+                    ["mcpCallId"] = mcpCallId,
+                    ["server"] = serverName,
+                    ["tool"] = toolName,
+                    ["outcome"] = result.IsError ? "tool_error" : "success",
+                    ["elapsedMs"] = elapsedMs,
+                    ["isError"] = result.IsError,
+                    ["builtIn"] = true,
+                });
+
+            DebugTrace.WriteStructuredEvent(
+                "mcp.call.complete",
+                new Dictionary<string, object?>
+                {
+                    ["mcpCallId"] = mcpCallId,
+                    ["server"] = serverName,
+                    ["tool"] = toolName,
+                    ["elapsedMs"] = elapsedMs,
+                    ["rpcElapsedMs"] = elapsedMs,
+                    ["resultProcessingElapsedMs"] = 0,
+                    ["isError"] = result.IsError,
+                    ["contentBlockTypes"] = new[] { "TextContentBlock" },
+                    ["structuredContentPreview"] = null,
+                    ["imageCount"] = 0,
+                    ["imagePaths"] = Array.Empty<string>(),
+                    ["textPreview"] = DebugTrace.Preview(result.Text, 1000),
+                    ["builtIn"] = true,
+                });
+
+            return result with { McpCallId = mcpCallId };
+        }
+        catch (Exception ex)
+        {
+            DebugTrace.WriteStructuredEvent(
+                "mcp.call.end",
+                new Dictionary<string, object?>
+                {
+                    ["mcpCallId"] = mcpCallId,
+                    ["server"] = serverName,
+                    ["tool"] = toolName,
+                    ["outcome"] = ex is OperationCanceledException ? "canceled" : "failed",
+                    ["elapsedMs"] = RoundElapsedMs(stopwatch.Elapsed),
+                    ["isError"] = true,
+                    ["builtIn"] = true,
+                });
+            LogToolCallFailure(mcpCallId, serverName, toolName, arguments, stopwatch.Elapsed, ex);
+            throw;
+        }
     }
 
     public async ValueTask DisposeAsync()

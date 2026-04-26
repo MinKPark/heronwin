@@ -1,6 +1,6 @@
 ﻿# heronwin
 
-*Her on Windows platform* — an AI agent system with a voice-driven UI and local MCP tool servers.
+*Her on Windows platform* — an AI agent system with a voice-driven UI, built-in local process tools, and local MCP tool servers.
 
 ## Repository Layout
 
@@ -8,11 +8,10 @@
 heronwin/
 └── src/
     ├── head/
-    │   ├── brain/                    # .NET 10 AI agent runtime (voice input, scripted runs, MCP client)
+    │   ├── brain/                    # .NET 10 AI agent runtime (voice input, scripted runs, MCP client, process tools)
     │   ├── brain.tests/              # xUnit tests for brain
     │   └── face/                     # WPF desktop companion window for status, settings, and live state
     ├── body/                         # MCP servers and shared desktop automation code
-    │   ├── process-manager/          # Start, stop, and list processes on the local machine
     │   ├── cognition/                # Inspect Windows UI and window structure
     │   ├── execution/                # Interact with Windows UI and applications
     │   ├── desktop-automation/       # Shared UI Automation library
@@ -23,12 +22,10 @@ heronwin/
 
 ## Quick Start
 
-### 1. Start the process-manager MCP server (build once)
+### 1. Build the .NET solution
 
-```bash
-cd src/body/process-manager
-npm install
-npm run build
+```powershell
+dotnet build src/heronwin.sln
 ```
 
 ### 2. Configure and start the brain agent
@@ -48,10 +45,13 @@ dotnet run --project src/head/face
 
 ### Running without a build step
 
-The TypeScript MCP server supports `npm run dev` (via [tsx](https://tsx.is)) for hot-reload development. The C# MCP servers can be started directly with `dotnet run --project src/body/cognition/cognition.csproj` and `dotnet run --project src/body/execution/execution.csproj`.
+The C# MCP servers can be started directly with `dotnet run --project src/body/cognition/cognition.csproj` and `dotnet run --project src/body/execution/execution.csproj`. Process listing, start, and stop tools are built into `brain`.
 
 ## Documentation
 
+- [get started](./docs/GET_STARTED.md)
+  - [script mode](./docs/get-started-script-mode.md)
+  - [voice mode](./docs/get-started-voice-mode.md)
 - [docs index](./docs/README.md)
 - [goal and design](./docs/GOAL_AND_DESIGN.md)
 - [history and todos](./docs/HISTORY_AND_TODOS.md)
@@ -59,7 +59,6 @@ The TypeScript MCP server supports `npm run dev` (via [tsx](https://tsx.is)) for
 - [brain README](./src/head/brain/README.md)
 - [face README](./src/head/face/README.md)
 - [body README](./src/body/README.md)
-- [process-manager README](./src/body/process-manager/README.md)
 - [desktop-automation README](./src/body/desktop-automation/README.md)
 
 ## License

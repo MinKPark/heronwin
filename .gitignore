@@ -1,9 +1,3 @@
-# Node.js
-node_modules/
-dist/
-*.js.map
-*.d.ts.map
-
 # Environment files
 .env
 **/.env
@@ -12,7 +6,6 @@ dist/
 
 # Logs
 *.log
-npm-debug.log*
 
 # OS
 .DS_Store
@@ -22,7 +15,6 @@ Thumbs.db
 herface-*.wav
 
 # Build outputs
-*.tsbuildinfo
 bin/
 obj/
 .tmp/

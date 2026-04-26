@@ -22,7 +22,7 @@ This file has two jobs:
 | `next` | `P1` | Finish the compact-tree rollout in `cognition`. | Add the opt-in screenshot-vs-compact evaluation harness, then run the documented parity checks, benchmarks, and manual evaluation passes in [Cognition Compact Tree Migration](./designs/cognition-compact-tree-migration.md). |
 | `next` | `P1` | Add dedicated coverage for the WPF `face` app. | Start with settings edits, status mapping, and view-model state transitions. |
 | `next` | `P1` | Broaden the prompt and skill intent vocabulary. | Add a small set of generic intents and cover them with activation tests. |
-| `soon` | `P2` | Add automated tests for `process-manager`. | Start with command validation and process-list parsing, then add integration tests later. |
+| `soon` | `P2` | Broaden automated tests for built-in process tools. | Add process-list parsing and safe start/stop integration coverage later. |
 
 ## Working-Tree Notes
 
@@ -145,7 +145,7 @@ Source shape: `git log --date=short --pretty=format:"%ad %h %s"`
   renamed `src\herhead` to `src\head`, tightened Netflix/browser guardrails
   and test coverage, moved compact-tree compaction into `cognition` with
   rendered artifacts, `llmTree` projections, and omitted-children tracking,
-  removed the obsolete Node.js LLM runtime, added WPF `face` settings/status
+  removed the obsolete JavaScript LLM runtime, added WPF `face` settings/status
   work, and left the compact-tree evaluation rollout explicitly in progress.
 - `2026-04-05` (32 commits): added the WPF `face` companion UI, named-pipe
   state flow, build-and-run orchestration, settings and environment handling,

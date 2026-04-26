@@ -9,6 +9,9 @@ This design records the cutover from `src/herbody` to `src/body` and the
 replacement of the former `eyesandhands` MCP server with two MCP servers:
 `cognition` and `execution`.
 
+2026-04-26 update: the former separate `process-manager` package has since
+been folded into `brain` as built-in process listing/start/stop tools.
+
 The main goals are:
 
 - rename `herbody` to `body` in one pass,
@@ -31,10 +34,9 @@ As of 2026-04-18, the structural cutover is complete for the main runtime path:
 - The empty historical `src\herbody` directory has been removed, and lingering
   live test references to the old tool names have been retargeted.
 - `dotnet build src\heronwin.sln` and `dotnet test src\heronwin.sln` both pass.
-- `npm run build` in `src\body\process-manager` passes again.
-- Local untracked `brain/.env` MCP wiring now points at `process-manager`, `cognition`,
-  and `execution` instead of the old `eyesandhands` executable.
-- A new `brain` guardrail blocks `process-manager/start_process` from hijacking
+- Local untracked `brain/.env` MCP wiring now points at `cognition` and
+  `execution` instead of the old `eyesandhands` executable.
+- A new `brain` guardrail blocks `start_process` from hijacking
   browser-navigation requests into Microsoft Store or other OS-process launch
   paths.
 - `brain` now keeps ordinary launch requests app-first: it prefers an installed
@@ -70,7 +72,7 @@ Remaining follow-up after the cutover:
 ### Repository and project structure
 
 - `src/herbody` becomes `src/body`.
-- `src/body/process-manager` stays functionally the same, only relocated.
+- Process listing/start/stop behavior lives in `brain`.
 - The current `eyesandhands` code is split into:
   - a shared Windows automation library,
   - a `cognition` MCP host,
@@ -223,15 +225,12 @@ Verified on 2026-04-18:
 dotnet build src\heronwin.sln
 dotnet test src\heronwin.sln
 dotnet test src\head\brain.tests\HeronWin.Brain.Tests.csproj
-cd src\body\process-manager
-npm run build
 ```
 
 - `dotnet build src\heronwin.sln` passed with 0 warnings and 0 errors.
 - `dotnet test src\heronwin.sln` passed with 295 total tests.
 - `dotnet test src\head\brain.tests\HeronWin.Brain.Tests.csproj` passed
   with 214 total tests.
-- `npm run build` passed in `src\body\process-manager`.
 
 Smoke-test status:
 
@@ -239,8 +238,9 @@ Smoke-test status:
 .\buildandrun.ps1 -BrainOnly -Scenario src\scenarios\netflix-boyfriend-on-demand.yml
 ```
 
-- The refactored MCP stack now connects successfully with `process-manager`,
-  `cognition`, and `execution` exposed through `MCP_SERVERS`.
+- The refactored MCP stack now connects successfully with `cognition` and
+  `execution` exposed through `MCP_SERVERS`; process tools are built into
+  `brain`.
 - The stricter brain checks now correctly surface live Netflix problems instead
   of waving them through: exact profile selection is repaired more reliably,
   stale or repeated PIN entry no longer silently passes, and the `Manage
