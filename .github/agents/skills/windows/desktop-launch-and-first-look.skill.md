@@ -45,7 +45,8 @@ fresh evidence.
 
 - Use `cognition/list_windows` before launching.
 - If a likely window already exists, use `execution/activate_window`.
-- If recent evidence already exposed a specific `windowHandle`, prefer that exact handle over a broader title match.
+- If recent evidence already exposed a specific `windowHandle`, call `execution/activate_window` with that exact `windowHandle`.
+- Do not call `execution/activate_window` with fuzzy or invented title fields such as `titleContains` when a concrete `windowHandle` is available from `list_windows`.
 - If the app is not open, inspect the taskbar with `cognition/list_taskbar_items`.
 - If the app looks pinned or already present on the taskbar, use `execution/activate_taskbar_app`.
 - If it is not clearly available as a taskbar app button, use `execution/launch_application`.
@@ -54,6 +55,7 @@ fresh evidence.
 ## First-Look Rules
 
 - After launch or selection, verify that the selected window matches the intended app.
+- Startup only gets the app/window ready. If the user's same command also asks for a destination, page, file, search, or content action, continue into that next action from the fresh first-look state instead of stopping after foregrounding the app.
 - Be cautious of splash screens, login prompts, updaters, and error dialogs.
 - If startup surfaces an unexpected dialog, treat that dialog as the current target.
 - Report the dialog title, visible message text, and available buttons before asking the user what to do next.

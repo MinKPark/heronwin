@@ -160,6 +160,19 @@ public sealed class AgentPromptLoaderTests
     }
 
     [Fact]
+    public void RepositoryDesktopLaunchSkill_IncludesHandleActivationAndContinueGuidance()
+    {
+        var skillsDirectory = Path.Combine(FindRepoRoot(), ".github", "agents", "skills");
+
+        var prompts = AgentPromptLoader.LoadSkillPrompts(skillsDirectory);
+
+        var prompt = prompts.Single(prompt => prompt.Key == "desktop-launch-and-first-look");
+        Assert.Contains("with that exact `windowHandle`", prompt.PromptText, StringComparison.Ordinal);
+        Assert.Contains("titleContains", prompt.PromptText, StringComparison.Ordinal);
+        Assert.Contains("continue into that next action", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void RepositoryGenericAppSkill_IncludesCloseAndWindowTargetingGuidance()
     {
         var skillsDirectory = Path.Combine(FindRepoRoot(), ".github", "agents", "skills");
