@@ -24,7 +24,8 @@ internal static class BrainTurnProcessor
         McpClientManager mcpManager,
         CancellationToken cancellationToken,
         string turnSource,
-        Func<string, CancellationToken, Task>? intermediateStepNarrator = null)
+        Func<string, CancellationToken, Task>? intermediateStepNarrator = null,
+        ScriptedLookaheadContext? scriptedLookahead = null)
     {
         DebugTrace.WriteStructuredEvent(
             "agent.turn.processing_start",
@@ -133,7 +134,8 @@ internal static class BrainTurnProcessor
             desktopSession,
             cancellationToken,
             intermediateStepNarrator,
-            scriptedMode: string.Equals(turnSource, "scripted", StringComparison.Ordinal));
+            scriptedMode: string.Equals(turnSource, "scripted", StringComparison.Ordinal),
+            scriptedLookahead: scriptedLookahead);
 
         AppConfig? updatedConfig = null;
         var deferredGenerationSummary = string.Empty;

@@ -145,6 +145,21 @@ public sealed class AgentPromptLoaderTests
     }
 
     [Fact]
+    public void RepositoryBrowserSkill_IncludesAddressBarUrlSubmissionBatchingGuidance()
+    {
+        var skillsDirectory = Path.Combine(FindRepoRoot(), ".github", "agents", "skills");
+
+        var prompts = AgentPromptLoader.LoadSkillPrompts(skillsDirectory);
+
+        var prompt = prompts.Single(prompt => prompt.Key == "browser-navigation-and-web-operations");
+        Assert.Contains("setting the address-bar value is not complete until the URL is submitted", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("same tool-call response", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("set_window_element_text", prompt.PromptText, StringComparison.Ordinal);
+        Assert.Contains("press_window_key", prompt.PromptText, StringComparison.Ordinal);
+        Assert.Contains("separate LLM attempt", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void RepositoryGenericAppSkill_IncludesCloseAndWindowTargetingGuidance()
     {
         var skillsDirectory = Path.Combine(FindRepoRoot(), ".github", "agents", "skills");

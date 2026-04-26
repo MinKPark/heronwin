@@ -17,7 +17,11 @@ internal sealed record ToolCallOutcome(
     bool IsError = false,
     long? McpCallId = null);
 
-internal sealed record AgentReply(string LogText, string SpokenText, string RawText);
+internal sealed record AgentReply(
+    string LogText,
+    string SpokenText,
+    string RawText,
+    ScriptedLookaheadDecision? LookaheadDecision = null);
 
 internal sealed record ToolStepNarrationPlan(string Text, string Source);
 
@@ -109,7 +113,8 @@ internal static class AgentRunner
         CancellationToken cancellationToken,
         Func<string, CancellationToken, Task>? intermediateStepNarrator = null,
         bool displayUserMessage = true,
-        bool scriptedMode = false)
+        bool scriptedMode = false,
+        ScriptedLookaheadContext? scriptedLookahead = null)
     {
         var turnStopwatch = Stopwatch.StartNew();
         var messages = history.ToList();
@@ -144,6 +149,8 @@ internal static class AgentRunner
         AgentReply? forcedReply = null;
         var scriptedTurnStartCarryForwardUsed = false;
         var startupWindowInventoryUsed = false;
+        var scriptedLookaheadInstructionAdded = false;
+        var scriptedLookaheadDecisionLogged = false;
 
         void SyncDesktopSession()
         {
@@ -484,6 +491,91 @@ internal static class AgentRunner
 
             currentFocusElementContext = recentFocusContext;
             return currentFocusElementContext;
+        }
+
+        bool HasFreshPostActionUiEvidence()
+            => recentUiTreeEvidenceMetadata is { IsPostActionSnapshot: true } metadata
+               && metadata.SourceTurnId == turnId;
+
+        void MaybeAddScriptedLookaheadInstruction()
+        {
+            if (!scriptedMode ||
+                scriptedLookahead is null ||
+                scriptedLookaheadInstructionAdded)
+            {
+                return;
+            }
+
+            if (!HasFreshPostActionUiEvidence())
+            {
+                DebugTrace.WriteStructuredEvent(
+                    "agent.lookahead.fallback",
+                    new Dictionary<string, object?>
+                    {
+                        ["sourceTurn"] = turnId,
+                        ["targetTurn"] = scriptedLookahead.NextTurnId,
+                        ["reason"] = "fresh_post_action_evidence_required",
+                    });
+                return;
+            }
+
+            scriptedLookaheadInstructionAdded = true;
+            messages.Add(new AgentMessage.User(
+                ScriptedLookahead.BuildInstruction(turnId, userText, scriptedLookahead)));
+            DebugTrace.WriteStructuredEvent(
+                "agent.lookahead.requested",
+                new Dictionary<string, object?>
+                {
+                    ["sourceTurn"] = turnId,
+                    ["targetTurn"] = scriptedLookahead.NextTurnId,
+                    ["currentCommandPreview"] = DebugTrace.Preview(userText, 300),
+                    ["nextCommandPreview"] = DebugTrace.Preview(scriptedLookahead.NextCommand, 300),
+                    ["maxDepth"] = 1,
+                    ["mode"] = "next_noop_only",
+                });
+        }
+
+        ScriptedLookaheadDecision? TryParseScriptedLookaheadDecision(string responseText)
+        {
+            if (!scriptedLookaheadInstructionAdded ||
+                scriptedLookahead is null ||
+                scriptedLookaheadDecisionLogged)
+            {
+                return null;
+            }
+
+            scriptedLookaheadDecisionLogged = true;
+            if (!ScriptedLookahead.TryParseDecision(
+                    turnId,
+                    scriptedLookahead.NextTurnId,
+                    responseText,
+                    out var decision,
+                    out var skipReason))
+            {
+                DebugTrace.WriteStructuredEvent(
+                    "agent.lookahead.fallback",
+                    new Dictionary<string, object?>
+                    {
+                        ["sourceTurn"] = turnId,
+                        ["targetTurn"] = scriptedLookahead.NextTurnId,
+                        ["reason"] = skipReason,
+                    });
+                return null;
+            }
+
+            DebugTrace.WriteStructuredEvent(
+                "agent.lookahead.decision",
+                new Dictionary<string, object?>
+                {
+                    ["sourceTurn"] = turnId,
+                    ["targetTurn"] = scriptedLookahead.NextTurnId,
+                    ["currentTurnStatus"] = decision.CurrentTurnStatus,
+                    ["nextTurnStatus"] = decision.NextTurnStatus,
+                    ["currentTurnComplete"] = decision.CurrentTurnComplete,
+                    ["nextTurnCompleteNoOp"] = decision.NextTurnCompleteNoOp,
+                    ["reason"] = decision.Reason,
+                });
+            return decision;
         }
 
         void RememberRecentFocusSnapshot(
@@ -1207,6 +1299,10 @@ internal static class AgentRunner
                 }
 
                 parsedReply = AlignReplyOutcomeConsistency(parsedReply);
+                if (TryParseScriptedLookaheadDecision(responseText) is { } lookaheadDecision)
+                {
+                    parsedReply = parsedReply with { LookaheadDecision = lookaheadDecision };
+                }
 
                 if (performedDesktopAction
                     && additionalDesktopEvidenceAttempts < maxAdditionalDesktopEvidenceAttempts
@@ -2540,6 +2636,7 @@ internal static class AgentRunner
                 messages.Add(new AgentMessage.Assistant(forcedReply.RawText));
                 return FinalizeTurnReply(forcedReply);
             }
+            MaybeAddScriptedLookaheadInstruction();
         }
     }
 

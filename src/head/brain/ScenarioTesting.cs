@@ -402,6 +402,26 @@ internal sealed record BrainTraceSlowEvent(
     double ElapsedMs,
     string Detail);
 
+internal sealed record BrainTraceLookaheadFallbackSummary(
+    string Reason,
+    int Count);
+
+internal sealed record BrainTraceLookaheadSummary(
+    int RequestedCount,
+    int DecisionCount,
+    int AdvancedCount,
+    int FallbackCount,
+    IReadOnlyList<BrainTraceLookaheadFallbackSummary> FallbacksByReason)
+{
+    public int EstimatedLlmCallsSaved => AdvancedCount;
+
+    public bool HasEvents
+        => RequestedCount > 0 ||
+           DecisionCount > 0 ||
+           AdvancedCount > 0 ||
+           FallbackCount > 0;
+}
+
 internal sealed record BrainTraceReport(
     string SourcePath,
     string? Provider,
@@ -415,6 +435,7 @@ internal sealed record BrainTraceReport(
     double TotalLlmTimeMs,
     double AverageLlmAttemptMs,
     int BlockedToolCallCount,
+    BrainTraceLookaheadSummary Lookahead,
     IReadOnlyList<BrainTraceTurnReport> Turns,
     IReadOnlyList<BrainTraceBucketSummary> Buckets,
     IReadOnlyList<BrainTraceToolSummary> SlowTools,
@@ -480,6 +501,30 @@ internal sealed record BrainTraceReport(
         builder.AppendLine();
         builder.AppendLine($"- Blocked tool calls: `{BlockedToolCallCount}`");
         builder.AppendLine();
+
+        if (Lookahead.HasEvents)
+        {
+            builder.AppendLine("## Lookahead");
+            builder.AppendLine();
+            builder.AppendLine($"- Requests: `{Lookahead.RequestedCount}`");
+            builder.AppendLine($"- Decisions parsed: `{Lookahead.DecisionCount}`");
+            builder.AppendLine($"- No-op turns advanced: `{Lookahead.AdvancedCount}`");
+            builder.AppendLine($"- Fallbacks: `{Lookahead.FallbackCount}`");
+            builder.AppendLine($"- Estimated LLM calls saved: `{Lookahead.EstimatedLlmCallsSaved}`");
+            if (Lookahead.FallbacksByReason.Count > 0)
+            {
+                builder.AppendLine();
+                builder.AppendLine("| Fallback reason | Count |");
+                builder.AppendLine("| --- | ---: |");
+                foreach (var fallback in Lookahead.FallbacksByReason)
+                {
+                    builder.AppendLine(
+                        $"| {EscapeMarkdownCell(fallback.Reason)} | {fallback.Count} |");
+                }
+            }
+
+            builder.AppendLine();
+        }
 
         builder.AppendLine("## Top Slow Executed Tools");
         builder.AppendLine();
@@ -644,10 +689,30 @@ internal static class BrainTraceReporter
             llmAttempts.Sum(static attempt => attempt.ElapsedMs),
             llmAttempts.Length == 0 ? 0d : llmAttempts.Average(static attempt => attempt.ElapsedMs),
             records.Count(static record => record.Category == "agent.tool_call_blocked"),
+            BuildLookaheadSummary(records),
             turns,
             BuildBuckets(records, llmAttempts),
             slowTools,
             slowEvents);
+    }
+
+    private static BrainTraceLookaheadSummary BuildLookaheadSummary(IReadOnlyList<BrainTraceRecord> records)
+    {
+        var fallbackReasons = records
+            .Where(static record => record.Category == "agent.lookahead.fallback")
+            .Select(static record => record.GetString("reason") ?? "(unknown)")
+            .GroupBy(static reason => reason, StringComparer.Ordinal)
+            .Select(static group => new BrainTraceLookaheadFallbackSummary(group.Key, group.Count()))
+            .OrderByDescending(static item => item.Count)
+            .ThenBy(static item => item.Reason, StringComparer.Ordinal)
+            .ToArray();
+
+        return new BrainTraceLookaheadSummary(
+            RequestedCount: records.Count(static record => record.Category == "agent.lookahead.requested"),
+            DecisionCount: records.Count(static record => record.Category == "agent.lookahead.decision"),
+            AdvancedCount: records.Count(static record => record.Category == "agent.lookahead.advanced"),
+            FallbackCount: records.Count(static record => record.Category == "agent.lookahead.fallback"),
+            FallbacksByReason: fallbackReasons);
     }
 
     private static BrainTraceAttemptReport[] BuildAttemptReports(IReadOnlyList<BrainTraceRecord> records)
@@ -1035,8 +1100,9 @@ internal static class ScriptedConversationRunner
             var turns = new List<BrainScriptedTurnResult>();
             var stopScenario = false;
 
-            foreach (var command in scenario.Commands)
+            for (var commandIndex = 0; commandIndex < scenario.Commands.Count; commandIndex++)
             {
+                var command = scenario.Commands[commandIndex];
                 var turnId = Interlocked.Increment(ref nextTurnId);
                 try
                 {
@@ -1049,6 +1115,9 @@ internal static class ScriptedConversationRunner
                             ["command"] = command,
                         });
 
+                    var scriptedLookahead = commandIndex + 1 < scenario.Commands.Count
+                        ? new ScriptedLookaheadContext(nextTurnId + 1, scenario.Commands[commandIndex + 1])
+                        : null;
                     var processedTurn = await BrainTurnProcessor.ProcessAsync(
                         turnId,
                         command,
@@ -1058,7 +1127,8 @@ internal static class ScriptedConversationRunner
                         llmClient,
                         mcpManager,
                         cancellationToken,
-                        turnSource: "scripted");
+                        turnSource: "scripted",
+                        scriptedLookahead: scriptedLookahead);
                     if (processedTurn.UpdatedConfig is not null)
                     {
                         config = processedTurn.UpdatedConfig;
@@ -1074,6 +1144,29 @@ internal static class ScriptedConversationRunner
                         stopScenario = true;
                         overallPassed = false;
                         break;
+                    }
+
+                    if (scriptedLookahead is not null &&
+                        processedTurn.Reply.LookaheadDecision is { } lookaheadDecision &&
+                        TryAdvanceNoOpLookaheadTurn(
+                            scenario,
+                            commandIndex + 1,
+                            scriptedLookahead.NextTurnId,
+                            turnId,
+                            lookaheadDecision,
+                            history,
+                            jsonLogPath,
+                            turns,
+                            out var lookaheadTurnPassed))
+                    {
+                        commandIndex++;
+                        nextTurnId = Math.Max(nextTurnId, scriptedLookahead.NextTurnId);
+                        if (!lookaheadTurnPassed)
+                        {
+                            stopScenario = true;
+                            overallPassed = false;
+                            break;
+                        }
                     }
                 }
                 catch (OperationCanceledException)
@@ -1129,6 +1222,120 @@ internal static class ScriptedConversationRunner
 
         Display.Error("One or more scripted scenarios failed their log-based checks.");
         return 1;
+    }
+
+    internal static bool TryAdvanceNoOpLookaheadTurn(
+        BrainScenarioDefinition scenario,
+        int targetCommandIndex,
+        long targetTurnId,
+        long sourceTurnId,
+        ScriptedLookaheadDecision decision,
+        List<AgentMessage> history,
+        string jsonLogPath,
+        List<BrainScriptedTurnResult> turns,
+        out bool passed)
+    {
+        passed = false;
+        if (targetCommandIndex < 0 ||
+            targetCommandIndex >= scenario.Commands.Count)
+        {
+            WriteLookaheadFallback(sourceTurnId, targetTurnId, "target_command_index_out_of_range");
+            return false;
+        }
+
+        if (decision.TargetTurnId != targetTurnId)
+        {
+            WriteLookaheadFallback(sourceTurnId, targetTurnId, "target_turn_mismatch");
+            return false;
+        }
+
+        if (!decision.CurrentTurnComplete)
+        {
+            WriteLookaheadFallback(sourceTurnId, targetTurnId, "current_turn_not_complete");
+            return false;
+        }
+
+        if (!decision.NextTurnCompleteNoOp)
+        {
+            WriteLookaheadFallback(sourceTurnId, targetTurnId, "next_turn_not_noop_complete");
+            return false;
+        }
+
+        var command = scenario.Commands[targetCommandIndex];
+        var reply = ScriptedLookahead.BuildNoOpReply(decision);
+        DebugTrace.WriteStructuredEvent(
+            "agent.turn.scripted_begin",
+            new Dictionary<string, object?>
+            {
+                ["turn"] = targetTurnId,
+                ["scenario"] = scenario.Name,
+                ["command"] = command,
+                ["lookaheadSourceTurn"] = sourceTurnId,
+            });
+        DebugTrace.WriteStructuredEvent(
+            "agent.lookahead.advanced",
+            new Dictionary<string, object?>
+            {
+                ["sourceTurn"] = sourceTurnId,
+                ["targetTurn"] = targetTurnId,
+                ["currentTurnStatus"] = decision.CurrentTurnStatus,
+                ["nextTurnStatus"] = decision.NextTurnStatus,
+                ["reason"] = decision.Reason,
+                ["mode"] = "next_noop_only",
+            });
+        DebugTrace.WriteStructuredEvent(
+            "agent.turn.processing_start",
+            new Dictionary<string, object?>
+            {
+                ["turn"] = targetTurnId,
+                ["source"] = "scripted-lookahead",
+                ["historyMessages"] = history.Count,
+                ["queuedText"] = DebugTrace.Preview(command, 500),
+            });
+        Display.UserMessage(command);
+        Display.AssistantReply(reply.SpokenText, reply.LogText);
+        DebugTrace.WriteStructuredEvent(
+            "assistant.reply",
+            new Dictionary<string, object?>
+            {
+                ["turn"] = targetTurnId,
+                ["elapsedMs"] = 0,
+                ["attempts"] = 0,
+                ["usedAnyTools"] = false,
+                ["performedDesktopAction"] = false,
+                ["performedConfidenceEvidenceRetry"] = false,
+                ["lookaheadSourceTurn"] = sourceTurnId,
+                ["sayText"] = reply.SpokenText,
+                ["logText"] = reply.LogText,
+                ["sayPreview"] = DebugTrace.Preview(reply.SpokenText, 400),
+                ["logPreview"] = DebugTrace.Preview(reply.LogText, 900),
+                ["rawPreview"] = DebugTrace.Preview(reply.RawText, 1200),
+            });
+        history.Add(new AgentMessage.User(command));
+        history.Add(new AgentMessage.Assistant(reply.RawText));
+        DebugTrace.WriteEvent(
+            "agent.turn.complete",
+            $"turn={targetTurnId}, source=scripted-lookahead, spoken={DebugTrace.Preview(reply.SpokenText, 300)}, log={DebugTrace.Preview(reply.LogText, 600)}");
+
+        var logRecords = BrainTraceLogReader.ReadAll(jsonLogPath);
+        var assessment = BrainScenarioEvaluator.AssessTurn(logRecords, targetTurnId, scenario.Assertions);
+        var turnResult = new BrainScriptedTurnResult(targetTurnId, command, reply, assessment);
+        turns.Add(turnResult);
+        ReportTurn(turnResult);
+        passed = assessment.Passed;
+        return true;
+    }
+
+    private static void WriteLookaheadFallback(long sourceTurnId, long targetTurnId, string reason)
+    {
+        DebugTrace.WriteStructuredEvent(
+            "agent.lookahead.fallback",
+            new Dictionary<string, object?>
+            {
+                ["sourceTurn"] = sourceTurnId,
+                ["targetTurn"] = targetTurnId,
+                ["reason"] = reason,
+            });
     }
 
     private static void ReportTurn(BrainScriptedTurnResult turn)

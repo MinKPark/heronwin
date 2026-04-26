@@ -888,6 +888,118 @@ public sealed class AgentRunnerContinuationTests
         }
     }
 
+    [Fact]
+    public async Task RunTurnAsync_AddsScriptedLookaheadPromptAfterFreshPostActionSnapshot_AndAttachesDecision()
+    {
+        DebugTrace.Configure(true);
+
+        try
+        {
+            var llmClient = new QueuedLlmClient(
+            [
+                new ChatResult(
+                    null,
+                    [
+                        new ToolCallRequest(
+                            "click-profile",
+                            "click_window_element",
+                            """{"windowHandle":"0x009C0680","elementPath":"1/0"}""")
+                    ]),
+                new ChatResult(
+                    """
+                    {
+                      "say": "Netflix Home is visible.",
+                      "log": "The fresh post-action snapshot shows Netflix Home.",
+                      "currentTurnStatus": "complete",
+                      "nextTurnStatus": "next_complete_noop",
+                      "nextSay": "No PIN entry is needed.",
+                      "nextLog": "The PIN prompt is not visible, so the conditional PIN step is already satisfied.",
+                      "nextTurnReason": "The next scripted command is conditional and the prompt is absent."
+                    }
+                    """,
+                    [])
+            ]);
+            await using var mcpManager = new McpClientManager(
+                _ => Task.FromResult<IReadOnlyList<ToolDefinition>>(
+                [
+                    CreateToolDefinition("click_window_element"),
+                    CreateToolDefinition("describe_window"),
+                ]),
+                toolCallTimeoutOverride: null,
+                callToolOverride: (toolName, _, _) => Task.FromResult(toolName switch
+                {
+                    "click_window_element" => new ToolCallOutcome(
+                        """{"Window":{"Handle":"0x009C0680","Title":"Netflix - Microsoft Edge","ClassName":"Chrome_WidgetWin_1"},"Clicked":true}""",
+                        [],
+                        McpCallId: 11),
+                    "describe_window" => new ToolCallOutcome(
+                        BuildFreshNetflixHomeSnapshot(),
+                        [],
+                        McpCallId: 12),
+                    _ => throw new InvalidOperationException($"Unexpected tool call: {toolName}"),
+                }));
+            var desktopSession = new DesktopSessionContext
+            {
+                CurrentWindowHandle = "0x009C0680",
+                CurrentWindowTitle = "Netflix - Microsoft Edge",
+                RecentWindowContext = BuildStaleNetflixPinSnapshot(),
+                RecentUiTreeContext = BuildStaleNetflixPinSnapshot(),
+            };
+
+            var reply = await AgentRunner.RunTurnAsync(
+                turnId: 1,
+                userText: "Select the Netflix profile.",
+                history: [],
+                tools:
+                [
+                    CreateToolDefinition("click_window_element"),
+                    CreateToolDefinition("describe_window"),
+                ],
+                composedPrompt: CreatePrompt(),
+                llmClient,
+                mcpManager,
+                desktopSession,
+                CancellationToken.None,
+                displayUserMessage: false,
+                scriptedMode: true,
+                scriptedLookahead: new ScriptedLookaheadContext(
+                    NextTurnId: 2,
+                    NextCommand: "If Netflix asks for a profile passcode, type 3579 one digit at a time."));
+
+            Assert.Equal("Netflix Home is visible.", reply.SpokenText);
+            Assert.NotNull(reply.LookaheadDecision);
+            Assert.True(reply.LookaheadDecision.CurrentTurnComplete);
+            Assert.True(reply.LookaheadDecision.NextTurnCompleteNoOp);
+            Assert.Equal(2, llmClient.Requests.Count);
+            Assert.Contains(
+                llmClient.Requests[1],
+                message => message is AgentMessage.User user &&
+                           user.Content.Contains("Scripted lookahead context", StringComparison.Ordinal) &&
+                           user.Content.Contains("Next logical turn: 2", StringComparison.Ordinal));
+
+            var jsonLogPath = DebugTrace.JsonLogFilePath;
+            Assert.False(string.IsNullOrWhiteSpace(jsonLogPath));
+            Assert.True(File.Exists(jsonLogPath));
+
+            var requested = ReadTraceEventData(
+                jsonLogPath!,
+                "agent.lookahead.requested",
+                data => data.GetProperty("targetTurn").GetInt64() == 2);
+            Assert.Equal("next_noop_only", requested.GetProperty("mode").GetString());
+
+            var decision = ReadTraceEventData(
+                jsonLogPath!,
+                "agent.lookahead.decision",
+                data => data.GetProperty("targetTurn").GetInt64() == 2);
+            Assert.True(decision.GetProperty("currentTurnComplete").GetBoolean());
+            Assert.True(decision.GetProperty("nextTurnCompleteNoOp").GetBoolean());
+        }
+        finally
+        {
+            DebugTrace.Configure(false);
+        }
+    }
+
     private static ComposedAgentPrompt CreatePrompt(bool includeLaunchSkill = false)
     {
         var skills = new List<AgentSkillPrompt>();

@@ -3,6 +3,7 @@ using Xunit;
 
 namespace HeronWin.Brain.Tests;
 
+[Collection("DebugTrace serial")]
 public sealed class ScriptedModeTests
 {
     [Fact]
@@ -341,6 +342,136 @@ public sealed class ScriptedModeTests
             actual.Failures,
             failure => failure.Contains("required text", StringComparison.OrdinalIgnoreCase)
                        || failure.Contains("forbidden text", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ScriptedLookahead_TryParseDecision_AcceptsNoOpCompletion()
+    {
+        const string responseText = """
+        {
+          "say": "Netflix Home is visible.",
+          "log": "The fresh UI snapshot shows Netflix Home.",
+          "currentTurnStatus": "complete",
+          "nextTurnStatus": "next_complete_noop",
+          "nextSay": "No PIN entry is needed.",
+          "nextLog": "The PIN prompt is not visible, so the conditional PIN step is already satisfied.",
+          "nextTurnReason": "The next scripted command is conditional on a prompt that is absent."
+        }
+        """;
+
+        var parsed = ScriptedLookahead.TryParseDecision(
+            sourceTurnId: 1,
+            targetTurnId: 2,
+            responseText,
+            out var decision,
+            out var skipReason);
+
+        Assert.True(parsed);
+        Assert.Equal(string.Empty, skipReason);
+        Assert.Equal(1, decision.SourceTurnId);
+        Assert.Equal(2, decision.TargetTurnId);
+        Assert.True(decision.CurrentTurnComplete);
+        Assert.True(decision.NextTurnCompleteNoOp);
+        Assert.Equal("No PIN entry is needed.", decision.NextSay);
+    }
+
+    [Fact]
+    public void ScriptedLookahead_TryParseDecision_RejectsUnexpectedToolTargetTurn()
+    {
+        const string responseText = """
+        {
+          "say": "Netflix Home is visible.",
+          "log": "The fresh UI snapshot shows Netflix Home.",
+          "currentTurnStatus": "complete",
+          "nextTurnStatus": "next_complete_noop",
+          "toolTargetTurn": 99
+        }
+        """;
+
+        var parsed = ScriptedLookahead.TryParseDecision(
+            sourceTurnId: 1,
+            targetTurnId: 2,
+            responseText,
+            out _,
+            out var skipReason);
+
+        Assert.False(parsed);
+        Assert.Equal("unexpected_tool_target_turn", skipReason);
+    }
+
+    [Fact]
+    public void TryAdvanceNoOpLookaheadTurn_RecordsSyntheticTurnAndUpdatesHistory()
+    {
+        DebugTrace.Configure(true);
+
+        try
+        {
+            var jsonLogPath = DebugTrace.JsonLogFilePath;
+            Assert.False(string.IsNullOrWhiteSpace(jsonLogPath));
+
+            var scenario = new BrainScenarioDefinition(
+                "Conditional PIN",
+                [
+                    "Open Netflix.",
+                    "If Netflix asks for a profile passcode, type 3579 one digit at a time.",
+                ],
+                BrainScenarioAssertions.Empty);
+            var history = new List<AgentMessage>
+            {
+                new AgentMessage.User("Open Netflix."),
+                new AgentMessage.Assistant("""{"say":"Netflix is open.","log":"Netflix is open."}"""),
+            };
+            var turns = new List<BrainScriptedTurnResult>();
+            var decision = new ScriptedLookaheadDecision(
+                SourceTurnId: 1,
+                TargetTurnId: 2,
+                CurrentTurnStatus: "complete",
+                NextTurnStatus: "next_complete_noop",
+                NextSay: "No PIN entry is needed.",
+                NextLog: "The PIN prompt is not visible, so the conditional PIN step is already satisfied.",
+                Reason: "The fresh UI snapshot shows Netflix Home.");
+
+            var advanced = ScriptedConversationRunner.TryAdvanceNoOpLookaheadTurn(
+                scenario,
+                targetCommandIndex: 1,
+                targetTurnId: 2,
+                sourceTurnId: 1,
+                decision,
+                history,
+                jsonLogPath!,
+                turns,
+                out var passed);
+
+            Assert.True(advanced);
+            Assert.True(passed);
+            var turn = Assert.Single(turns);
+            Assert.Equal(2, turn.TurnId);
+            Assert.Equal(scenario.Commands[1], turn.Command);
+            Assert.True(turn.Assessment.Passed);
+            Assert.Equal(4, history.Count);
+            var advancedUserMessage = Assert.IsType<AgentMessage.User>(history[2]);
+            Assert.Equal(scenario.Commands[1], advancedUserMessage.Content);
+
+            var records = BrainTraceLogReader.ReadAll(jsonLogPath!);
+            Assert.Contains(
+                records,
+                record => record.Category == "agent.lookahead.advanced" &&
+                          record.TryGetInt64("sourceTurn", out var sourceTurn) &&
+                          sourceTurn == 1 &&
+                          record.TryGetInt64("targetTurn", out var targetTurn) &&
+                          targetTurn == 2);
+            Assert.Contains(
+                records,
+                record => record.Category == "assistant.reply" &&
+                          record.TryGetInt64("turn", out var turnId) &&
+                          turnId == 2 &&
+                          record.TryGetInt64("attempts", out var attempts) &&
+                          attempts == 0);
+        }
+        finally
+        {
+            DebugTrace.Configure(false);
+        }
     }
 
     private static BrainTraceRecord CreateTraceRecord(long sequence, string category, string dataJson)

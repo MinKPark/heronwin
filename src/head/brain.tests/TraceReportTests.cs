@@ -179,6 +179,87 @@ public sealed class TraceReportTests
         }
     }
 
+    [Fact]
+    public void Generate_IncludesLookaheadSummary()
+    {
+        var tracePath = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllLines(
+                tracePath,
+                [
+                    CreateTraceLine(
+                        "2026-04-22T21:00:00.0000000-07:00",
+                        1,
+                        "session.start",
+                        """{"llmProvider":"OpenAiCodex","openAiModel":"gpt-5.4-mini"}"""),
+                    CreateTraceLine(
+                        "2026-04-22T21:00:01.0000000-07:00",
+                        2,
+                        "agent.turn.scripted_begin",
+                        """{"turn":1,"scenario":"Smoke","command":"open netflix"}"""),
+                    CreateTraceLine(
+                        "2026-04-22T21:00:02.0000000-07:00",
+                        3,
+                        "agent.lookahead.requested",
+                        """{"sourceTurn":1,"targetTurn":2,"mode":"next_noop_only"}"""),
+                    CreateTraceLine(
+                        "2026-04-22T21:00:03.0000000-07:00",
+                        4,
+                        "agent.lookahead.decision",
+                        """{"sourceTurn":1,"targetTurn":2,"currentTurnComplete":true,"nextTurnCompleteNoOp":true}"""),
+                    CreateTraceLine(
+                        "2026-04-22T21:00:04.0000000-07:00",
+                        5,
+                        "agent.lookahead.advanced",
+                        """{"sourceTurn":1,"targetTurn":2,"mode":"next_noop_only"}"""),
+                    CreateTraceLine(
+                        "2026-04-22T21:00:05.0000000-07:00",
+                        6,
+                        "agent.lookahead.fallback",
+                        """{"sourceTurn":2,"targetTurn":3,"reason":"fresh_post_action_evidence_required"}"""),
+                    CreateTraceLine(
+                        "2026-04-22T21:00:06.0000000-07:00",
+                        7,
+                        "agent.turn.scripted_begin",
+                        """{"turn":2,"scenario":"Smoke","command":"conditional pin"}"""),
+                    CreateTraceLine(
+                        "2026-04-22T21:00:07.0000000-07:00",
+                        8,
+                        "assistant.reply",
+                        """{"turn":2,"elapsedMs":0,"attempts":0,"sayText":"No PIN entry is needed.","logText":"The prompt is absent."}"""),
+                    CreateTraceLine(
+                        "2026-04-22T21:00:08.0000000-07:00",
+                        9,
+                        "display.info",
+                        """{"message":"Scenario passed: Smoke"}""")
+                ]);
+
+            var report = BrainTraceReporter.Generate(tracePath);
+
+            Assert.Equal(1, report.Lookahead.RequestedCount);
+            Assert.Equal(1, report.Lookahead.DecisionCount);
+            Assert.Equal(1, report.Lookahead.AdvancedCount);
+            Assert.Equal(1, report.Lookahead.FallbackCount);
+            Assert.Equal(1, report.Lookahead.EstimatedLlmCallsSaved);
+            Assert.Contains(
+                report.Lookahead.FallbacksByReason,
+                fallback => fallback.Reason == "fresh_post_action_evidence_required" &&
+                            fallback.Count == 1);
+
+            var markdown = report.ToMarkdown();
+
+            Assert.Contains("## Lookahead", markdown, StringComparison.Ordinal);
+            Assert.Contains("- No-op turns advanced: `1`", markdown, StringComparison.Ordinal);
+            Assert.Contains("- Estimated LLM calls saved: `1`", markdown, StringComparison.Ordinal);
+            Assert.Contains("| fresh_post_action_evidence_required | 1 |", markdown, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(tracePath);
+        }
+    }
+
     private static string CreateTraceLine(string timestamp, long sequence, string category, string dataJson)
     {
         using var data = JsonDocument.Parse(dataJson);
