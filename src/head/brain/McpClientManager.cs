@@ -20,9 +20,12 @@ internal sealed class McpClientManager : IAsyncDisposable
     private readonly Func<CancellationToken, Task<IReadOnlyList<ToolDefinition>>>? _listAllToolsOverride;
     private readonly Func<string, IReadOnlyDictionary<string, object?>, CancellationToken, Task<ToolCallOutcome>>? _callToolOverride;
     private readonly TimeSpan _toolCallTimeout;
+    private readonly object _activeMcpCallSyncRoot = new();
+    private readonly Dictionary<string, List<long>> _activeMcpCallIdsByServer = new(StringComparer.Ordinal);
     private IReadOnlyList<ToolDefinition> _cachedToolDefinitions = [];
     private bool _hasCachedToolDefinitions;
     private string _envBaseDir = Directory.GetCurrentDirectory();
+    private long _nextMcpCallId;
 
     public McpClientManager()
         : this(null, null)
@@ -49,6 +52,7 @@ internal sealed class McpClientManager : IAsyncDisposable
         _clients.Clear();
         _serverConfigsByName.Clear();
         _toolNamesByServer.Clear();
+        ClearActiveMcpCalls();
         _cachedToolDefinitions = [];
         _hasCachedToolDefinitions = false;
         _envBaseDir = Environment.GetEnvironmentVariable("BRAIN_ENV_DIR")
@@ -123,11 +127,41 @@ internal sealed class McpClientManager : IAsyncDisposable
                 continue;
             }
 
+            var mcpCallId = Interlocked.Increment(ref _nextMcpCallId);
             var stopwatch = Stopwatch.StartNew();
+            int? rpcElapsedMs = null;
+            var wroteCallEnd = false;
+            TrackActiveMcpCall(serverName, mcpCallId);
+
+            void WriteCallEndOnce(string outcome, bool? isError = null, Exception? exception = null)
+            {
+                if (wroteCallEnd)
+                {
+                    return;
+                }
+
+                wroteCallEnd = true;
+                rpcElapsedMs ??= RoundElapsedMs(stopwatch.Elapsed);
+
+                var payload = new Dictionary<string, object?>
+                {
+                    ["mcpCallId"] = mcpCallId,
+                    ["server"] = serverName,
+                    ["tool"] = toolName,
+                    ["outcome"] = outcome,
+                    ["elapsedMs"] = rpcElapsedMs,
+                    ["isError"] = isError,
+                };
+                AddExceptionDetails(payload, exception);
+
+                DebugTrace.WriteStructuredEvent("mcp.call.end", payload);
+            }
+
             DebugTrace.WriteStructuredEvent(
                 "mcp.call.start",
                 new Dictionary<string, object?>
                 {
+                    ["mcpCallId"] = mcpCallId,
                     ["server"] = serverName,
                     ["tool"] = toolName,
                     ["arguments"] = dictionaryArgs,
@@ -152,19 +186,25 @@ internal sealed class McpClientManager : IAsyncDisposable
                         "mcp.call.timeout",
                         new Dictionary<string, object?>
                         {
+                            ["mcpCallId"] = mcpCallId,
                             ["server"] = serverName,
                             ["tool"] = toolName,
                             ["arguments"] = dictionaryArgs,
-                            ["elapsedMs"] = (int)Math.Round(stopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
-                            ["timeoutMs"] = (int)Math.Round(_toolCallTimeout.TotalMilliseconds, MidpointRounding.AwayFromZero),
+                            ["elapsedMs"] = RoundElapsedMs(stopwatch.Elapsed),
+                            ["timeoutMs"] = RoundElapsedMs(_toolCallTimeout),
                         });
 
+                    WriteCallEndOnce("timeout", exception: ex);
+                    UntrackActiveMcpCall(serverName, mcpCallId);
                     await RecoverServerAfterTimeoutAsync(serverName, cancellationToken);
 
                     throw new TimeoutException(
-                        $"Tool \"{toolName}\" on server \"{serverName}\" timed out after {(int)Math.Round(_toolCallTimeout.TotalMilliseconds, MidpointRounding.AwayFromZero)} ms.",
+                        $"Tool \"{toolName}\" on server \"{serverName}\" timed out after {RoundElapsedMs(_toolCallTimeout)} ms.",
                         ex);
                 }
+
+                rpcElapsedMs = RoundElapsedMs(stopwatch.Elapsed);
+                WriteCallEndOnce(result.IsError == true ? "tool_error" : "success", result.IsError == true);
 
                 var structuredContentPreview = TrySerializeStructuredContent(result.StructuredContent);
                 var text = BuildToolText(result, structuredContentPreview);
@@ -180,9 +220,12 @@ internal sealed class McpClientManager : IAsyncDisposable
                     "mcp.call.complete",
                     new Dictionary<string, object?>
                     {
+                        ["mcpCallId"] = mcpCallId,
                         ["server"] = serverName,
                         ["tool"] = toolName,
-                        ["elapsedMs"] = (int)Math.Round(stopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
+                        ["elapsedMs"] = RoundElapsedMs(stopwatch.Elapsed),
+                        ["rpcElapsedMs"] = rpcElapsedMs,
+                        ["resultProcessingElapsedMs"] = Math.Max(0, RoundElapsedMs(stopwatch.Elapsed) - (rpcElapsedMs ?? 0)),
                         ["isError"] = result.IsError,
                         ["contentBlockTypes"] = contentBlockTypes,
                         ["structuredContentPreview"] = structuredContentPreview,
@@ -196,9 +239,12 @@ internal sealed class McpClientManager : IAsyncDisposable
                     DebugTrace.WriteTextBlock(
                         "mcp.call.complete.full",
                         [
+                            $"mcpCallId={mcpCallId}",
                             $"server={serverName}",
                             $"tool={toolName}",
-                            $"elapsedMs={(int)Math.Round(stopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero)}",
+                            $"elapsedMs={RoundElapsedMs(stopwatch.Elapsed)}",
+                            $"rpcElapsedMs={rpcElapsedMs}",
+                            $"resultProcessingElapsedMs={Math.Max(0, RoundElapsedMs(stopwatch.Elapsed) - (rpcElapsedMs ?? 0))}",
                             $"isError={result.IsError == true}",
                             $"contentBlockTypes={string.Join(", ", contentBlockTypes.DefaultIfEmpty("(none)"))}",
                             $"structuredContent={structuredContentPreview ?? "(none)"}",
@@ -211,18 +257,26 @@ internal sealed class McpClientManager : IAsyncDisposable
             }
             catch (McpProtocolException ex)
             {
-                LogToolCallFailure(serverName, toolName, dictionaryArgs, stopwatch.Elapsed, ex);
+                WriteCallEndOnce("failed", exception: ex);
+                LogToolCallFailure(mcpCallId, serverName, toolName, dictionaryArgs, stopwatch.Elapsed, ex);
                 throw;
             }
             catch (McpException ex)
             {
-                LogToolCallFailure(serverName, toolName, dictionaryArgs, stopwatch.Elapsed, ex);
+                WriteCallEndOnce("failed", exception: ex);
+                LogToolCallFailure(mcpCallId, serverName, toolName, dictionaryArgs, stopwatch.Elapsed, ex);
                 throw;
             }
             catch (Exception ex)
             {
-                LogToolCallFailure(serverName, toolName, dictionaryArgs, stopwatch.Elapsed, ex);
+                WriteCallEndOnce(ex is OperationCanceledException ? "canceled" : "failed", exception: ex);
+                LogToolCallFailure(mcpCallId, serverName, toolName, dictionaryArgs, stopwatch.Elapsed, ex);
                 throw;
+            }
+            finally
+            {
+                WriteCallEndOnce("abandoned");
+                UntrackActiveMcpCall(serverName, mcpCallId);
             }
         }
 
@@ -240,6 +294,7 @@ internal sealed class McpClientManager : IAsyncDisposable
         _clients.Clear();
         _serverConfigsByName.Clear();
         _toolNamesByServer.Clear();
+        ClearActiveMcpCalls();
         _cachedToolDefinitions = [];
         _hasCachedToolDefinitions = false;
     }
@@ -549,6 +604,9 @@ internal sealed class McpClientManager : IAsyncDisposable
             static kvp => kvp.Value,
             StringComparer.Ordinal);
 
+    private static int RoundElapsedMs(TimeSpan elapsed)
+        => (int)Math.Round(elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero);
+
     private static string? TrySerializeStructuredContent(object? structuredContent)
     {
         if (structuredContent is null)
@@ -573,30 +631,93 @@ internal sealed class McpClientManager : IAsyncDisposable
         }
     }
 
+    private void TrackActiveMcpCall(string serverName, long mcpCallId)
+    {
+        lock (_activeMcpCallSyncRoot)
+        {
+            if (!_activeMcpCallIdsByServer.TryGetValue(serverName, out var activeCallIds))
+            {
+                activeCallIds = [];
+                _activeMcpCallIdsByServer[serverName] = activeCallIds;
+            }
+
+            activeCallIds.Add(mcpCallId);
+        }
+    }
+
+    private void UntrackActiveMcpCall(string serverName, long mcpCallId)
+    {
+        lock (_activeMcpCallSyncRoot)
+        {
+            if (!_activeMcpCallIdsByServer.TryGetValue(serverName, out var activeCallIds))
+            {
+                return;
+            }
+
+            activeCallIds.Remove(mcpCallId);
+            if (activeCallIds.Count == 0)
+            {
+                _activeMcpCallIdsByServer.Remove(serverName);
+            }
+        }
+    }
+
+    private long[] GetActiveMcpCallIds(string serverName)
+    {
+        lock (_activeMcpCallSyncRoot)
+        {
+            return _activeMcpCallIdsByServer.TryGetValue(serverName, out var activeCallIds)
+                ? activeCallIds.ToArray()
+                : [];
+        }
+    }
+
+    private void ClearActiveMcpCalls()
+    {
+        lock (_activeMcpCallSyncRoot)
+        {
+            _activeMcpCallIdsByServer.Clear();
+        }
+    }
+
+    private static void AddExceptionDetails(Dictionary<string, object?> payload, Exception? ex)
+    {
+        if (ex is null)
+        {
+            return;
+        }
+
+        payload["exceptionType"] = ex.GetType().FullName ?? ex.GetType().Name;
+        payload["message"] = ex.Message;
+        payload["mcpErrorCode"] = ex is McpProtocolException protocolException
+            ? protocolException.ErrorCode.ToString()
+            : null;
+        payload["innerExceptionType"] = ex.InnerException?.GetType().FullName;
+        payload["innerMessage"] = ex.InnerException?.Message;
+        payload["exceptionPreview"] = DebugTrace.Preview(ex.ToString(), 1400);
+    }
+
     private static void LogToolCallFailure(
+        long mcpCallId,
         string serverName,
         string toolName,
         IReadOnlyDictionary<string, object?> arguments,
         TimeSpan elapsed,
         Exception ex)
     {
+        var payload = new Dictionary<string, object?>
+        {
+            ["mcpCallId"] = mcpCallId,
+            ["server"] = serverName,
+            ["tool"] = toolName,
+            ["arguments"] = arguments,
+            ["elapsedMs"] = RoundElapsedMs(elapsed),
+        };
+        AddExceptionDetails(payload, ex);
+
         DebugTrace.WriteStructuredEvent(
             "mcp.call.failed",
-            new Dictionary<string, object?>
-            {
-                ["server"] = serverName,
-                ["tool"] = toolName,
-                ["arguments"] = arguments,
-                ["elapsedMs"] = (int)Math.Round(elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
-                ["exceptionType"] = ex.GetType().FullName ?? ex.GetType().Name,
-                ["message"] = ex.Message,
-                ["mcpErrorCode"] = ex is McpProtocolException protocolException
-                    ? protocolException.ErrorCode.ToString()
-                    : null,
-                ["innerExceptionType"] = ex.InnerException?.GetType().FullName,
-                ["innerMessage"] = ex.InnerException?.Message,
-                ["exceptionPreview"] = DebugTrace.Preview(ex.ToString(), 1400),
-            });
+            payload);
     }
 
     private async Task ConnectServerAsync(McpServerConfig server, CancellationToken cancellationToken)
@@ -654,11 +775,14 @@ internal sealed class McpClientManager : IAsyncDisposable
                     return;
                 }
 
+                var activeMcpCallIds = GetActiveMcpCallIds(server.Name);
                 DebugTrace.WriteStructuredEvent(
                     "mcp.stderr",
                     new Dictionary<string, object?>
                     {
                         ["server"] = server.Name,
+                        ["activeMcpCallId"] = activeMcpCallIds.Length == 1 ? activeMcpCallIds[0] : null,
+                        ["activeMcpCallIds"] = activeMcpCallIds,
                         ["line"] = line,
                     });
             }
