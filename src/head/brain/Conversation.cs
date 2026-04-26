@@ -4915,8 +4915,9 @@ internal static class AgentRunner
             try
             {
                 using var document = JsonDocument.Parse(recentWindowContext);
-                if (TryGetSnapshotTree(document.RootElement, out elementTree))
+                if (TryGetSnapshotTree(document.RootElement, out var snapshotTree))
                 {
+                    elementTree = snapshotTree.Clone();
                     hasSnapshotTree = true;
                     snapshotContainsNamedChoiceSurface = SnapshotContainsVisibleNamedChoiceSurface(elementTree);
                     hasRequestedElement =

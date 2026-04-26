@@ -2487,6 +2487,53 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void EvaluateGenericContainerActionToNamedTarget_UsesExactCaseSnapshotTreeAfterParseScope()
+    {
+        var snapshot =
+            """
+            {
+              "window": {
+                "handle": "0x00030476",
+                "title": "Boyfriend on Demand - Netflix - Microsoft Edge",
+                "className": "Chrome_WidgetWin_1"
+              },
+              "elementTree": {
+                "path": "root",
+                "uiPath": "root",
+                "controlType": "Window",
+                "children": [
+                  {
+                    "path": "1/0",
+                    "uiPath": "1/0",
+                    "name": "Boyfriend on Demand",
+                    "controlType": "Group",
+                    "availableActions": [ "scroll_into_view" ],
+                    "children": [
+                      {
+                        "path": "1/0/0",
+                        "uiPath": "1/0/0",
+                        "name": "Boyfriend on Demand",
+                        "controlType": "Button",
+                        "availableActions": [ "focus", "invoke" ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+            """;
+
+        var evaluation = AgentRunner.EvaluateGenericContainerActionToNamedTarget(
+            "Open Boyfriend on Demand from the visible Netflix search results, then play the first episode.",
+            "invoke_window_element",
+            new Dictionary<string, object?> { ["elementPath"] = "root" },
+            snapshot);
+
+        Assert.True(evaluation.Rewritten);
+        Assert.Equal("1/0/0", evaluation.RewrittenArgs?["elementPath"]);
+    }
+
+    [Fact]
     public void TryRewriteGenericContainerActionToNamedTarget_DoesNotRewritePassiveVisibilityPromptToHome()
     {
         var snapshot =
