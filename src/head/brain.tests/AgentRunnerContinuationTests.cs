@@ -795,6 +795,99 @@ public sealed class AgentRunnerContinuationTests
         }
     }
 
+    [Fact]
+    public async Task RunTurnAsync_CompletedToolTraceAlignsRequestedAndExecutedTool_WhenAddressBarFocusIsRewritten()
+    {
+        DebugTrace.Configure(true);
+
+        try
+        {
+            var llmClient = new QueuedLlmClient(
+            [
+                new ChatResult(
+                    null,
+                    [
+                        new ToolCallRequest(
+                            "focus-address",
+                            "focus_window_element",
+                            """{"windowHandle":"0x000403D6","elementPath":"1/0/0/1/0/0/3/1"}""")
+                    ]),
+                new ChatResult(
+                    """
+                    {
+                      "say": "The address bar is focused.",
+                      "log": "The address bar is focused."
+                    }
+                    """,
+                    [])
+            ]);
+            var toolCalls = new List<(string ToolName, IReadOnlyDictionary<string, object?> Args)>();
+            await using var mcpManager = new McpClientManager(
+                _ => Task.FromResult<IReadOnlyList<ToolDefinition>>([]),
+                toolCallTimeoutOverride: null,
+                callToolOverride: (toolName, args, _) =>
+                {
+                    toolCalls.Add((toolName, new Dictionary<string, object?>(args, StringComparer.Ordinal)));
+                    return Task.FromResult(new ToolCallOutcome(
+                        BuildBrowserAddressBarSnapshot(),
+                        [],
+                        McpCallId: toolName == "press_window_key" ? 42 : 43));
+                });
+            var initialSnapshot = BuildBrowserAddressBarSnapshot();
+            var desktopSession = new DesktopSessionContext
+            {
+                CurrentWindowHandle = "0x000403D6",
+                CurrentWindowTitle = "YouTube - Personal - Microsoft Edge",
+                RecentWindowContext = initialSnapshot,
+                RecentUiTreeContext = initialSnapshot,
+            };
+
+            await AgentRunner.RunTurnAsync(
+                turnId: 1,
+                userText: "Navigate the active browser tab directly to https://www.netflix.com/.",
+                history: [],
+                tools:
+                [
+                    CreateToolDefinition("focus_window_element"),
+                    CreateToolDefinition("press_window_key"),
+                    CreateToolDefinition("describe_window"),
+                ],
+                composedPrompt: CreatePrompt(),
+                llmClient,
+                mcpManager,
+                desktopSession,
+                CancellationToken.None,
+                displayUserMessage: false);
+
+            Assert.Contains(toolCalls, call => call.ToolName == "press_window_key");
+            Assert.DoesNotContain(toolCalls, call => call.ToolName == "focus_window_element");
+
+            var jsonLogPath = DebugTrace.JsonLogFilePath;
+            Assert.False(string.IsNullOrWhiteSpace(jsonLogPath));
+            Assert.True(File.Exists(jsonLogPath));
+
+            var rewrite = ReadTraceEventData(
+                jsonLogPath!,
+                "agent.browser_address_bar_action_rewritten",
+                data => data.GetProperty("toolCallId").GetString() == "focus-address");
+            Assert.Equal("focus_window_element", rewrite.GetProperty("requestedTool").GetString());
+            Assert.Equal("press_window_key", rewrite.GetProperty("executedTool").GetString());
+
+            var completed = ReadTraceEventData(
+                jsonLogPath!,
+                "agent.tool_call_completed",
+                data => data.GetProperty("toolCallId").GetString() == "focus-address");
+            Assert.Equal("focus_window_element", completed.GetProperty("requestedTool").GetString());
+            Assert.Equal("press_window_key", completed.GetProperty("executedTool").GetString());
+            Assert.Equal("browser_address_bar_shortcut_rewrite", completed.GetProperty("rewriteReason").GetString());
+            Assert.Equal(42, completed.GetProperty("mcpCallId").GetInt64());
+        }
+        finally
+        {
+            DebugTrace.Configure(false);
+        }
+    }
+
     private static ComposedAgentPrompt CreatePrompt(bool includeLaunchSkill = false)
     {
         var skills = new List<AgentSkillPrompt>();
@@ -863,6 +956,30 @@ public sealed class AgentRunnerContinuationTests
         }
 
         return lines;
+    }
+
+    private static JsonElement ReadTraceEventData(
+        string path,
+        string category,
+        Func<JsonElement, bool> predicate)
+    {
+        foreach (var line in ReadLinesWithSharedAccess(path))
+        {
+            using var document = JsonDocument.Parse(line);
+            var root = document.RootElement;
+            if (!string.Equals(root.GetProperty("category").GetString(), category, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var data = root.GetProperty("data");
+            if (predicate(data))
+            {
+                return data.Clone();
+            }
+        }
+
+        throw new InvalidOperationException($"Trace event \"{category}\" was not found.");
     }
 
     private static DesktopEvidenceMetadata CreateEvidenceMetadata(
@@ -970,6 +1087,35 @@ public sealed class AgentRunnerContinuationTests
               "IsSelected": false
             }
           ]
+        }
+        """;
+
+    private static string BuildBrowserAddressBarSnapshot()
+        => """
+        {
+          "window": {
+            "handle": "0x000403D6",
+            "title": "YouTube - Personal - Microsoft Edge",
+            "className": "Chrome_WidgetWin_1",
+            "processId": 5212
+          },
+          "compactTree": {
+            "path": "root",
+            "uiPath": "root",
+            "controlType": "Window",
+            "name": "YouTube - Personal - Microsoft Edge",
+            "className": "Chrome_WidgetWin_1",
+            "children": [
+              {
+                "path": "1/0/0/1/0/0/3/1",
+                "uiPath": "1/0/0/1/0/0/3/1",
+                "controlType": "Edit",
+                "name": "Address and search bar",
+                "className": "OmniboxViewViews",
+                "availableActions": [ "focus", "set_value" ]
+              }
+            ]
+          }
         }
         """;
 

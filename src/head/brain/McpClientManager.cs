@@ -253,7 +253,7 @@ internal sealed class McpClientManager : IAsyncDisposable
                         text);
                 }
 
-                return new ToolCallOutcome(text, images, result.IsError == true);
+                return new ToolCallOutcome(text, images, result.IsError == true, mcpCallId);
             }
             catch (McpProtocolException ex)
             {

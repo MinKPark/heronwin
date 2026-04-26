@@ -11,7 +11,11 @@ internal sealed record ToolCallRequest(string Id, string Name, string Arguments)
 
 internal sealed record ToolImage(string MimeType, string Base64Data, string Detail = "low");
 
-internal sealed record ToolCallOutcome(string Text, IReadOnlyList<ToolImage> Images, bool IsError = false);
+internal sealed record ToolCallOutcome(
+    string Text,
+    IReadOnlyList<ToolImage> Images,
+    bool IsError = false,
+    long? McpCallId = null);
 
 internal sealed record AgentReply(string LogText, string SpokenText, string RawText);
 
@@ -1280,6 +1284,8 @@ internal static class AgentRunner
                 var executableArgs = CloneArguments(parsedArgsDictionary);
                 var effectiveArgumentsText = toolCall.Arguments;
                 var executableToolName = toolCall.Name;
+                string? toolTraceRewriteReason = null;
+                string? argumentTraceRewriteReason = null;
                 string? toolRewriteNote = null;
                 string? browserSearchFieldReplacementPath = null;
                 string? freshToolUiElementContext = null;
@@ -1706,6 +1712,7 @@ internal static class AgentRunner
                 {
                     executableArgs = rewrittenSelectArgs;
                     effectiveArgumentsText = JsonSerializer.Serialize(executableArgs, JsonSerializerOptionsCache.Default);
+                    argumentTraceRewriteReason = "recent_list_windows_handle_preferred";
                     DebugTrace.WriteStructuredEvent(
                         "agent.tool_call_arguments_rewritten",
                         new Dictionary<string, object?>
@@ -1731,6 +1738,13 @@ internal static class AgentRunner
                     executableToolName = rewrittenSelectToolName;
                     executableArgs = rewrittenRequestedAppArgs;
                     effectiveArgumentsText = JsonSerializer.Serialize(executableArgs, JsonSerializerOptionsCache.Default);
+                    var requestedAppRewriteReason = executableToolName == "launch_application"
+                        ? "requested_app_launch_preferred_over_unrelated_window"
+                        : "requested_app_window_match_preferred";
+                    toolTraceRewriteReason = !string.Equals(executableToolName, toolCall.Name, StringComparison.Ordinal)
+                        ? requestedAppRewriteReason
+                        : toolTraceRewriteReason;
+                    argumentTraceRewriteReason = requestedAppRewriteReason;
                     DebugTrace.WriteStructuredEvent(
                         "agent.tool_call_arguments_rewritten",
                         new Dictionary<string, object?>
@@ -1739,9 +1753,7 @@ internal static class AgentRunner
                             ["toolCallId"] = toolCall.Id,
                             ["tool"] = toolCall.Name,
                             ["executedTool"] = executableToolName,
-                            ["reason"] = executableToolName == "launch_application"
-                                ? "requested_app_launch_preferred_over_unrelated_window"
-                                : "requested_app_window_match_preferred",
+                            ["reason"] = requestedAppRewriteReason,
                             ["originalArgumentsPreview"] = DebugTrace.PreviewToolArguments(toolCall.Name, toolCall.Arguments, 600),
                             ["rewrittenArgumentsPreview"] = DebugTrace.PreviewToolArguments(executableToolName, effectiveArgumentsText, 600),
                         });
@@ -1758,6 +1770,7 @@ internal static class AgentRunner
                 {
                     executableArgs = rewrittenBrowserSearchArgs;
                     effectiveArgumentsText = JsonSerializer.Serialize(executableArgs, JsonSerializerOptionsCache.Default);
+                    argumentTraceRewriteReason = "browser_site_search_control_preferred";
                     DebugTrace.WriteStructuredEvent(
                         "agent.tool_call_arguments_rewritten",
                         new Dictionary<string, object?>
@@ -1829,6 +1842,8 @@ internal static class AgentRunner
                     effectiveArgumentsText = JsonSerializer.Serialize(executableArgs, JsonSerializerOptionsCache.Default);
                     browserSearchFieldReplacementPath = rewrittenBrowserSearchFieldPath;
                     rewroteBrowserSearchFieldValueEntry = true;
+                    toolTraceRewriteReason = "browser_site_search_field_value_entry_rewrite";
+                    argumentTraceRewriteReason = toolTraceRewriteReason;
                     toolRewriteNote =
                         "Internal site-search field fallback used real keyboard typing in the focused search field because some browser sites do not react reliably to direct value-setting alone.";
                     DebugTrace.WriteStructuredEvent(
@@ -1855,6 +1870,8 @@ internal static class AgentRunner
                     executableToolName = "press_window_key";
                     executableArgs = rewrittenBrowserAddressBarArgs;
                     effectiveArgumentsText = JsonSerializer.Serialize(executableArgs, JsonSerializerOptionsCache.Default);
+                    toolTraceRewriteReason = "browser_address_bar_shortcut_rewrite";
+                    argumentTraceRewriteReason = toolTraceRewriteReason;
                     toolRewriteNote =
                         "Internal browser address-bar fallback used Control+L instead of UI Automation element activation because browser chrome can be hidden or offscreen during fullscreen content.";
                     DebugTrace.WriteStructuredEvent(
@@ -1874,6 +1891,7 @@ internal static class AgentRunner
                 var preparedArgumentsText = JsonSerializer.Serialize(preparedExecutableArgs, JsonSerializerOptionsCache.Default);
                 if (!string.Equals(preparedArgumentsText, effectiveArgumentsText, StringComparison.Ordinal))
                 {
+                    var argumentInjectionReason = "desktop_session_window_handle_injected";
                     DebugTrace.WriteStructuredEvent(
                         "agent.tool_call_arguments_injected",
                         new Dictionary<string, object?>
@@ -1882,10 +1900,11 @@ internal static class AgentRunner
                             ["toolCallId"] = toolCall.Id,
                             ["tool"] = toolCall.Name,
                             ["executedTool"] = executableToolName,
-                            ["reason"] = "desktop_session_window_handle_injected",
+                            ["reason"] = argumentInjectionReason,
                             ["originalArgumentsPreview"] = DebugTrace.PreviewToolArguments(executableToolName, effectiveArgumentsText, 600),
                             ["rewrittenArgumentsPreview"] = DebugTrace.PreviewToolArguments(executableToolName, preparedArgumentsText, 600),
                         });
+                    argumentTraceRewriteReason ??= argumentInjectionReason;
                     executableArgs = preparedExecutableArgs;
                     effectiveArgumentsText = preparedArgumentsText;
                 }
@@ -2011,7 +2030,11 @@ internal static class AgentRunner
                             ["turn"] = turnId,
                             ["toolCallId"] = toolCall.Id,
                             ["tool"] = toolCall.Name,
+                            ["requestedTool"] = toolCall.Name,
                             ["executedTool"] = executableToolName,
+                            ["rewriteReason"] = toolTraceRewriteReason,
+                            ["argumentRewriteReason"] = argumentTraceRewriteReason,
+                            ["mcpCallId"] = null,
                             ["elapsedMs"] = 0,
                             ["isError"] = true,
                             ["images"] = 0,
@@ -2048,7 +2071,11 @@ internal static class AgentRunner
                             ["turn"] = turnId,
                             ["toolCallId"] = toolCall.Id,
                             ["tool"] = toolCall.Name,
+                            ["requestedTool"] = toolCall.Name,
                             ["executedTool"] = executableToolName,
+                            ["rewriteReason"] = toolTraceRewriteReason,
+                            ["argumentRewriteReason"] = argumentTraceRewriteReason,
+                            ["mcpCallId"] = null,
                             ["elapsedMs"] = 0,
                             ["isError"] = true,
                             ["images"] = 0,
@@ -2085,7 +2112,11 @@ internal static class AgentRunner
                             ["turn"] = turnId,
                             ["toolCallId"] = toolCall.Id,
                             ["tool"] = toolCall.Name,
+                            ["requestedTool"] = toolCall.Name,
                             ["executedTool"] = executableToolName,
+                            ["rewriteReason"] = toolTraceRewriteReason,
+                            ["argumentRewriteReason"] = argumentTraceRewriteReason,
+                            ["mcpCallId"] = null,
                             ["elapsedMs"] = 0,
                             ["isError"] = true,
                             ["images"] = 0,
@@ -2156,6 +2187,7 @@ internal static class AgentRunner
                     });
                 if (useStructuredDiscreteSlotEntry)
                 {
+                    toolTraceRewriteReason = "discrete_slot_text_entry";
                     toolRewriteNote =
                         "Internal structured text fallback entered the code one character at a time because the visible prompt uses separate single-character entry boxes.";
                     effectiveArgumentsText = """{"text":"[discrete slot text redacted]"}""";
@@ -2203,7 +2235,11 @@ internal static class AgentRunner
                         ["turn"] = turnId,
                         ["toolCallId"] = toolCall.Id,
                         ["tool"] = toolCall.Name,
+                        ["requestedTool"] = toolCall.Name,
                         ["executedTool"] = executableToolName,
+                        ["rewriteReason"] = toolTraceRewriteReason,
+                        ["argumentRewriteReason"] = argumentTraceRewriteReason,
+                        ["mcpCallId"] = toolOutput.McpCallId,
                         ["elapsedMs"] = (int)Math.Round(toolCallStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
                         ["isError"] = toolOutput.IsError,
                         ["images"] = toolOutput.Images.Count,
@@ -2266,7 +2302,12 @@ internal static class AgentRunner
                         new Dictionary<string, object?>
                         {
                             ["turn"] = turnId,
+                            ["toolCallId"] = toolCall.Id,
+                            ["requestedTool"] = toolCall.Name,
                             ["tool"] = executableToolName,
+                            ["executedTool"] = executableToolName,
+                            ["rewriteReason"] = toolTraceRewriteReason,
+                            ["mcpCallId"] = toolOutput.McpCallId,
                             ["toolIsError"] = toolOutput.IsError,
                             ["reportedWindow"] = DescribePrimaryWindowFromToolOutput(toolOutput.Text),
                         });
@@ -2359,7 +2400,13 @@ internal static class AgentRunner
                             new Dictionary<string, object?>
                             {
                                 ["turn"] = turnId,
+                                ["toolCallId"] = toolCall.Id,
+                                ["requestedTool"] = toolCall.Name,
                                 ["tool"] = executableToolName,
+                                ["executedTool"] = executableToolName,
+                                ["rewriteReason"] = toolTraceRewriteReason,
+                                ["actionMcpCallId"] = toolOutput.McpCallId,
+                                ["mcpCallId"] = postActionSnapshot.McpCallId,
                                 ["elapsedMs"] = (int)Math.Round(postActionSnapshotStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
                                 ["snapshotWindow"] = DescribePrimaryWindowFromToolOutput(postActionSnapshot.Text),
                                 ["images"] = postActionSnapshot.Images.Count,
@@ -2370,7 +2417,13 @@ internal static class AgentRunner
                             new Dictionary<string, object?>
                             {
                                 ["turn"] = turnId,
+                                ["toolCallId"] = toolCall.Id,
+                                ["requestedTool"] = toolCall.Name,
                                 ["tool"] = executableToolName,
+                                ["executedTool"] = executableToolName,
+                                ["rewriteReason"] = toolTraceRewriteReason,
+                                ["actionMcpCallId"] = toolOutput.McpCallId,
+                                ["snapshotMcpCallId"] = postActionSnapshot.McpCallId,
                                 ["actionReportedWindow"] = DescribePrimaryWindowFromToolOutput(toolOutput.Text),
                                 ["snapshotWindow"] = DescribePrimaryWindowFromToolOutput(postActionSnapshot.Text),
                                 ["sourceOfTruth"] = "uia_tree",
@@ -2423,7 +2476,13 @@ internal static class AgentRunner
                                 new Dictionary<string, object?>
                                 {
                                     ["turn"] = turnId,
+                                    ["toolCallId"] = toolCall.Id,
+                                    ["requestedTool"] = toolCall.Name,
                                     ["tool"] = executableToolName,
+                                    ["executedTool"] = executableToolName,
+                                    ["rewriteReason"] = toolTraceRewriteReason,
+                                    ["actionMcpCallId"] = toolOutput.McpCallId,
+                                    ["mcpCallId"] = focusSnapshot.McpCallId,
                                     ["elapsedMs"] = (int)Math.Round(focusSnapshotStopwatch.Elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero),
                                     ["images"] = focusSnapshot.Images.Count,
                                     ["resultPreview"] = DebugTrace.Preview(focusSnapshot.Text, 700),
