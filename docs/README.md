@@ -17,6 +17,29 @@ runtime-loaded prompt and skill files under `.github/agents`.
 Last updated: 2026-04-25
 
 - Git baseline: `main` at `f96fc1a`.
+- Latest session wrap-up, 2026-04-25:
+  - implemented scripted no-op lookahead and trace-report lookahead summaries;
+    the best Codex-backed Netflix rerun after browser skill URL batching passed
+    in `242.735 s` with `12` LLM responses and `206.469 s` total LLM time.
+  - fixed trace-report slow-event alignment so `assistant.reply.elapsedMs`
+    is not mixed into event-duration tables.
+  - strengthened the Edge browser skill to batch address-bar URL replacement
+    and `Enter` submission in one tool-call response.
+  - fixed a `JsonDocument` lifetime bug in generic named-target rewriting that
+    was exposed by the OpenAI API path.
+  - measured `OpenAI API / gpt-5.4`: passed current scenario checks in
+    `98.172 s`, with `16` LLM responses and `56.160 s` total LLM time. Caveat:
+    the final Turn 5 reply said playback was not confirmed, so scenario
+    validation needs tightening before treating it as behaviorally equivalent.
+  - tried `OpenAI API / gpt-5.4-mini`: no clean pass yet. The startup-skill fix
+    made mini use concrete `windowHandle` activation, but the later attempts
+    failed on OpenAI API `429` TPM limits, including one run that reached Turn 5.
+  - latest focused/full verification: `dotnet test src\head\brain.tests\HeronWin.Brain.Tests.csproj`
+    passed on 2026-04-25 with `267` total tests.
+  - current measurement notes:
+    [OpenAI API GPT-5.4](./perfbase/2026-04-25-netflix-openai-api-gpt-5.4.md)
+    and
+    [OpenAI API GPT-5.4-Mini Attempts](./perfbase/2026-04-25-netflix-openai-api-gpt-5.4-mini-attempts.md).
 - The active implementation lives under `src`.
 - The `body` refactor is landed:
   - `src/body` is the active tree.

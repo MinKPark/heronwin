@@ -228,3 +228,21 @@ Start with no-op lookahead. It is the safest and likely removes the Turn 2 and
 Turn 3 conditional no-op calls in the Netflix scenario. Once that is stable,
 extend to next-turn tool execution so a confirmation call can immediately start
 the following command.
+
+## Current Status - 2026-04-25 Wrap-Up
+
+- No-op lookahead was implemented and measured. It successfully advanced one
+  conditional no-op turn in the Codex-backed run, but the total LLM-response
+  count stayed at `12` because other attempts changed shape.
+- Future-turn tool execution was not implemented today.
+- Trace reporting now includes lookahead request, decision, advance, fallback,
+  and estimated-saved-call counts.
+- The strongest latency result today was switching provider path:
+  `OpenAI API / gpt-5.4` completed the current scripted smoke in `98.172 s`
+  versus the latest Codex-backed `gpt-5.4-mini` run at `242.735 s`.
+- Quality caveat: the `gpt-5.4` API run passed current checks even though Turn 5
+  said playback was not confirmed. Tightening scenario validation should come
+  before using that result as a true behavioral pass.
+- `OpenAI API / gpt-5.4-mini` did not produce a clean pass today because of
+  startup behavior before the skill fix and OpenAI API `429` TPM limits after
+  the skill fix.

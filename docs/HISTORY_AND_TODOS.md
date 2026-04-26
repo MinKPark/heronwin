@@ -16,7 +16,8 @@ This file has two jobs:
 
 | Status | Priority | Item | Next move |
 |--------|----------|------|-----------|
-| `next` | `P0` | Cut scripted Netflix smoke runtime below one minute. | Use the landed scripted turn-start carry-forward slice as the new base, then attack turn-1 browser-entry churn and capture a more apples-to-apples rerun that reaches the profile-picker or PIN path before judging the next runtime slice. |
+| `next` | `P0` | Cut scripted Netflix smoke runtime below one minute. | Tighten scenario validation, then compare one clean OpenAI API `gpt-5.4` and `gpt-5.4-mini` rerun after rate limits reset. Keep targeting fewer LLM calls, but separate provider latency from behavior quality. |
+| `next` | `P0` | Make scripted scenario pass/fail stricter for incomplete final outcomes. | A `gpt-5.4` API run passed current checks even though Turn 5 said playback was not confirmed; update assertions/evaluator so incomplete final replies cannot pass just because required title text appears. |
 | `next` | `P1` | Decide whether to add separate scripted coverage for app-first launch. | The current Netflix smoke is now explicitly website-navigation-based; add another smoke if we want deterministic coverage for the app-first fallback-confirmation path. |
 | `next` | `P1` | Finish the compact-tree rollout in `cognition`. | Add the opt-in screenshot-vs-compact evaluation harness, then run the documented parity checks, benchmarks, and manual evaluation passes in [Cognition Compact Tree Migration](./designs/cognition-compact-tree-migration.md). |
 | `next` | `P1` | Add dedicated coverage for the WPF `face` app. | Start with settings edits, status mapping, and view-model state transitions. |
@@ -27,6 +28,44 @@ This file has two jobs:
 
 These notes describe local work that exists in the working tree but is not yet
 part of committed repo history.
+
+- End-of-day 2026-04-25 update:
+  - implemented scripted lookahead for no-op next turns and added trace-report
+    lookahead metrics.
+  - fixed trace-report timing alignment so `assistant.reply.elapsedMs` is not
+    treated as a normal event duration.
+  - moved direct browser URL+Enter batching into the Edge browser skill.
+  - fixed a `JsonDocument` lifetime bug in generic named-target rewriting and
+    covered it with
+    `EvaluateGenericContainerActionToNamedTarget_UsesExactCaseSnapshotTreeAfterParseScope`.
+  - strengthened the generic desktop startup skill to use exact
+    `windowHandle` activation when available and to continue into the requested
+    destination/action after foregrounding an app.
+  - verified in this wrap-up pass:
+    - `dotnet test src\head\brain.tests\HeronWin.Brain.Tests.csproj` passed
+      with `267` total tests.
+  - latest live measurements:
+    - Codex-backed `gpt-5.4-mini` browser-skill rerun passed in `242.735 s`.
+    - OpenAI API `gpt-5.4` rerun passed current checks in `98.172 s`, but with
+      a Turn 5 quality caveat: the final reply said playback was not confirmed.
+    - OpenAI API `gpt-5.4-mini` did not produce a clean pass today; after the
+      startup-skill fix it reached Turn 5 once, then failed on `429` TPM limits.
+  - saved measurement notes in:
+    - [Netflix OpenAI API GPT-5.4 Rerun](./perfbase/2026-04-25-netflix-openai-api-gpt-5.4.md)
+    - [Netflix OpenAI API GPT-5.4-Mini Attempts](./perfbase/2026-04-25-netflix-openai-api-gpt-5.4-mini-attempts.md)
+  - no `Brain` scenario process was left running after the interrupted mini
+    rerun; remaining `dotnet` processes appeared to be VS/MSBuild/test
+    infrastructure.
+  - first steps for the next session:
+    - inspect the `gpt-5.4-mini` Turn 4/5 trace under
+      `.tmp/netflix-smoke-runtime/2026-04-25-openai-api-gpt-5.4-mini-aborted-clean-rerun/`.
+    - tighten scenario failure detection for incomplete final replies and reply
+      contradictions.
+    - after the OpenAI API TPM window is clear, rerun one clean
+      `LLM_PROVIDER=openai-api` / `OPENAI_MODEL=gpt-5.4-mini` scenario without
+      preceding failed attempts.
+    - compare `gpt-5.4`, `gpt-5.4-mini`, and Codex-backed runs on both latency
+      and final-state quality before choosing the default provider/model.
 
 - Current uncommitted local changes now include the first scripted carry-forward
   implementation pass in:
