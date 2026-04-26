@@ -664,7 +664,7 @@ internal static class BrainTraceReporter
             .ToArray();
         var slowEvents = records
             .Select(record => (Record: record, ElapsedMs: GetElapsedMs(record)))
-            .Where(static item => item.ElapsedMs > 0d)
+            .Where(static item => item.ElapsedMs > 0d && IsEventDurationRecord(item.Record))
             .OrderByDescending(static item => item.ElapsedMs)
             .ThenBy(item => item.Record.Sequence)
             .Take(12)
@@ -893,6 +893,9 @@ internal static class BrainTraceReporter
         => record.TryGetInt64("elapsedMs", out var elapsedMs)
             ? elapsedMs
             : 0d;
+
+    private static bool IsEventDurationRecord(BrainTraceRecord record)
+        => record.Category != "assistant.reply";
 
     private static string SummarizeEvent(BrainTraceRecord record)
     {

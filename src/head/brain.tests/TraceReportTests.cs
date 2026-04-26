@@ -180,6 +180,64 @@ public sealed class TraceReportTests
     }
 
     [Fact]
+    public void Generate_SlowEventsExcludeAssistantReplyTurnElapsedMarker()
+    {
+        var tracePath = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllLines(
+                tracePath,
+                [
+                    CreateTraceLine(
+                        "2026-04-22T21:00:00.0000000-07:00",
+                        1,
+                        "session.start",
+                        """{"llmProvider":"OpenAiCodex","openAiModel":"gpt-5.4-mini"}"""),
+                    CreateTraceLine(
+                        "2026-04-22T21:00:01.0000000-07:00",
+                        2,
+                        "agent.turn.scripted_begin",
+                        """{"turn":1,"scenario":"Smoke","command":"open netflix"}"""),
+                    CreateTraceLine(
+                        "2026-04-22T21:00:02.0000000-07:00",
+                        3,
+                        "agent.tool_call_completed",
+                        """{"turn":1,"executedTool":"activate_window","elapsedMs":250,"isError":false}"""),
+                    CreateTraceLine(
+                        "2026-04-22T21:00:03.0000000-07:00",
+                        4,
+                        "assistant.reply",
+                        """{"turn":1,"elapsedMs":75000,"attempts":1,"sayText":"Netflix is open.","logText":"Netflix is open."}"""),
+                    CreateTraceLine(
+                        "2026-04-22T21:00:04.0000000-07:00",
+                        5,
+                        "display.info",
+                        """{"message":"Scenario passed: Smoke"}""")
+                ]);
+
+            var report = BrainTraceReporter.Generate(tracePath);
+
+            Assert.Contains(
+                report.Turns,
+                turn => turn.TurnId == 1 && turn.TurnElapsedMs == 75000d);
+            Assert.DoesNotContain(
+                report.SlowEvents,
+                slowEvent => slowEvent.Category == "assistant.reply");
+            var slowEvent = Assert.Single(report.SlowEvents);
+            Assert.Equal("agent.tool_call_completed", slowEvent.Category);
+            Assert.Equal(250d, slowEvent.ElapsedMs);
+
+            var markdown = report.ToMarkdown();
+            Assert.DoesNotContain("| assistant.reply |", markdown, StringComparison.Ordinal);
+            Assert.Contains("| agent.tool_call_completed | 1 | 0.250 | activate_window |", markdown, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(tracePath);
+        }
+    }
+
+    [Fact]
     public void Generate_IncludesLookaheadSummary()
     {
         var tracePath = Path.GetTempFileName();
