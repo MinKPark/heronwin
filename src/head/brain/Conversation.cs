@@ -2867,7 +2867,7 @@ internal static class AgentRunner
 
         if (toolName == "set_window_element_text")
         {
-            return "Treat this direct field entry as unconfirmed until the freshest post-action snapshot or screenshot shows the intended text or the resulting screen change. If the field still looks empty or unchanged after entry, retry with a materially different method or report that the entry is not yet confirmed.";
+            return "Treat this direct field entry as unconfirmed until the freshest post-action snapshot or screenshot shows the intended text or the resulting screen change. If this was browser address-bar URL replacement and the navigation submit key is part of the same deterministic batch, verify after that submit action rather than pausing between the URL replacement and Enter. If the field still looks empty or unchanged after entry, retry with a materially different method or report that the entry is not yet confirmed.";
         }
 
         if (!IsWindowInputTool(toolName))
@@ -3840,7 +3840,7 @@ internal static class AgentRunner
         var selectedWindowText = string.IsNullOrWhiteSpace(context.SelectedWindowHandle)
             ? "No selected window is recorded in this inventory."
             : $"Selected window handle: {context.SelectedWindowHandle}.";
-        return $"Startup desktop inventory is available from {context.SourceKind}. {selectedWindowText} Use it to decide whether to keep the current app, activate an existing window, or launch a new app before deeper in-app actions.";
+        return $"Startup desktop inventory is available from {context.SourceKind}. {selectedWindowText} Treat it as the current broad window-discovery result; do not call list_windows again merely to repeat it. Use it to decide whether to keep the current app, activate an existing window, or launch a new app before deeper in-app actions.";
     }
 
     internal static string BuildStartupWindowInventoryUserMessage(StartupWindowInventoryContext context)
@@ -3849,7 +3849,7 @@ internal static class AgentRunner
         builder.AppendLine($"Startup desktop inventory from {context.SourceKind} (evidence age {context.EvidenceAgeMs} ms):");
         builder.AppendLine(context.InventoryContext);
         builder.AppendLine();
-        builder.Append("Use this inventory only for startup choice: keep the current app, activate an existing window, or launch a new app. After startup, switch back to fresh current-window evidence.");
+        builder.Append("Use this inventory only for startup choice: keep the current app, activate an existing window, or launch a new app. Do not call list_windows again merely to refresh or confirm this same inventory; if the intended window is present, activate or inspect its exact handle. After startup, switch back to fresh current-window evidence.");
         return builder.ToString();
     }
 

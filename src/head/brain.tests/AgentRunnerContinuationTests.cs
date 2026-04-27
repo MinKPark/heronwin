@@ -760,8 +760,13 @@ public sealed class AgentRunnerContinuationTests
                            && summary.Content.Contains("Startup desktop inventory", StringComparison.Ordinal));
             Assert.Contains(
                 llmClient.Requests[0],
+                message => message is AgentMessage.Summary summary
+                           && summary.Content.Contains("do not call list_windows again", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(
+                llmClient.Requests[0],
                 message => message is AgentMessage.User user
                            && user.Content.Contains("selectedWindowHandle", StringComparison.OrdinalIgnoreCase)
+                           && user.Content.Contains("Do not call list_windows again", StringComparison.OrdinalIgnoreCase)
                            && !user.Content.Contains("ProcessId", StringComparison.OrdinalIgnoreCase));
             Assert.False(string.IsNullOrWhiteSpace(desktopSession.RecentWindowInventoryModelContext));
 

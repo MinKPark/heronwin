@@ -157,6 +157,9 @@ public sealed class AgentPromptLoaderTests
         Assert.Contains("set_window_element_text", prompt.PromptText, StringComparison.Ordinal);
         Assert.Contains("press_window_key", prompt.PromptText, StringComparison.Ordinal);
         Assert.Contains("separate LLM attempt", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("explicit exception to the default one-tool-at-a-time preference", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Verify the destination after the submitted navigation", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("only sets the address bar but omits `Enter` is incomplete", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -170,6 +173,8 @@ public sealed class AgentPromptLoaderTests
         Assert.Contains("with that exact `windowHandle`", prompt.PromptText, StringComparison.Ordinal);
         Assert.Contains("titleContains", prompt.PromptText, StringComparison.Ordinal);
         Assert.Contains("continue into that next action", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("fresh startup inventory", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("do not call `cognition/list_windows` again", prompt.PromptText, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

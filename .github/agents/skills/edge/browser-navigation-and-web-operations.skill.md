@@ -57,9 +57,12 @@ applies_when:
 ## Stable-Phase Guidance
 
 - Treat browser chrome preparation and direct URL entry as one stable phase when the browser window is already validated and the next few actions stay on the same browser-chrome surface.
-- In that stable phase, it is acceptable to return a short bounded sequence such as new tab or address-bar focus, full URL replacement, and submission in one response when those steps are deterministic from the current evidence.
+- In that stable phase, return a short bounded sequence such as new tab or address-bar focus, full URL replacement, and submission in one response when those steps are deterministic from the current evidence.
 - For direct URL navigation, setting the address-bar value is not complete until the URL is submitted. When the address bar target is already identified, return the URL replacement and `Enter` submission in the same tool-call response, such as `set_window_element_text` followed by `press_window_key` with `Enter`.
-- Do not spend a separate LLM attempt merely to decide whether to press `Enter` after placing a clean URL in a validated browser address bar. Use a separate attempt only if the address-bar target, URL value, or current browser surface is uncertain.
+- The URL replacement plus `Enter` pair is required for a validated address-bar target unless the address-bar target, URL value, or current browser surface is uncertain. A response that only sets the address bar but omits `Enter` is incomplete in the normal direct-navigation path.
+- This URL replacement plus `Enter` pair is an explicit exception to the default one-tool-at-a-time preference. The `Enter` submission is the final boundary action of the stable browser-chrome batch, not a reason to split into a separate LLM attempt.
+- Do not spend a separate LLM attempt merely to decide whether to press `Enter` after placing a clean URL in a validated browser address bar.
+- Do not pause between URL replacement and `Enter` to verify the address-bar text. Verify the destination after the submitted navigation produces fresh browser evidence.
 - Stop that batch at the likely transition boundary such as pressing `Enter`, opening a new page, or invoking a result that should change the visible page.
 - After that transition boundary, wait for fresh browser evidence before deciding whether navigation succeeded, failed, or needs repair.
 
@@ -86,7 +89,7 @@ applies_when:
 - Before typing a replacement URL, replace the entire existing address-bar contents rather than appending to it.
 - If the address bar may still contain old text, select all and delete it or otherwise clear it before entering the new URL.
 - If the user is intentionally modifying text already in the address bar, preserve that text and make only the requested edit instead of clearing it automatically.
-- After entering the URL, submit it with `Enter` in the same deterministic browser-chrome action batch when possible, then refresh the browser state before answering.
+- After entering the URL, submit it with `Enter` in the same deterministic browser-chrome action batch unless the target or URL is uncertain, then refresh the browser state before answering.
 
 ## Search Versus URL Rules
 

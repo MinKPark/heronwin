@@ -33,7 +33,7 @@ fresh evidence.
 
 ## Workflow
 
-1. First check whether a likely app window is already visible.
+1. First check whether a likely app window is already visible, using any startup inventory already provided in the prompt before asking for another window list.
 2. If a matching window already exists, select it instead of launching a second instance.
 3. If the app does not appear to be open, continue into the available launch routes rather than stopping after the initial inspection.
 4. Prefer taskbar-based launch paths before asking the user to launch the app manually.
@@ -43,9 +43,10 @@ fresh evidence.
 
 ## Tool Preference
 
-- Use `cognition/list_windows` before launching.
+- Use `cognition/list_windows` before launching only when fresh startup inventory was not already provided in the prompt.
+- If the prompt already includes fresh startup inventory from `list_windows`, treat that as the window check and do not call `cognition/list_windows` again just to repeat it.
 - If a likely window already exists, use `execution/activate_window`.
-- If recent evidence already exposed a specific `windowHandle`, call `execution/activate_window` with that exact `windowHandle`.
+- If startup inventory or recent evidence already exposed a specific `windowHandle`, call `execution/activate_window` with that exact `windowHandle`.
 - Do not call `execution/activate_window` with fuzzy or invented title fields such as `titleContains` when a concrete `windowHandle` is available from `list_windows`.
 - If the app is not open, inspect the taskbar with `cognition/list_taskbar_items`.
 - If the app looks pinned or already present on the taskbar, use `execution/activate_taskbar_app`.
