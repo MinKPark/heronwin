@@ -17,10 +17,14 @@ runtime-loaded prompt and skill files under `.github/agents`.
 
 ## Current Snapshot
 
-Last updated: 2026-04-25
+Last updated: 2026-04-26
 
-- Git baseline: `main` at `f96fc1a`.
-- Latest session wrap-up, 2026-04-25:
+- Git baseline: `main` at `bdb240c`.
+- Latest session summary, 2026-04-26:
+  - See [Feature Change Summary - 2026-04-26](./daily-work-summary-2026-04-26.md)
+    for today's Node.js removal, Netflix skill changes, UI settle delay work,
+    verification, and next steps.
+- Previous session wrap-up, 2026-04-25:
   - implemented scripted no-op lookahead and trace-report lookahead summaries;
     the best Codex-backed Netflix rerun after browser skill URL batching passed
     in `242.735 s` with `12` LLM responses and `206.469 s` total LLM time.
