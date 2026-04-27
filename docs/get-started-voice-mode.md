@@ -34,6 +34,8 @@ Other voice-related settings in `.env`:
 - `WHISPER_MODEL` — defaults to `whisper-1`
 - `MAX_RECORD_MS` — single-utterance cap; defaults to `30000`
 - `ACTIVE_IDLE_TIMEOUT_MS` — return to wake-word listening after silence
+- `POST_ACTION_UI_SETTLE_DELAY_MS` — wait before the final post-action UI snapshot
+  that feeds the next LLM attempt; defaults to 1000 ms
 - `WAKE_WORD` — phrase that re-activates the agent (default `Hello there`)
 - `VOICE_LANGUAGES` — comma-separated list, default `American English, Korean`
 

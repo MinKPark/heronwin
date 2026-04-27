@@ -81,6 +81,7 @@ DebugTrace.WriteStructuredEvent(
         ["ttsVoice"] = config.TtsVoice,
         ["wakeWord"] = config.WakeWord,
         ["maxContextTokens"] = config.MaxContextTokens,
+        ["postActionUiSettleDelayMs"] = config.PostActionUiSettleDelayMs,
         ["debugAudioPlayback"] = config.DebugAudioPlayback,
         ["logsDirectory"] = DebugTrace.BuildLogsDirectory(AppContext.BaseDirectory),
         ["providerCapabilities"] = new Dictionary<string, object?>
@@ -108,7 +109,7 @@ DebugTrace.WriteStructuredEvent(
 
 DebugTrace.WriteEvent(
     "config.loaded",
-    $"mode={(consoleOptions.IsScripted ? "scripted" : initialInteractiveMode.ToString().ToLowerInvariant())}, llmProvider={config.LlmProvider}, openAiModel={config.OpenAiModel}, openAiCodexModel={config.OpenAiCodexModel}, anthropicModel={config.AnthropicModel}, whisperModel={config.WhisperModel}, voiceLanguages={DebugTrace.SerializeObject(config.VoiceLanguages.Select(static language => language.DisplayName).ToArray())}, wakeWord={DebugTrace.SerializeObject(config.WakeWord)}, agentDefinitionPath={config.AgentDefinitionPath}, agentCoreDefinitionPath={config.AgentPrompts.CoreDefinitionPath ?? "(none)"}, agentSkills={config.AgentPrompts.Skills.Count}, mcpServers={config.McpServers.Count}, debugTrace={DebugTrace.IsEnabled}, debugAudioPlayback={config.DebugAudioPlayback}");
+    $"mode={(consoleOptions.IsScripted ? "scripted" : initialInteractiveMode.ToString().ToLowerInvariant())}, llmProvider={config.LlmProvider}, openAiModel={config.OpenAiModel}, openAiCodexModel={config.OpenAiCodexModel}, anthropicModel={config.AnthropicModel}, whisperModel={config.WhisperModel}, voiceLanguages={DebugTrace.SerializeObject(config.VoiceLanguages.Select(static language => language.DisplayName).ToArray())}, wakeWord={DebugTrace.SerializeObject(config.WakeWord)}, postActionUiSettleDelayMs={config.PostActionUiSettleDelayMs}, agentDefinitionPath={config.AgentDefinitionPath}, agentCoreDefinitionPath={config.AgentPrompts.CoreDefinitionPath ?? "(none)"}, agentSkills={config.AgentPrompts.Skills.Count}, mcpServers={config.McpServers.Count}, debugTrace={DebugTrace.IsEnabled}, debugAudioPlayback={config.DebugAudioPlayback}");
 
 if (consoleOptions.IsScripted)
 {

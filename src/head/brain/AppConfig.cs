@@ -39,6 +39,7 @@ internal sealed record AppConfig(
     IReadOnlyList<VoiceLanguagePreference> VoiceLanguages,
     int MaxRecordMs,
     int ActiveIdleTimeoutMs,
+    int PostActionUiSettleDelayMs,
     int MaxContextTokens,
     string WakeWord,
     IReadOnlyList<McpServerConfig> McpServers
@@ -81,6 +82,7 @@ internal sealed record AppConfig(
             VoiceLanguagePreferences.Parse(Environment.GetEnvironmentVariable("VOICE_LANGUAGES")),
             ParseInt(Environment.GetEnvironmentVariable("MAX_RECORD_MS"), 30_000),
             ParseInt(Environment.GetEnvironmentVariable("ACTIVE_IDLE_TIMEOUT_MS"), 60_000),
+            Math.Max(0, ParseInt(Environment.GetEnvironmentVariable("POST_ACTION_UI_SETTLE_DELAY_MS"), 1_000)),
             ParseInt(Environment.GetEnvironmentVariable("MAX_CONTEXT_TOKENS"), 128_000),
             Environment.GetEnvironmentVariable("WAKE_WORD") ?? "Hello there",
             LoadMcpServers(Environment.GetEnvironmentVariable("MCP_SERVERS"))

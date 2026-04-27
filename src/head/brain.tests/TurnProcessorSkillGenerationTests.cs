@@ -278,6 +278,7 @@ public sealed class TurnProcessorSkillGenerationTests
             VoiceLanguages: [],
             MaxRecordMs: 10_000,
             ActiveIdleTimeoutMs: 10_000,
+            PostActionUiSettleDelayMs: 0,
             MaxContextTokens: 128_000,
             WakeWord: "hello there",
             McpServers: []);

@@ -114,9 +114,11 @@ internal static class AgentRunner
         Func<string, CancellationToken, Task>? intermediateStepNarrator = null,
         bool displayUserMessage = true,
         bool scriptedMode = false,
-        ScriptedLookaheadContext? scriptedLookahead = null)
+        ScriptedLookaheadContext? scriptedLookahead = null,
+        int postActionUiSettleDelayMs = 0)
     {
         var turnStopwatch = Stopwatch.StartNew();
+        var configuredPostActionUiSettleDelayMs = Math.Max(0, postActionUiSettleDelayMs);
         var messages = history.ToList();
         var availableToolNames = tools
             .Select(tool => tool.Name)
@@ -740,8 +742,29 @@ internal static class AgentRunner
                     }
                 ];
 
+        async Task DelayBeforePostActionSnapshotAsync(string reason, string? toolCallId, string? toolName)
+        {
+            if (configuredPostActionUiSettleDelayMs <= 0)
+            {
+                return;
+            }
+
+            DebugTrace.WriteStructuredEvent(
+                "agent.post_action_ui_settle_delay",
+                new Dictionary<string, object?>
+                {
+                    ["turn"] = turnId,
+                    ["delayMs"] = configuredPostActionUiSettleDelayMs,
+                    ["reason"] = reason,
+                    ["toolCallId"] = toolCallId,
+                    ["tool"] = toolName,
+                });
+            await Task.Delay(configuredPostActionUiSettleDelayMs, cancellationToken);
+        }
+
         async Task<string> CapturePostContinuationWindowSnapshotAsync(string actionSummary)
         {
+            await DelayBeforePostActionSnapshotAsync("internal_continuation", toolCallId: null, toolName: null);
             var postActionSnapshot = await CallToolWithDesktopSessionAsync(
                 "describe_window",
                 BuildWindowSnapshotArguments(debugMode: DebugTrace.IsEnabled));
@@ -1346,9 +1369,19 @@ internal static class AgentRunner
 
             messages.Add(new AgentMessage.Assistant(result.Text, result.ToolCalls));
             var followUpEvidence = new List<AgentMessage>();
-
-            foreach (var toolCall in result.ToolCalls)
+            var lastDesktopActionToolCallIndex = -1;
+            for (var toolCallIndex = 0; toolCallIndex < result.ToolCalls.Count; toolCallIndex++)
             {
+                if (IsDesktopActionTool(result.ToolCalls[toolCallIndex].Name))
+                {
+                    lastDesktopActionToolCallIndex = toolCallIndex;
+                }
+            }
+
+            for (var toolCallIndex = 0; toolCallIndex < result.ToolCalls.Count; toolCallIndex++)
+            {
+                var toolCall = result.ToolCalls[toolCallIndex];
+                var isLastDesktopActionToolCallInResponse = toolCallIndex == lastDesktopActionToolCallIndex;
                 usedAnyTools = true;
                 DebugTrace.WriteStructuredEvent(
                     "agent.tool_call_requested",
@@ -2477,6 +2510,14 @@ internal static class AgentRunner
                                         });
                                 }
                             }
+                        }
+
+                        if (isLastDesktopActionToolCallInResponse)
+                        {
+                            await DelayBeforePostActionSnapshotAsync(
+                                "last_desktop_action_before_next_llm_attempt",
+                                toolCall.Id,
+                                executableToolName);
                         }
 
                         var postActionSnapshotStopwatch = Stopwatch.StartNew();

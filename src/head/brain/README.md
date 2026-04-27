@@ -89,6 +89,7 @@ Notes:
 - `VOICE_LANGUAGES` accepts a comma-separated list of the user's main voice languages. The default is `American English, Korean`.
 - Debug artifacts such as `.log`, `.jsonl`, `.png`, and saved `.wav` files are written under a `logs` folder next to the executable, and old artifacts are cleared when the next session starts.
 - `MCP_TOOL_TIMEOUT_MS` can be set to override the default per-tool MCP timeout of 20 seconds.
+- `POST_ACTION_UI_SETTLE_DELAY_MS` waits before the final post-action UI snapshot that feeds the next LLM attempt. The default is 1000 ms; set it to `0` to disable the pause.
 
 ## Debugging Safety On Windows
 

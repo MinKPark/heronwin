@@ -1005,6 +1005,103 @@ public sealed class AgentRunnerContinuationTests
         }
     }
 
+    [Fact]
+    public async Task RunTurnAsync_WaitsOnceBeforeFinalPostActionSnapshot_WhenConfigured()
+    {
+        DebugTrace.Configure(true);
+
+        try
+        {
+            var llmClient = new QueuedLlmClient(
+            [
+                new ChatResult(
+                    null,
+                    [
+                        new ToolCallRequest(
+                            "click-profile",
+                            "click_window_element",
+                            """{"windowHandle":"0x009C0680","elementPath":"1/0/0/1"}"""),
+                        new ToolCallRequest(
+                            "press-enter",
+                            "press_window_key",
+                            """{"key":"Enter"}""")
+                    ]),
+                new ChatResult(
+                    """
+                    {
+                      "say": "Netflix is ready.",
+                      "log": "Netflix is ready."
+                    }
+                    """,
+                    [])
+            ]);
+            var toolCalls = new List<string>();
+            var describeWindowCallCount = 0;
+            await using var mcpManager = new McpClientManager(
+                _ => Task.FromResult<IReadOnlyList<ToolDefinition>>([]),
+                toolCallTimeoutOverride: null,
+                callToolOverride: (toolName, _, _) =>
+                {
+                    toolCalls.Add(toolName);
+                    return Task.FromResult(toolName switch
+                    {
+                        "click_window_element" => new ToolCallOutcome(BuildStaleNetflixPinSnapshot(), [], McpCallId: 21),
+                        "press_window_key" => new ToolCallOutcome(BuildFreshNetflixHomeSnapshot(), [], McpCallId: 22),
+                        "describe_window" => new ToolCallOutcome(
+                            BuildFreshNetflixHomeSnapshot(),
+                            [],
+                            McpCallId: 30 + ++describeWindowCallCount),
+                        _ => throw new InvalidOperationException($"Unexpected tool call: {toolName}"),
+                    });
+                });
+            var desktopSession = new DesktopSessionContext
+            {
+                CurrentWindowHandle = "0x009C0680",
+                CurrentWindowTitle = "Netflix - Microsoft Edge",
+                RecentWindowContext = BuildStaleNetflixPinSnapshot(),
+                RecentUiTreeContext = BuildStaleNetflixPinSnapshot(),
+            };
+
+            var reply = await AgentRunner.RunTurnAsync(
+                turnId: 1,
+                userText: "Select the profile, then confirm it.",
+                history: [],
+                tools:
+                [
+                    CreateToolDefinition("click_window_element"),
+                    CreateToolDefinition("press_window_key"),
+                    CreateToolDefinition("describe_window"),
+                ],
+                composedPrompt: CreatePrompt(),
+                llmClient,
+                mcpManager,
+                desktopSession,
+                CancellationToken.None,
+                displayUserMessage: false,
+                postActionUiSettleDelayMs: 25);
+
+            Assert.Equal("Netflix is ready.", reply.SpokenText);
+            Assert.Equal(
+                ["click_window_element", "describe_window", "press_window_key", "describe_window"],
+                toolCalls.Take(4));
+
+            var jsonLogPath = DebugTrace.JsonLogFilePath;
+            Assert.False(string.IsNullOrWhiteSpace(jsonLogPath));
+            Assert.True(File.Exists(jsonLogPath));
+
+            var delayEvents = ReadTraceEventData(jsonLogPath!, "agent.post_action_ui_settle_delay");
+            var delay = Assert.Single(delayEvents);
+            Assert.Equal(25, delay.GetProperty("delayMs").GetInt32());
+            Assert.Equal("last_desktop_action_before_next_llm_attempt", delay.GetProperty("reason").GetString());
+            Assert.Equal("press-enter", delay.GetProperty("toolCallId").GetString());
+            Assert.Equal("press_window_key", delay.GetProperty("tool").GetString());
+        }
+        finally
+        {
+            DebugTrace.Configure(false);
+        }
+    }
+
     private static ComposedAgentPrompt CreatePrompt(bool includeLaunchSkill = false)
     {
         var skills = new List<AgentSkillPrompt>();
@@ -1097,6 +1194,24 @@ public sealed class AgentRunnerContinuationTests
         }
 
         throw new InvalidOperationException($"Trace event \"{category}\" was not found.");
+    }
+
+    private static IReadOnlyList<JsonElement> ReadTraceEventData(string path, string category)
+    {
+        var events = new List<JsonElement>();
+        foreach (var line in ReadLinesWithSharedAccess(path))
+        {
+            using var document = JsonDocument.Parse(line);
+            var root = document.RootElement;
+            if (!string.Equals(root.GetProperty("category").GetString(), category, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            events.Add(root.GetProperty("data").Clone());
+        }
+
+        return events;
     }
 
     private static DesktopEvidenceMetadata CreateEvidenceMetadata(

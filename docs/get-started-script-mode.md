@@ -112,6 +112,8 @@ Set these in `src\head\brain\.env` (or the current shell):
 - `NETFLIX_PROFILE_PIN` — substituted into scenarios that reference
   `${NETFLIX_PROFILE_PIN}`
 - `MCP_TOOL_TIMEOUT_MS` — override the default 20s per-tool MCP timeout
+- `POST_ACTION_UI_SETTLE_DELAY_MS` — wait before the final post-action UI snapshot
+  that feeds the next LLM attempt; defaults to 1000 ms
 - `MAX_CONTEXT_TOKENS` — cap on conversation context size
 - `DEBUG_TRACE=1` — also keep the JSONL trace in voice mode
 

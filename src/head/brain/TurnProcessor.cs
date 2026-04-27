@@ -135,7 +135,8 @@ internal static class BrainTurnProcessor
             cancellationToken,
             intermediateStepNarrator,
             scriptedMode: string.Equals(turnSource, "scripted", StringComparison.Ordinal),
-            scriptedLookahead: scriptedLookahead);
+            scriptedLookahead: scriptedLookahead,
+            postActionUiSettleDelayMs: config.PostActionUiSettleDelayMs);
 
         AppConfig? updatedConfig = null;
         var deferredGenerationSummary = string.Empty;
@@ -202,7 +203,8 @@ internal static class BrainTurnProcessor
                 cancellationToken,
                 intermediateStepNarrator,
                 displayUserMessage: false,
-                scriptedMode: string.Equals(turnSource, "scripted", StringComparison.Ordinal));
+                scriptedMode: string.Equals(turnSource, "scripted", StringComparison.Ordinal),
+                postActionUiSettleDelayMs: updatedConfig.PostActionUiSettleDelayMs);
 
             var combinedLog = string.IsNullOrWhiteSpace(deferredGenerationSummary)
                 ? continuationReply.LogText
