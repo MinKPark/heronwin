@@ -192,6 +192,7 @@ public sealed class AgentPromptComposerTests
             ]);
 
         Assert.Contains(actual.ActiveSkills, skill => skill.Key == "search-and-enumeration");
+        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "netflix-search");
         Assert.Contains(actual.ActiveSkills, skill => skill.Key == "ui-refresh-and-evidence");
         Assert.DoesNotContain(actual.ActiveSkills, skill => skill.Key == "browser-navigation-and-web-operations");
     }
@@ -214,6 +215,7 @@ public sealed class AgentPromptComposerTests
 
         Assert.Contains(actual.ActiveSkills, skill => skill.Key == "browser-navigation-and-web-operations");
         Assert.Contains(actual.ActiveSkills, skill => skill.Key == "search-and-enumeration");
+        Assert.Contains(actual.ActiveSkills, skill => skill.Key == "netflix-search");
         Assert.Contains(actual.ActiveSkills, skill => skill.Key == "ui-refresh-and-evidence");
     }
 
@@ -519,6 +521,23 @@ public sealed class AgentPromptComposerTests
                         ]),
                     group: "any-app",
                     priority: 210),
+                CreateSkill(
+                    "netflix-search",
+                    "netflix search skill",
+                    Activation(
+                        whenAllKeywords: ["netflix"],
+                        whenAnyKeywords: ["search", "results", "result", "title"],
+                        whenAnyTools:
+                        [
+                            "describe_window",
+                            "capture_window_screenshot",
+                            "invoke_window_element",
+                            "click_window_element",
+                            "set_window_element_text",
+                            "type_window_text"
+                        ]),
+                    group: "netflix",
+                    priority: 430),
                 CreateSkill(
                     "ui-refresh-and-evidence",
                     "refresh skill",

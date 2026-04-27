@@ -94,6 +94,7 @@ public sealed class AgentPromptLoaderTests
 
         var surfacePrompt = prompts.Single(prompt => prompt.Key == "netflix-surface-and-state");
         var profilePrompt = prompts.Single(prompt => prompt.Key == "netflix-profile-and-pin");
+        var searchPrompt = prompts.Single(prompt => prompt.Key == "netflix-search");
         var browsePrompt = prompts.Single(prompt => prompt.Key == "netflix-browse-and-play");
         var playbackPrompt = prompts.Single(prompt => prompt.Key == "netflix-playback-controls");
 
@@ -105,6 +106,14 @@ public sealed class AgentPromptLoaderTests
         Assert.Contains("one digit at a time", profilePrompt.PromptText, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("do not send the full PIN as one", profilePrompt.PromptText, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("obvious ASR variants", profilePrompt.PromptText, StringComparison.OrdinalIgnoreCase);
+
+        Assert.Contains("Stable Search Entry Batch", searchPrompt.PromptText, StringComparison.Ordinal);
+        Assert.Contains("invoke_window_element", searchPrompt.PromptText, StringComparison.Ordinal);
+        Assert.Contains("type_window_text", searchPrompt.PromptText, StringComparison.Ordinal);
+        Assert.Contains("set_window_element_text", searchPrompt.PromptText, StringComparison.Ordinal);
+        Assert.Contains("same tool-call response", searchPrompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("only opens the Search control but omits the known query is incomplete", searchPrompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Do not return only `invoke_window_element`", searchPrompt.PromptText, StringComparison.Ordinal);
 
         Assert.Contains("Shows`, `Movies`, `Games`", browsePrompt.PromptText, StringComparison.Ordinal);
         Assert.Contains("Back to Browse", browsePrompt.PromptText, StringComparison.Ordinal);

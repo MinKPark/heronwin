@@ -46,6 +46,7 @@ applies_when:
 
 ## Home Navigation And Title Rules
 
+- For pure Netflix search-entry requests, follow the narrower `netflix-search` skill first. This browse-and-play skill takes over once visible results, a title-detail page, or a playback target needs action.
 - If Netflix home or browse navigation is visible and the user asks to browse, watch, open, or go to `Shows`, `Movies`, `Games`, `New & Popular`, or another visible top-level Netflix section, activate that matching visible nav item instead of stopping with an ambiguity-only reply.
 - For title requests, accept minor ASR or spelling drift when there is one obvious visible Netflix near-match and then target the corrected exact visible title. Example: `Expandables` can map to a visible `The Expendables` title when it is the single clear match.
 - If the user asked for a Netflix title and an exact named result tile is already visible, prefer that exact tile over re-focusing the search field.
