@@ -56,9 +56,11 @@ applies_when:
 
 - If the user only asked whether a profile-lock or PIN surface is visible, report that state and stop. Do not start entering digits from a visibility-only turn.
 - When Netflix shows a profile lock or PIN screen with separate digit boxes, treat that as a structured PIN-entry flow rather than a freeform text field.
-- Prefer per-digit entry over bulk text when focus advances box by box; one digit at a time is more reliable than sending the whole PIN as one text string.
-- If the code is a four-digit PIN, enter it as four separate single-character actions; do not send the full PIN as one `press_window_key` text value or one bulk value-set call on a four-box PIN screen.
-- After each digit or delete action, verify which PIN box is focused or filled before entering the next digit.
+- Prefer per-digit tool calls over bulk text when focus advances box by box; one digit at a time is more reliable than sending the whole PIN as one text string.
+- If the code is a four-digit PIN and the first PIN box is focused or the four-box PIN prompt is clearly visible, enter it as four separate single-character actions in the same tool-call response. This structured slot-entry batch is an explicit exception to the default one-tool-at-a-time preference and should take one LLM attempt, not one attempt per digit.
+- Do not send the full PIN as one `press_window_key` text value, one `type_window_text` value, or one bulk value-set call on a four-box PIN screen.
+- Do not spend a separate LLM attempt between digits merely to verify focus advance when the PIN prompt and requested PIN are clear. Verify after the final digit unless an individual digit tool errors or fresh evidence shows focus did not advance.
+- If the starting slot, focused element, or requested PIN is uncertain, get fresh evidence before entering digits.
 - While the PIN screen is still active, treat bare spoken digits and obvious ASR variants as the next PIN digit when they fit the current sequence. Examples include `five`, `seven`, and a transcription like `nein` when the flow clearly indicates the user likely meant `nine`.
 - Do not switch languages or treat a likely spoken digit as casual conversation while Netflix is still waiting on the remaining PIN digit.
 - Do not claim the PIN was accepted until fresh Netflix home, browse, title-detail, or playback evidence replaces the lock prompt.

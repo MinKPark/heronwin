@@ -104,7 +104,11 @@ public sealed class AgentPromptLoaderTests
 
         Assert.Contains("Profile Lock And PIN Rules", profilePrompt.PromptText, StringComparison.Ordinal);
         Assert.Contains("one digit at a time", profilePrompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("four separate single-character actions", profilePrompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("same tool-call response", profilePrompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("one LLM attempt", profilePrompt.PromptText, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("do not send the full PIN as one", profilePrompt.PromptText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Verify after the final digit", profilePrompt.PromptText, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("obvious ASR variants", profilePrompt.PromptText, StringComparison.OrdinalIgnoreCase);
 
         Assert.Contains("Stable Search Entry Batch", searchPrompt.PromptText, StringComparison.Ordinal);
