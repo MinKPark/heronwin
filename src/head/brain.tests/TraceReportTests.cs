@@ -42,7 +42,7 @@ public sealed class TraceReportTests
                         "2026-04-22T21:00:00.0000000-07:00",
                         1,
                         "session.start",
-                        """{"llmProvider":"OpenAiCodex","openAiModel":"gpt-5.4-mini"}"""),
+                        """{"llmProvider":"OpenAiCodex","openAiModel":"gpt-5.4-mini","openAiCodexModel":"gpt-5.5"}"""),
                     CreateTraceLine(
                         "2026-04-22T21:00:01.0000000-07:00",
                         2,
@@ -94,7 +94,7 @@ public sealed class TraceReportTests
 
             Assert.Equal("Smoke", report.ScenarioName);
             Assert.Equal("OpenAiCodex", report.Provider);
-            Assert.Equal("gpt-5.4-mini", report.Model);
+            Assert.Equal("gpt-5.5", report.Model);
             Assert.Equal(35000d, report.ScenarioElapsedMs, precision: 3);
             Assert.Equal(2, report.TotalLlmAttemptCount);
             Assert.Equal(30000d, report.TotalLlmTimeMs, precision: 3);
@@ -108,6 +108,7 @@ public sealed class TraceReportTests
             var markdown = report.ToMarkdown();
 
             Assert.Contains("# Brain Trace Report", markdown, StringComparison.Ordinal);
+            Assert.Contains("Provider / model: `OpenAiCodex / gpt-5.5`", markdown, StringComparison.Ordinal);
             Assert.Contains("Scenario elapsed: `35.000 s`", markdown, StringComparison.Ordinal);
             Assert.Contains("| 1 | 32.000 | 2 | 30.000 | 15.000 | 1 | 0.150 |", markdown, StringComparison.Ordinal);
             Assert.Contains("| LLM time | 2 | 30.000 |", markdown, StringComparison.Ordinal);

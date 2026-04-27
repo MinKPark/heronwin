@@ -604,7 +604,7 @@ internal static class BrainTraceReporter
 
         var sessionStartRecord = records.FirstOrDefault(static record => record.Category == "session.start");
         var provider = sessionStartRecord?.GetString("llmProvider");
-        var model = sessionStartRecord?.GetString("openAiModel");
+        var model = ResolveSessionModel(sessionStartRecord, provider);
         var scriptedTurns = records
             .Where(static record => record.Category == "agent.turn.scripted_begin")
             .Select(
@@ -694,6 +694,36 @@ internal static class BrainTraceReporter
             BuildBuckets(records, llmAttempts),
             slowTools,
             slowEvents);
+    }
+
+    private static string? ResolveSessionModel(BrainTraceRecord? sessionStartRecord, string? provider)
+    {
+        if (sessionStartRecord is null)
+        {
+            return null;
+        }
+
+        return provider switch
+        {
+            "OpenAiCodex" => FirstNonEmpty(
+                sessionStartRecord.GetString("openAiCodexModel"),
+                "codex-default"),
+            "ClaudeApi" => sessionStartRecord.GetString("anthropicModel"),
+            _ => sessionStartRecord.GetString("openAiModel"),
+        };
+    }
+
+    private static string? FirstNonEmpty(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+        }
+
+        return null;
     }
 
     private static BrainTraceLookaheadSummary BuildLookaheadSummary(IReadOnlyList<BrainTraceRecord> records)
