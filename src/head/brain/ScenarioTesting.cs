@@ -975,12 +975,26 @@ internal static class BrainScenarioEvaluator
         var finalSayText = assistantReply?.GetString("sayText") ?? string.Empty;
         var finalLogText = assistantReply?.GetString("logText") ?? string.Empty;
         var combinedFinalText = $"{finalSayText}\n{finalLogText}".Trim();
-        var hasExplicitlyUnresolvedOutcome = AgentRunner.HasExplicitlyUnresolvedOutcome(combinedFinalText);
+        var lookaheadDecisionRecord = records
+            .Where(record =>
+                record.Category == "agent.lookahead.decision" &&
+                record.TryGetInt64("sourceTurn", out var sourceTurnId) &&
+                sourceTurnId == turnId)
+            .OrderBy(record => record.Sequence)
+            .LastOrDefault();
+        var currentTurnCompleteByStatus = lookaheadDecisionRecord is not null &&
+                                          lookaheadDecisionRecord.TryGetBoolean(
+                                              "currentTurnComplete",
+                                              out var currentTurnComplete) &&
+                                          currentTurnComplete;
+        var hasExplicitlyUnresolvedOutcome = AgentRunner.HasExplicitlyUnresolvedOutcome(combinedFinalText) &&
+                                             !currentTurnCompleteByStatus;
         var hasRecoveredReplyContradiction = hasReplyContradiction
             && hasAssistantReply
-            && string.IsNullOrWhiteSpace(
-                AgentRunner.GetReplyOutcomeContradictionRule(
-                    new AgentReply(finalLogText, finalSayText, RawText: string.Empty)));
+            && (currentTurnCompleteByStatus ||
+                string.IsNullOrWhiteSpace(
+                    AgentRunner.GetReplyOutcomeContradictionRule(
+                        new AgentReply(finalLogText, finalSayText, RawText: string.Empty))));
         var hasRecoveredToolErrors = toolErrorCount > 0
             && hasAssistantReply
             && !hasReplyContradiction

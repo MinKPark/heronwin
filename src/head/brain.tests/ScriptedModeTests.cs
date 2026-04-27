@@ -234,6 +234,28 @@ public sealed class ScriptedModeTests
     }
 
     [Fact]
+    public void AssessTurn_UsesLookaheadCurrentTurnStatus_ForPendingNextTurnText()
+    {
+        var records = new[]
+        {
+            CreateTraceRecord(
+                1,
+                "agent.lookahead.decision",
+                """{"turn":3,"sourceTurn":3,"targetTurn":4,"currentTurnStatus":"complete","nextTurnStatus":"next_needs_action","currentTurnComplete":true,"nextTurnCompleteNoOp":false}"""),
+            CreateTraceRecord(
+                2,
+                "assistant.reply",
+                """{"turn":3,"sayText":"Netflix home is up now.","logText":"Fresh evidence shows the profile lock cleared after entering 3579, so the current command is complete. The next command still needs action because Boyfriend on Demand search results are not visible yet."}""")
+        };
+
+        var actual = BrainScenarioEvaluator.AssessTurn(records, 3);
+
+        Assert.True(actual.Passed);
+        Assert.False(actual.HasExplicitlyUnresolvedOutcome);
+        Assert.Empty(actual.Failures);
+    }
+
+    [Fact]
     public void AssessTurn_Fails_WhenToolErrorsRemainUnrecovered()
     {
         var records = new[]

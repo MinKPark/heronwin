@@ -537,6 +537,69 @@ internal static class AgentRunner
                 });
         }
 
+        ScriptedLookaheadDecision? TryReadScriptedLookaheadDecision(string responseText, out string skipReason)
+        {
+            skipReason = string.Empty;
+            if (!scriptedLookaheadInstructionAdded ||
+                scriptedLookahead is null)
+            {
+                skipReason = "lookahead_not_requested";
+                return null;
+            }
+
+            return ScriptedLookahead.TryParseDecision(
+                turnId,
+                scriptedLookahead.NextTurnId,
+                responseText,
+                out var decision,
+                out skipReason)
+                ? decision
+                : null;
+        }
+
+        void LogScriptedLookaheadDecision(ScriptedLookaheadDecision decision)
+        {
+            if (scriptedLookaheadDecisionLogged)
+            {
+                return;
+            }
+
+            scriptedLookaheadDecisionLogged = true;
+            DebugTrace.WriteStructuredEvent(
+                "agent.lookahead.decision",
+                new Dictionary<string, object?>
+                {
+                    ["turn"] = turnId,
+                    ["sourceTurn"] = turnId,
+                    ["targetTurn"] = decision.TargetTurnId,
+                    ["currentTurnStatus"] = decision.CurrentTurnStatus,
+                    ["nextTurnStatus"] = decision.NextTurnStatus,
+                    ["currentTurnComplete"] = decision.CurrentTurnComplete,
+                    ["nextTurnCompleteNoOp"] = decision.NextTurnCompleteNoOp,
+                    ["reason"] = decision.Reason,
+                });
+        }
+
+        void LogScriptedLookaheadFallback(string skipReason)
+        {
+            if (scriptedLookaheadDecisionLogged ||
+                scriptedLookahead is null)
+            {
+                return;
+            }
+
+            scriptedLookaheadDecisionLogged = true;
+            DebugTrace.WriteStructuredEvent(
+                "agent.lookahead.fallback",
+                new Dictionary<string, object?>
+                {
+                    ["turn"] = turnId,
+                    ["sourceTurn"] = turnId,
+                    ["targetTurn"] = scriptedLookahead.NextTurnId,
+                    ["reason"] = skipReason,
+                });
+        }
+
         ScriptedLookaheadDecision? TryParseScriptedLookaheadDecision(string responseText)
         {
             if (!scriptedLookaheadInstructionAdded ||
@@ -546,37 +609,14 @@ internal static class AgentRunner
                 return null;
             }
 
-            scriptedLookaheadDecisionLogged = true;
-            if (!ScriptedLookahead.TryParseDecision(
-                    turnId,
-                    scriptedLookahead.NextTurnId,
-                    responseText,
-                    out var decision,
-                    out var skipReason))
+            var decision = TryReadScriptedLookaheadDecision(responseText, out var skipReason);
+            if (decision is null)
             {
-                DebugTrace.WriteStructuredEvent(
-                    "agent.lookahead.fallback",
-                    new Dictionary<string, object?>
-                    {
-                        ["sourceTurn"] = turnId,
-                        ["targetTurn"] = scriptedLookahead.NextTurnId,
-                        ["reason"] = skipReason,
-                    });
+                LogScriptedLookaheadFallback(skipReason);
                 return null;
             }
 
-            DebugTrace.WriteStructuredEvent(
-                "agent.lookahead.decision",
-                new Dictionary<string, object?>
-                {
-                    ["sourceTurn"] = turnId,
-                    ["targetTurn"] = scriptedLookahead.NextTurnId,
-                    ["currentTurnStatus"] = decision.CurrentTurnStatus,
-                    ["nextTurnStatus"] = decision.NextTurnStatus,
-                    ["currentTurnComplete"] = decision.CurrentTurnComplete,
-                    ["nextTurnCompleteNoOp"] = decision.NextTurnCompleteNoOp,
-                    ["reason"] = decision.Reason,
-                });
+            LogScriptedLookaheadDecision(decision);
             return decision;
         }
 
@@ -1255,6 +1295,11 @@ internal static class AgentRunner
             {
                 var responseText = result.Text ?? """{"say":"","log":"(no response)"}""";
                 var parsedReply = AssistantResponseParser.Parse(responseText);
+                if (TryReadScriptedLookaheadDecision(responseText, out _) is { } preRepairLookaheadDecision)
+                {
+                    parsedReply = parsedReply with { LookaheadDecision = preRepairLookaheadDecision };
+                }
+
                 var repairReason = GetRepairReason(responseText, parsedReply, usedAnyTools, performedDesktopAction);
                 if (!string.IsNullOrWhiteSpace(repairReason))
                 {
@@ -1303,6 +1348,10 @@ internal static class AgentRunner
                     {
                         responseText = repairedReply.Text;
                         parsedReply = AssistantResponseParser.Parse(responseText);
+                        if (TryReadScriptedLookaheadDecision(responseText, out _) is { } repairedLookaheadDecision)
+                        {
+                            parsedReply = parsedReply with { LookaheadDecision = repairedLookaheadDecision };
+                        }
                     }
                 }
 
@@ -1322,7 +1371,11 @@ internal static class AgentRunner
                 }
 
                 parsedReply = AlignReplyOutcomeConsistency(parsedReply);
-                if (TryParseScriptedLookaheadDecision(responseText) is { } lookaheadDecision)
+                if (parsedReply.LookaheadDecision is { } existingLookaheadDecision)
+                {
+                    LogScriptedLookaheadDecision(existingLookaheadDecision);
+                }
+                else if (TryParseScriptedLookaheadDecision(responseText) is { } lookaheadDecision)
                 {
                     parsedReply = parsedReply with { LookaheadDecision = lookaheadDecision };
                 }
@@ -3306,6 +3359,14 @@ internal static class AgentRunner
             string.IsNullOrWhiteSpace(reply.SpokenText))
         {
             return null;
+        }
+
+        if (reply.LookaheadDecision is { } lookaheadDecision)
+        {
+            return lookaheadDecision.CurrentTurnComplete ||
+                   HasExplicitlyUnresolvedOutcome(reply.SpokenText)
+                ? null
+                : "current_status_unresolved_but_say_resolved";
         }
 
         return HasExplicitlyUnresolvedOutcome(reply.LogText) &&

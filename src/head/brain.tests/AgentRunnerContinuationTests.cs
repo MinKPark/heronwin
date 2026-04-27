@@ -1006,6 +1006,97 @@ public sealed class AgentRunnerContinuationTests
     }
 
     [Fact]
+    public async Task RunTurnAsync_DoesNotRepairLookaheadReply_WhenCurrentTurnStatusCompleteAndNextNeedsAction()
+    {
+        DebugTrace.Configure(true);
+
+        try
+        {
+            var llmClient = new QueuedLlmClient(
+            [
+                new ChatResult(
+                    null,
+                    [
+                        new ToolCallRequest(
+                            "type-final-digit",
+                            "type_window_text",
+                            """{"text":"9"}""")
+                    ]),
+                new ChatResult(
+                    """
+                    {
+                      "say": "Netflix home is up now.",
+                      "log": "Fresh evidence shows the profile lock cleared after entering 3579, so the current command is complete. The next command still needs action because Boyfriend on Demand search results are not visible yet.",
+                      "currentTurnStatus": "complete",
+                      "nextTurnStatus": "next_needs_action",
+                      "nextTurnReason": "Netflix home is visible, but Boyfriend on Demand search has not been run yet.",
+                      "toolTargetTurn": null
+                    }
+                    """,
+                    [])
+            ]);
+            await using var mcpManager = new McpClientManager(
+                _ => Task.FromResult<IReadOnlyList<ToolDefinition>>(
+                [
+                    CreateToolDefinition("type_window_text"),
+                    CreateToolDefinition("describe_window"),
+                ]),
+                toolCallTimeoutOverride: null,
+                callToolOverride: (toolName, _, _) => Task.FromResult(toolName switch
+                {
+                    "type_window_text" => new ToolCallOutcome(BuildFreshNetflixHomeSnapshot(), []),
+                    "describe_window" => new ToolCallOutcome(BuildFreshNetflixHomeSnapshot(), []),
+                    _ => throw new InvalidOperationException($"Unexpected tool call: {toolName}"),
+                }));
+            var desktopSession = new DesktopSessionContext
+            {
+                CurrentWindowHandle = "0x009C0680",
+                CurrentWindowTitle = "Netflix - Microsoft Edge",
+                RecentWindowContext = BuildStaleNetflixPinSnapshot(),
+                RecentUiTreeContext = BuildStaleNetflixPinSnapshot(),
+                RecentFocusContext = BuildStaleNetflixPinFocusSnapshot(),
+            };
+
+            var reply = await AgentRunner.RunTurnAsync(
+                turnId: 3,
+                userText: "If Netflix asks for a profile passcode, type 3579 one digit at a time and continue until the profile lock is gone and Netflix browse or home is visible.",
+                history: [],
+                tools:
+                [
+                    CreateToolDefinition("type_window_text"),
+                    CreateToolDefinition("describe_window"),
+                ],
+                composedPrompt: CreatePrompt(),
+                llmClient,
+                mcpManager,
+                desktopSession,
+                CancellationToken.None,
+                displayUserMessage: false,
+                scriptedMode: true,
+                scriptedLookahead: new ScriptedLookaheadContext(
+                    NextTurnId: 4,
+                    NextCommand: "Search for Boyfriend on Demand within Netflix using the visible Search control, and wait until visible search results for that title are on screen."));
+
+            Assert.Equal("Netflix home is up now.", reply.SpokenText);
+            Assert.NotNull(reply.LookaheadDecision);
+            Assert.True(reply.LookaheadDecision.CurrentTurnComplete);
+            Assert.Equal("next_needs_action", reply.LookaheadDecision.NextTurnStatus);
+            Assert.Equal(2, llmClient.Requests.Count);
+
+            var jsonLogPath = DebugTrace.JsonLogFilePath;
+            Assert.False(string.IsNullOrWhiteSpace(jsonLogPath));
+            Assert.True(File.Exists(jsonLogPath));
+            Assert.DoesNotContain(
+                ReadLinesWithSharedAccess(jsonLogPath!),
+                line => line.Contains("\"category\":\"agent.reply_repair_requested\"", StringComparison.Ordinal));
+        }
+        finally
+        {
+            DebugTrace.Configure(false);
+        }
+    }
+
+    [Fact]
     public async Task RunTurnAsync_WaitsOnceBeforeFinalPostActionSnapshot_WhenConfigured()
     {
         DebugTrace.Configure(true);

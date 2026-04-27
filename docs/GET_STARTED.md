@@ -26,6 +26,9 @@ Open `src\head\brain\.env` and fill in at least:
 - `ANTHROPIC_API_KEY` — required for `claude-api`
 - For `openai-codex`: run `codex login` first; no API key is needed
 
+For OpenAI API and Codex model settings, see
+[OpenAI configuration](./get-started-openaiconfig.md).
+
 Verify the build:
 
 ```powershell

@@ -166,6 +166,48 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void GetReplyOutcomeContradictionRule_ReturnsNull_WhenLookaheadCurrentTurnIsComplete()
+    {
+        var reply = new AgentReply(
+            LogText: "Fresh evidence shows the profile lock cleared after entering 3579, so the current command is complete. The next command still needs action because Boyfriend on Demand search results are not visible yet.",
+            SpokenText: "Netflix home is up now.",
+            RawText: "{}",
+            LookaheadDecision: new ScriptedLookaheadDecision(
+                SourceTurnId: 3,
+                TargetTurnId: 4,
+                CurrentTurnStatus: "complete",
+                NextTurnStatus: "next_needs_action",
+                NextSay: string.Empty,
+                NextLog: string.Empty,
+                Reason: "Netflix home is visible, but Boyfriend on Demand search has not been run yet."));
+
+        var actual = AgentRunner.GetReplyOutcomeContradictionRule(reply);
+
+        Assert.Null(actual);
+    }
+
+    [Fact]
+    public void GetReplyOutcomeContradictionRule_UsesCurrentTurnStatus_WhenLookaheadNeedsRecovery()
+    {
+        var reply = new AgentReply(
+            LogText: "The current command still needs recovery.",
+            SpokenText: "Netflix home is up now.",
+            RawText: "{}",
+            LookaheadDecision: new ScriptedLookaheadDecision(
+                SourceTurnId: 3,
+                TargetTurnId: 4,
+                CurrentTurnStatus: "current_needs_recovery",
+                NextTurnStatus: "unknown",
+                NextSay: string.Empty,
+                NextLog: string.Empty,
+                Reason: "The current command is not complete."));
+
+        var actual = AgentRunner.GetReplyOutcomeContradictionRule(reply);
+
+        Assert.Equal("current_status_unresolved_but_say_resolved", actual);
+    }
+
+    [Fact]
     public void AlignReplyOutcomeConsistency_UsesLogSummary_WhenSayContradictsLog()
     {
         var reply = new AgentReply(
