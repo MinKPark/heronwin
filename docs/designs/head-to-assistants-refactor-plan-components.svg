@@ -40,7 +40,7 @@
 
   <rect class="box tars" x="290" y="230" width="160" height="70"/>
   <text class="box-title" x="370" y="258" text-anchor="middle">Scenario CLI</text>
-  <text class="box-text" x="370" y="280" text-anchor="middle">--scenario only</text>
+  <text class="box-text" x="370" y="280" text-anchor="middle">--scenario runs</text>
 
   <rect class="box tars" x="100" y="345" width="160" height="76"/>
   <text class="box-title" x="180" y="373" text-anchor="middle">Scenario Loader</text>
@@ -56,7 +56,7 @@
 
   <rect class="box tars" x="290" y="470" width="160" height="76"/>
   <text class="box-title" x="370" y="498" text-anchor="middle">Evaluator</text>
-  <text class="box-text" x="370" y="520" text-anchor="middle">assertions</text>
+  <text class="box-text" x="370" y="520" text-anchor="middle">assertions + reports</text>
 
   <rect class="box tars" x="100" y="595" width="350" height="84"/>
   <text class="box-title" x="275" y="623" text-anchor="middle">Scripted Lookahead</text>
@@ -114,7 +114,7 @@
 
   <rect class="box brain" x="590" y="245" width="190" height="72"/>
   <text class="box-title" x="685" y="273" text-anchor="middle">Prompts</text>
-  <text class="box-text" x="685" y="295" text-anchor="middle">catalog + composer</text>
+  <text class="box-text" x="685" y="295" text-anchor="middle">shared + assistant profiles</text>
 
   <rect class="box brain" x="820" y="245" width="190" height="72"/>
   <text class="box-title" x="915" y="273" text-anchor="middle">LLM Providers</text>
@@ -134,7 +134,7 @@
 
   <rect class="box brain" x="820" y="455" width="190" height="72"/>
   <text class="box-title" x="915" y="483" text-anchor="middle">Debug Trace</text>
-  <text class="box-text" x="915" y="505" text-anchor="middle">logs + artifacts</text>
+  <text class="box-text" x="915" y="505" text-anchor="middle">logs, artifacts, reports</text>
 
   <rect class="box brain" x="590" y="560" width="190" height="72"/>
   <text class="box-title" x="685" y="588" text-anchor="middle">Shared Models</text>
