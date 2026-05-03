@@ -1,0 +1,183 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1060" viewBox="0 0 1600 1060" role="img" aria-labelledby="title desc">
+  <title id="title">Assistants component diagram</title>
+  <desc id="desc">Component diagram showing tars and cursor assistant projects using shared brain library components and body MCP servers.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#31445f"/>
+    </marker>
+    <style>
+      .page { fill: #f7f8fb; }
+      .title { font: 700 34px "Segoe UI", Arial, sans-serif; fill: #1b2638; }
+      .subtitle { font: 400 17px "Segoe UI", Arial, sans-serif; fill: #5d6d82; }
+      .group { fill: #ffffff; stroke: #c8d1de; stroke-width: 2; rx: 14; }
+      .group-title { font: 700 22px "Segoe UI", Arial, sans-serif; fill: #1b2638; }
+      .group-subtitle { font: 400 14px "Segoe UI", Arial, sans-serif; fill: #5d6d82; }
+      .box { stroke-width: 2; rx: 10; }
+      .box-title { font: 700 16px "Segoe UI", Arial, sans-serif; fill: #142033; }
+      .box-text { font: 400 13px "Segoe UI", Arial, sans-serif; fill: #46586f; }
+      .tars { fill: #eaf4ff; stroke: #5b9bd5; }
+      .cursor { fill: #eaf8f1; stroke: #54a978; }
+      .brain { fill: #fff4e6; stroke: #d08a2f; }
+      .body { fill: #f2efff; stroke: #7d6dcc; }
+      .line { stroke: #31445f; stroke-width: 2.2; fill: none; marker-end: url(#arrow); }
+      .soft-line { stroke: #718198; stroke-width: 1.8; fill: none; marker-end: url(#arrow); stroke-dasharray: 6 5; }
+      .label { font: 600 13px "Segoe UI", Arial, sans-serif; fill: #31445f; }
+      .note { font: 400 14px "Segoe UI", Arial, sans-serif; fill: #46586f; }
+    </style>
+  </defs>
+
+  <rect class="page" x="0" y="0" width="1600" height="1060"/>
+  <text class="title" x="800" y="58" text-anchor="middle">Head To Assistants Refactor Components</text>
+  <text class="subtitle" x="800" y="86" text-anchor="middle">Assistant-specific runners and context managers use shared brain mechanics and body MCP servers.</text>
+
+  <rect class="group" x="60" y="130" width="430" height="650"/>
+  <text class="group-title" x="90" y="170">assistants/tars</text>
+  <text class="group-subtitle" x="90" y="195">scenario-only assistant</text>
+
+  <rect class="box tars" x="100" y="230" width="160" height="70"/>
+  <text class="box-title" x="180" y="258" text-anchor="middle">Program</text>
+  <text class="box-text" x="180" y="280" text-anchor="middle">entry point</text>
+
+  <rect class="box tars" x="290" y="230" width="160" height="70"/>
+  <text class="box-title" x="370" y="258" text-anchor="middle">Scenario CLI</text>
+  <text class="box-text" x="370" y="280" text-anchor="middle">--scenario only</text>
+
+  <rect class="box tars" x="100" y="345" width="160" height="76"/>
+  <text class="box-title" x="180" y="373" text-anchor="middle">Scenario Loader</text>
+  <text class="box-text" x="180" y="395" text-anchor="middle">YAML scenarios</text>
+
+  <rect class="box tars" x="290" y="345" width="160" height="76"/>
+  <text class="box-title" x="370" y="373" text-anchor="middle">Tars Runner</text>
+  <text class="box-text" x="370" y="395" text-anchor="middle">turn policy</text>
+
+  <rect class="box tars" x="100" y="470" width="160" height="76"/>
+  <text class="box-title" x="180" y="498" text-anchor="middle">Tars Context</text>
+  <text class="box-text" x="180" y="520" text-anchor="middle">scenario memory</text>
+
+  <rect class="box tars" x="290" y="470" width="160" height="76"/>
+  <text class="box-title" x="370" y="498" text-anchor="middle">Evaluator</text>
+  <text class="box-text" x="370" y="520" text-anchor="middle">assertions</text>
+
+  <rect class="box tars" x="100" y="595" width="350" height="84"/>
+  <text class="box-title" x="275" y="623" text-anchor="middle">Scripted Lookahead</text>
+  <text class="box-text" x="275" y="645" text-anchor="middle">scenario-specific optimization policy</text>
+
+  <path class="line" d="M260 265 L290 265"/>
+  <path class="line" d="M370 300 L370 345"/>
+  <path class="line" d="M290 383 L260 383"/>
+  <path class="line" d="M370 421 L370 470"/>
+  <path class="line" d="M290 508 L260 508"/>
+  <path class="line" d="M370 546 L370 595"/>
+
+  <rect class="group" x="1110" y="130" width="430" height="650"/>
+  <text class="group-title" x="1140" y="170">assistants/cursor</text>
+  <text class="group-subtitle" x="1140" y="195">interactive voice/text assistant</text>
+
+  <rect class="box cursor" x="1150" y="230" width="160" height="70"/>
+  <text class="box-title" x="1230" y="258" text-anchor="middle">Program</text>
+  <text class="box-text" x="1230" y="280" text-anchor="middle">entry point</text>
+
+  <rect class="box cursor" x="1340" y="230" width="160" height="70"/>
+  <text class="box-title" x="1420" y="258" text-anchor="middle">Interactive Loop</text>
+  <text class="box-text" x="1420" y="280" text-anchor="middle">mode routing</text>
+
+  <rect class="box cursor" x="1150" y="345" width="160" height="76"/>
+  <text class="box-title" x="1230" y="373" text-anchor="middle">Voice Loop</text>
+  <text class="box-text" x="1230" y="395" text-anchor="middle">wake + speech</text>
+
+  <rect class="box cursor" x="1340" y="345" width="160" height="76"/>
+  <text class="box-title" x="1420" y="373" text-anchor="middle">Text Loop</text>
+  <text class="box-text" x="1420" y="395" text-anchor="middle">typed turns</text>
+
+  <rect class="box cursor" x="1150" y="470" width="160" height="76"/>
+  <text class="box-title" x="1230" y="498" text-anchor="middle">Cursor Runner</text>
+  <text class="box-text" x="1230" y="520" text-anchor="middle">interactive policy</text>
+
+  <rect class="box cursor" x="1340" y="470" width="160" height="76"/>
+  <text class="box-title" x="1420" y="498" text-anchor="middle">Cursor Context</text>
+  <text class="box-text" x="1420" y="520" text-anchor="middle">live memory</text>
+
+  <rect class="box cursor" x="1150" y="595" width="350" height="84"/>
+  <text class="box-title" x="1325" y="623" text-anchor="middle">Voice/Text Services</text>
+  <text class="box-text" x="1325" y="645" text-anchor="middle">audio, speech gate, interactive commands</text>
+
+  <path class="line" d="M1310 265 L1340 265"/>
+  <path class="line" d="M1420 300 L1420 345"/>
+  <path class="line" d="M1340 383 L1310 383"/>
+  <path class="line" d="M1230 421 L1230 470"/>
+  <path class="line" d="M1340 508 L1310 508"/>
+  <path class="line" d="M1230 546 L1230 595"/>
+
+  <rect class="group" x="550" y="145" width="500" height="560"/>
+  <text class="group-title" x="580" y="185">assistants/brain</text>
+  <text class="group-subtitle" x="580" y="210">shared library, not an assistant host</text>
+
+  <rect class="box brain" x="590" y="245" width="190" height="72"/>
+  <text class="box-title" x="685" y="273" text-anchor="middle">Prompts</text>
+  <text class="box-text" x="685" y="295" text-anchor="middle">catalog + composer</text>
+
+  <rect class="box brain" x="820" y="245" width="190" height="72"/>
+  <text class="box-title" x="915" y="273" text-anchor="middle">LLM Providers</text>
+  <text class="box-text" x="915" y="295" text-anchor="middle">OpenAI, Codex, Claude</text>
+
+  <rect class="box brain" x="590" y="350" width="190" height="72"/>
+  <text class="box-title" x="685" y="378" text-anchor="middle">MCP Manager</text>
+  <text class="box-text" x="685" y="400" text-anchor="middle">tools + timeouts</text>
+
+  <rect class="box brain" x="820" y="350" width="190" height="72"/>
+  <text class="box-title" x="915" y="378" text-anchor="middle">Process Tools</text>
+  <text class="box-text" x="915" y="400" text-anchor="middle">built-in tools</text>
+
+  <rect class="box brain" x="590" y="455" width="190" height="72"/>
+  <text class="box-title" x="685" y="483" text-anchor="middle">Config</text>
+  <text class="box-text" x="685" y="505" text-anchor="middle">AppConfig + .env</text>
+
+  <rect class="box brain" x="820" y="455" width="190" height="72"/>
+  <text class="box-title" x="915" y="483" text-anchor="middle">Debug Trace</text>
+  <text class="box-text" x="915" y="505" text-anchor="middle">logs + artifacts</text>
+
+  <rect class="box brain" x="590" y="560" width="190" height="72"/>
+  <text class="box-title" x="685" y="588" text-anchor="middle">Shared Models</text>
+  <text class="box-text" x="685" y="610" text-anchor="middle">messages, replies, tools</text>
+
+  <rect class="box brain" x="820" y="560" width="190" height="72"/>
+  <text class="box-title" x="915" y="588" text-anchor="middle">Desktop Session</text>
+  <text class="box-text" x="915" y="610" text-anchor="middle">state primitives</text>
+
+  <path class="line" d="M780 281 L820 281"/>
+  <path class="line" d="M780 386 L820 386"/>
+
+  <rect class="group" x="380" y="835" width="840" height="150"/>
+  <text class="group-title" x="410" y="875">body</text>
+  <text class="group-subtitle" x="410" y="900">local MCP servers and shared desktop automation</text>
+
+  <rect class="box body" x="440" y="925" width="210" height="48"/>
+  <text class="box-title" x="545" y="955" text-anchor="middle">cognition MCP</text>
+
+  <rect class="box body" x="695" y="925" width="210" height="48"/>
+  <text class="box-title" x="800" y="955" text-anchor="middle">desktop-automation</text>
+
+  <rect class="box body" x="950" y="925" width="210" height="48"/>
+  <text class="box-title" x="1055" y="955" text-anchor="middle">execution MCP</text>
+
+  <path class="line" d="M650 949 L695 949"/>
+  <path class="line" d="M950 949 L905 949"/>
+
+  <path class="line" d="M450 383 C500 383 520 280 590 280"/>
+  <text class="label" x="503" y="308">uses shared mechanics</text>
+  <path class="line" d="M450 508 C515 508 520 595 590 595"/>
+  <path class="line" d="M1150 508 C1085 508 1080 595 1010 595"/>
+  <path class="line" d="M1150 383 C1098 383 1082 281 1010 281"/>
+  <text class="label" x="1012" y="308">uses shared mechanics</text>
+  <path class="line" d="M685 422 C685 650 545 760 545 925"/>
+  <text class="label" x="565" y="795">MCP stdio</text>
+  <path class="line" d="M685 422 C685 650 1055 760 1055 925"/>
+  <text class="label" x="1010" y="795">MCP stdio</text>
+
+  <rect class="group" x="1295" y="835" width="245" height="150"/>
+  <text class="group-title" x="1325" y="875">scenarios</text>
+  <text class="group-subtitle" x="1325" y="900">YAML run contract</text>
+  <text class="note" x="1325" y="935">One-step scripted work</text>
+  <text class="note" x="1325" y="957">is still a scenario file.</text>
+  <path class="soft-line" d="M1295 925 C1000 790 570 740 370 679"/>
+</svg>
