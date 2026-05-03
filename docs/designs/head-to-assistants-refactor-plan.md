@@ -37,7 +37,7 @@ scenario. That gives every scripted run the same trace and assertion model.
 
 ## Current State
 
-The current `src/head` tree contains:
+The current `src/head` pieces being migrated are:
 
 ```text
 src/head/
@@ -46,6 +46,10 @@ src/head/
                 debug tracing, and scenario testing helpers
   brain.tests/  xUnit tests for the current brain assembly
 ```
+
+The existing `src/head/face` project is intentionally not part of the target
+assistant structure. This plan deletes it and removes the named-pipe status
+bridge rather than carrying it forward.
 
 Important current couplings:
 
@@ -103,12 +107,14 @@ The physical folder should move from `src/head` to `src/assistants`.
 The current code mostly supports this direction, but the implementation plan
 needs these concrete adjustments:
 
-- `src/heronwin.sln` still has an active retired UI project and solution
-  folder. Deletion must remove the project entry, configuration entries, nested
-  project entries, and the source directory.
+- `src/heronwin.sln` still has an active `Face` project and solution folder even
+  though `face` is intentionally omitted from the target structure. Deletion
+  must remove the project entry, configuration entries, nested project entries,
+  launcher behavior, live docs, and the source directory.
 - `buildandrun.ps1` currently builds and starts both the old assistant runtime
-  and the retired UI. The launcher should be rewritten around `cursor` and
-  `tars`, not only path-edited.
+  and the `face` UI slated for deletion. Phase 1 can temporarily retarget it to
+  the moved runtime without the UI, but once `cursor` and `tars` exist the
+  launcher should be rewritten around those hosts instead of only path-edited.
 - `Brain.csproj` is currently an executable and carries build-order references
   to `body/cognition` and `body/execution`. After `brain` becomes a library,
   move those build-order references to runnable host projects unless a local
@@ -116,8 +122,10 @@ needs these concrete adjustments:
 - `Brain.csproj` currently carries `NAudio` because audio code lives in
   `brain`. When `Audio.cs` moves to `cursor`, move the `NAudio` package
   reference to `Cursor.csproj`.
-- `AppConfig` currently contains named-pipe status settings for the retired UI.
-  Remove those config fields, environment variables, defaults, tests, and
+- `AppConfig` currently mixes shared provider/MCP configuration, retired
+  named-pipe status settings, and cursor-only voice/TTS/wake-word settings.
+  Split it into shared config primitives plus assistant-owned config records.
+  Remove the retired status fields, environment variables, defaults, tests, and
   startup logging fields.
 - `Program.cs` is a top-level program with many local functions. Before or
   during the split, extract those local functions into host-owned classes so
@@ -139,9 +147,11 @@ needs these concrete adjustments:
 - `YamlConfiguration.cs` includes `BrainCommandFileLoader`, which becomes dead
   code when command files are removed. Keep the YAML parser and scenario loader;
   delete the command-file loader.
-- `BrainTraceReporter` is actively tested and documented. Keep it in shared
-  `brain` as assistant-agnostic trace diagnostics, with tests that cover logs
-  emitted by multiple assistant categories.
+- `BrainTraceReporter` is actively tested and documented, but the current
+  implementation assumes scripted scenario categories such as
+  `agent.turn.scripted_begin`. Keep the trace-report engine in shared `brain`,
+  add category-neutral/session-level output that works for both assistants, and
+  let `tars` add scenario-specific report sections.
 - Existing tests are concentrated under `brain.tests` and directly exercise
   `AgentRunner`, `ContextManager`, scenario parsing, command-file parsing, and
   trace reporting. The test split should move or duplicate tests according to
@@ -153,6 +163,9 @@ needs these concrete adjustments:
   prompt. That is too narrow for assistant-specific operating models. The split
   should add assistant-aware prompt catalog loading instead of only swapping
   `AGENT_DEFINITION_PATH`.
+- The prompt documentation under `.github/agents` still describes the current
+  `her.agent.*` / `herface` layout. Treat that README and related prompt policy
+  docs as live docs during the refactor.
 
 ## Project Roles
 
@@ -167,8 +180,9 @@ hold the runtime pieces both `tars` and `cursor` need:
 - MCP client manager and built-in process tools
 - app skill generation primitives
 - debug tracing and artifact cleanup
-- trace report generation and shared trace diagnostics
-- shared config parsing and `.env` loading infrastructure
+- trace report engine and shared trace diagnostics
+- shared config parsing and `.env` loading infrastructure, without owning
+  cursor-only voice/TTS/wake-word config or tars-only scenario config
 - desktop session primitives that assistants can use or wrap
 - low-level YAML parsing utilities if they are needed by shared prompt/config
   code
@@ -209,8 +223,14 @@ diagnostics even when there is no console line to show.
 
 ### trace diagnostics
 
-`DebugTrace`, artifact cleanup, trace file naming, redaction helpers, and trace
-report generation should remain in `brain`.
+`DebugTrace`, artifact cleanup, trace file naming, redaction helpers, and the
+trace report engine should remain in `brain`.
+
+The shared reporter must not depend on scenario-only categories. It should
+always produce a useful session-level report from generic events such as
+`session.start`, LLM requests/responses, tool calls, assistant replies, slow
+events, artifacts, and assistant ids. `tars` can layer scenario-specific
+sections on top for turns, assertions, lookahead, and pass/fail summaries.
 
 Each assistant owns when and what to record:
 
@@ -342,7 +362,7 @@ bringing back ad-hoc command input.
 - scenario-specific conversation runner
 - scenario-specific context manager
 - log-based assertions and scenario result reporting
-- trace report generation, if preserved
+- scenario-specific trace report sections and assertion summary data
 - scripted lookahead policy if it remains scenario-only
 - the selected `tars` prompt profile and scenario operating-mode skills
 
@@ -382,24 +402,27 @@ Initial split:
 | `Program.cs` scripted branch | `tars/Program.cs` |
 | `Program.cs` text/voice loop | `cursor/Program.cs` |
 | `ConsoleMode.cs` | `tars`, renamed around scenario-only CLI |
-| `ScenarioTesting.cs` | `tars` |
+| `ScenarioTesting.cs` scenario runner/evaluator | `tars` |
 | `ScriptedLookahead.cs` | `tars` unless cursor needs the same policy later |
 | `Audio.cs`, `SpeechGate.cs`, `VoiceLanguagePreferences.cs` | `cursor` |
 | `InteractiveModeCommands.cs` | `cursor` |
-| current retired UI project | delete from the repo |
+| current `face` UI project | delete from the repo |
 | current named-pipe status bridge | delete unless a replacement status sink is added later |
 | `Display` console/status rendering | split into shared console helpers plus assistant-owned presentation, with retired status publishing removed |
 | `Conversation.cs` runner logic | duplicate into `tars` and `cursor`, then trim per assistant |
 | `ContextManager` logic | duplicate into `tars` and `cursor`, then trim per assistant |
 | shared conversation models from `Conversation.cs` | `brain` |
 | `TurnProcessor.cs` orchestration | duplicate into `tars` and `cursor`, then trim per assistant |
-| `AppConfig.cs`, `Llm*`, `OpenAiCodexCliClient.cs` | `brain` |
+| shared `AppConfig.cs` pieces, `Llm*`, `OpenAiCodexCliClient.cs` | `brain` |
+| cursor-only voice/TTS/wake config from `AppConfig.cs` | `cursor` |
+| tars-only scenario config from `AppConfig.cs` or `ConsoleMode.cs` | `tars` |
 | `McpClientManager.cs`, `BuiltInProcessTools.cs` | `brain` |
 | `AgentPrompts.cs`, `AppSkillGeneration.cs`, shared `YamlConfiguration.cs` pieces | `brain` |
 | `DebugTrace.cs`, `ArtifactCleanup.cs`, `HttpClientFactory.cs` | `brain` |
 | `DisplayTopology.cs`, `DesktopSessionContext.cs` | `brain` |
 | `BrainCommandFileLoader` | delete |
-| `BrainTraceReporter` | `brain`, exposed through every assistant CLI |
+| `BrainTraceReporter` generic engine | `brain`, exposed through every assistant CLI |
+| scenario-specific trace report sections | `tars` |
 | assistant main/core prompt files | `.github/agents/tars` and `.github/agents/cursor` |
 | shared prompt and app/site skills | `.github/agents/shared` |
 | assistant operating-mode skills | `.github/agents/tars/skills` and `.github/agents/cursor/skills` |
@@ -409,30 +432,44 @@ stay in `brain`.
 
 ## Environment File Plan
 
-Use assistant-specific `.env.example` files:
+Use assistant-specific `.env.example` files as the default local setup:
 
 - `src/assistants/tars/.env.example`
 - `src/assistants/cursor/.env.example`
 
+Each assistant should normally load its own `.env` from its project folder so
+relative MCP binary paths are resolved from a stable, assistant-specific base.
+For example, values copied from `src/head/brain/.env.example` that use
+`../../body/...` remain correct when copied to `src/assistants/tars/.env` or
+`src/assistants/cursor/.env`, but they do not mean the same thing from a shared
+`src/assistants/.env`.
+
 `tars` and `cursor` should each call the shared `.env` loader with an assistant
-kind or default project path. Search order should be:
+kind and default project path. Search order should be:
 
 1. current directory `.env`
 2. the launched assistant folder `.env`
-3. `src/assistants/.env`
+   (`src/assistants/tars/.env` or `src/assistants/cursor/.env`)
+3. optional shared `src/assistants/.env`
 4. legacy `src/head/brain/.env` fallback for migration
 
+The shared `src/assistants/.env` option should be documented as a convenience
+for global settings. If it contains relative MCP paths, those paths must be
+relative to `src/assistants` (for example `../body/...`) or be absolute paths.
+Do not use `src/assistants/brain/.env` as a normal lookup target because
+`brain` is no longer a launched assistant host after the split.
+
 `BRAIN_ENV_DIR` should either be renamed to a neutral name such as
-`HERONWIN_ENV_DIR` or kept temporarily with a compatibility alias. If renamed,
-the loader should set both variables during the migration so relative MCP paths
-continue to resolve.
+`HERONWIN_ENV_DIR` or kept temporarily with a compatibility alias. During the
+migration the loader should set both variables to the directory of the actual
+loaded `.env` file so relative MCP paths continue to resolve.
 
 ## Solution And Build Updates
 
 Update `src/heronwin.sln`:
 
 - rename solution folder `head` to `assistants`
-- remove the current retired UI project from the solution and delete its
+- remove the current `face` UI project from the solution and delete its
   project directory from the repo
 - point moved `HeronWin.Brain.Tests` project at `assistants\brain.tests`
 - change `Brain.csproj` to a library
@@ -471,7 +508,7 @@ for existing local workflows. If kept, `-BrainOnly -Scenario` should route to
 
 Documentation updates are part of the refactor, not a follow-up. The code
 change is not complete until the current user-facing docs describe
-`src/assistants`, `tars`, `cursor`, and the deleted retired UI project.
+`src/assistants`, `tars`, `cursor`, and the deleted `face` UI project.
 
 ### Live Docs To Update
 
@@ -484,10 +521,13 @@ Must update:
 - `docs/get-started-openaiconfig.md`
 - `docs/GOAL_AND_DESIGN.md`
 - `docs/README.md`
+- `docs/HISTORY_AND_TODOS.md` current-todos section
 - `src/body/README.md`
 - `src/assistants/brain/README.md`
 - `src/assistants/tars/README.md`
 - `src/assistants/cursor/README.md`
+- `.github/agents/README.md`
+- `.github/agents/skill-vs-code-policy.md` if it still names the old runtime
 
 Expected content changes:
 
@@ -497,11 +537,13 @@ Expected content changes:
 - document that one-step scripted work should be represented as a one-step
   scenario file
 - replace interactive launch docs with `cursor`
-- remove retired UI startup/settings instructions
+- remove `face` UI startup/settings instructions
 - document `brain` as a shared library, not a runnable assistant
 - document `--trace-report` as a shared diagnostic command available from every
   assistant
 - document assistant-specific prompt files and shared prompt/skill layout
+- update prompt-layer docs from the old `her.agent.*` / `herface` layout to the
+  shared, `tars`, and `cursor` prompt profile layout
 - update launcher examples from `-BrainOnly` to `-CursorOnly` and `-TarsOnly`
 - update `.env` examples and path guidance for `tars`, `cursor`, and optional
   shared `src/assistants/.env`
@@ -520,7 +562,7 @@ Create or update:
 Remove or move:
 
 - `src/head/brain/README.md` after the folder move
-- the current retired UI project README, because that project is deleted from
+- the current `face` UI project README, because that project is deleted from
   the repo
 
 ### Historical Docs Policy
@@ -534,12 +576,16 @@ Historical docs should only be edited when they are linked from live setup
 instructions or when their current wording claims to describe the active
 architecture.
 
+`docs/HISTORY_AND_TODOS.md` is mixed-purpose: its daily-history sections are
+historical, but its current-todos section is live project guidance. Update live
+todo rows that mention deleted projects, old paths, or old launcher commands.
+
 ### Documentation Verification
 
 After implementation, run stale-reference searches and review each hit:
 
 ```powershell
-rg -n "src[/\\]head|head[/\\]brain|dotnet run --project src[/\\]head|BrainOnly|--command|--commands-file|brain \.env|retired UI|settings window" README.md docs src/body src/assistants buildandrun.ps1
+rg -n "src[/\\]head|head[/\\]brain|dotnet run --project src[/\\]head|BrainOnly|FaceOnly|--command|--commands-file|brain \.env|herface|face UI|settings window" README.md docs .github/agents src/body src/assistants buildandrun.ps1
 ```
 
 Expected result:
@@ -571,7 +617,8 @@ Keep or add shared tests for:
 - shared message/reply/tool models and assistant response parsing
 - debug trace file naming, event envelope schema, sequence ordering, redaction,
   artifact paths, and trace report generation
-- trace report parsing for categories emitted by both `tars` and `cursor`
+- generic trace report parsing for categories emitted by both `tars` and
+  `cursor`, plus `tars` scenario-report extension coverage
 - shared YAML parser behavior, while scenario-specific interpretation moves to
   `tars`
 
@@ -625,12 +672,13 @@ dotnet run --project src/assistants/tars -- --scenario src/scenarios/netflix-boy
 ### Phase 1: Rename The Container And Delete Retired UI Project
 
 - Move `src/head` to `src/assistants`.
-- Delete the current retired UI project directory from the repo.
+- Delete the current `face` UI project directory from the repo.
 - Remove that project from the solution.
 - Update solution paths and solution folder names.
 - Update `buildandrun.ps1` paths without splitting behavior yet.
-- Update `.env` discovery to include `src/assistants/brain/.env` and keep
-  legacy `src/head/brain/.env` fallback.
+- Update `.env` discovery to include assistant-specific `.env` paths and the
+  optional shared `src/assistants/.env`, and keep legacy `src/head/brain/.env`
+  fallback.
 - Update live docs from `src/head` to `src/assistants`.
 - Verify build and tests.
 
@@ -643,6 +691,8 @@ dotnet run --project src/assistants/tars -- --scenario src/scenarios/netflix-boy
 - Remove `--command` and `--commands-file`; keep only `--scenario` for `tars`.
 - Wire `--trace-report` in both `tars` and `cursor` through shared `brain`
   diagnostics.
+- Make the shared trace report command useful for non-scenario `cursor` traces
+  before exposing it from `cursor`.
 - Add assistant-specific prompt profiles and wire `tars` / `cursor` to select
   their own main agent files.
 - Expose the smallest practical public/friend API from `brain` for the hosts.
@@ -654,6 +704,8 @@ dotnet run --project src/assistants/tars -- --scenario src/scenarios/netflix-boy
 - Duplicate the current conversation runner into `tars` and `cursor`.
 - Move or duplicate context management into `tars` and `cursor`.
 - Move scenario-only logic to `tars`.
+- Move scenario-specific trace report sections to `tars` while keeping the
+  generic trace-report engine in `brain`.
 - Move voice/text-only logic to `cursor`.
 - Split console display code into shared formatting helpers and assistant-owned
   presentation, removing old status publishing calls.
@@ -693,7 +745,8 @@ dotnet run --project src/assistants/tars -- --scenario src/scenarios/netflix-boy
   earlier `auto` name?
 - Should `brain` remain the namespace `HeronWin.Brain` for now, or should the
   implementation pass also rename it to `HeronWin.Assistants.Brain`?
-- Should `tars` and `cursor` each have separate `.env` files, or should they
-  share `src/assistants/.env` by default?
+- Should optional shared `src/assistants/.env` support remain long term, or
+  should it be treated as a migration convenience after assistant-specific
+  `.env` files are established?
 - Should trace files continue to be named `brain.debug.*`, or should they move
   to `tars.debug.*` and `cursor.debug.*`?
