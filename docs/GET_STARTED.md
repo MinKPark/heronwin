@@ -1,41 +1,34 @@
 # Get Started
 
-Welcome to `heronwin`. Pick the mode that matches how you want to drive the agent:
+Pick the assistant that matches the work:
 
-- **[Script mode](./get-started-script-mode.md)** — non-interactive runs from `.yml` scenarios or one-shot commands. Best for testing, demos, and reproducible scenarios.
-- **[Voice mode](./get-started-voice-mode.md)** — interactive voice-driven sessions through the microphone, optionally with the `face` companion UI.
+- [Scenario mode](./get-started-script-mode.md): run YAML scenarios with `tars`.
+- [Voice/text mode](./get-started-voice-mode.md): collaborate interactively with `cursor`.
 
-## Prerequisites (both modes)
+## Prerequisites
 
-Install once on the machine that will run the agent:
+- Windows 10/11 x64
+- .NET SDK 10.0.201 or newer
+- This repository cloned locally
 
-- Windows 10/11 (x64)
-- [.NET SDK 10](https://dotnet.microsoft.com/download) (`10.0.201` or newer)
-- A clone of this repository
-
-Create your local `brain` config from the template:
-
-```powershell
-Copy-Item src\head\brain\.env.example src\head\brain\.env
-```
-
-Open `src\head\brain\.env` and fill in at least:
-
-- `LLM_PROVIDER` — one of `openai-api`, `openai-codex`, `claude-api`
-- `OPENAI_API_KEY` — required for `openai-api` and for Whisper voice transcription
-- `ANTHROPIC_API_KEY` — required for `claude-api`
-- For `openai-codex`: run `codex login` first; no API key is needed
-
-For OpenAI API and Codex model settings, see
-[OpenAI configuration](./get-started-openaiconfig.md).
-
-Verify the build:
+Build once:
 
 ```powershell
 dotnet build src\heronwin.sln
 ```
 
-Once the prerequisites are in place, head to the mode-specific guide:
+Create local config for the assistant you plan to run:
 
-- [Script mode →](./get-started-script-mode.md)
-- [Voice mode →](./get-started-voice-mode.md)
+```powershell
+Copy-Item src\assistants\cursor\.env.example src\assistants\cursor\.env
+Copy-Item src\assistants\tars\.env.example src\assistants\tars\.env
+```
+
+Fill in provider settings:
+
+- `LLM_PROVIDER`: `openai-api`, `openai-codex`, or `claude-api`
+- `OPENAI_API_KEY`: required for `openai-api` and Whisper voice transcription
+- `ANTHROPIC_API_KEY`: required for `claude-api`
+- For `openai-codex`, run `codex login` first
+
+`src/assistants/.env` is also supported as a shared convenience file. Relative MCP paths in that file must be relative to `src/assistants`.

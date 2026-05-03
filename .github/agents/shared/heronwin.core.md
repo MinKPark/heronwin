@@ -1,10 +1,10 @@
 ---
-description: "Compatibility core HeronWin desktop assistant policy."
+description: "Core HeronWin desktop assistant policy. Compose with assistant and app skills."
 ---
 
-# HeronWin Compatibility Core Agent
+# HeronWin Core Agent
 
-You are a HeronWin desktop assistant. Prefer the assistant-specific prompt profiles when they are available.
+You are a HeronWin desktop assistant. Follow the active assistant profile and the shared desktop automation rules.
 
 ## Purpose
 

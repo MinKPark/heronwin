@@ -20,7 +20,7 @@ This file has two jobs:
 | `next` | `P0` | Make scripted scenario pass/fail stricter for incomplete final outcomes. | A `gpt-5.4` API run passed current checks even though Turn 5 said playback was not confirmed; update assertions/evaluator so incomplete final replies cannot pass just because required title text appears. |
 | `next` | `P1` | Decide whether to add separate scripted coverage for app-first launch. | The current Netflix smoke is now explicitly website-navigation-based; add another smoke if we want deterministic coverage for the app-first fallback-confirmation path. |
 | `next` | `P1` | Finish the compact-tree rollout in `cognition`. | Add the opt-in screenshot-vs-compact evaluation harness, then run the documented parity checks, benchmarks, and manual evaluation passes in [Cognition Compact Tree Migration](./designs/cognition-compact-tree-migration.md). |
-| `next` | `P1` | Add dedicated coverage for the WPF `face` app. | Start with settings edits, status mapping, and view-model state transitions. |
+| `next` | `P1` | Split more assistant-specific runner policy out of the shared library. | Move scenario-only runner/context code toward `tars` and interactive-only voice/text policy toward `cursor` as the next cleanup pass. |
 | `next` | `P1` | Broaden the prompt and skill intent vocabulary. | Add a small set of generic intents and cover them with activation tests. |
 | `soon` | `P2` | Broaden automated tests for built-in process tools. | Add process-list parsing and safe start/stop integration coverage later. |
 
@@ -42,7 +42,7 @@ part of committed repo history.
     `windowHandle` activation when available and to continue into the requested
     destination/action after foregrounding an app.
   - verified in this wrap-up pass:
-    - `dotnet test src\head\brain.tests\HeronWin.Brain.Tests.csproj` passed
+    - `dotnet test src\assistants\brain.tests\HeronWin.Brain.Tests.csproj` passed
       with `267` total tests.
   - latest live measurements:
     - Codex-backed `gpt-5.4-mini` browser-skill rerun passed in `242.735 s`.
@@ -69,13 +69,13 @@ part of committed repo history.
 
 - Current uncommitted local changes now include the first scripted carry-forward
   implementation pass in:
-  - `src/head/brain/DesktopSessionContext.cs`
-  - `src/head/brain/Conversation.cs`
-  - `src/head/brain/DebugTrace.cs`
-  - `src/head/brain/ScenarioTesting.cs`
-  - `src/head/brain/TurnProcessor.cs`
-  - `src/head/brain.tests/AgentRunnerContinuationTests.cs`
-  - `src/head/brain.tests/TraceReportTests.cs`
+  - `src/assistants/brain/DesktopSessionContext.cs`
+  - `src/assistants/brain/Conversation.cs`
+  - `src/assistants/brain/DebugTrace.cs`
+  - `src/assistants/brain/ScenarioTesting.cs`
+  - `src/assistants/brain/TurnProcessor.cs`
+  - `src/assistants/brain.tests/AgentRunnerContinuationTests.cs`
+  - `src/assistants/brain.tests/TraceReportTests.cs`
   - the updated repo docs in this folder and under `docs/perfbase/`
 - Local 2026-04-25 progress:
   - landed the first scripted-only turn-start reuse slice from
@@ -94,9 +94,9 @@ part of committed repo history.
   - extended focused tests around scripted carry-forward injection, stale-skip
     fallback, and trace-report helper bucketing.
   - verified in this session:
-    - `dotnet test src\head\brain.tests\HeronWin.Brain.Tests.csproj` passed
+    - `dotnet test src\assistants\brain.tests\HeronWin.Brain.Tests.csproj` passed
       with `252` total tests.
-    - `.\buildandrun.ps1 -BrainOnly -Scenario src\scenarios\netflix-boyfriend-on-demand.yml`
+    - `\.\buildandrun.ps1 -TarsOnly -Scenario src\scenarios\netflix-boyfriend-on-demand.yml`
       passed on 2026-04-25 with scenario elapsed `776.349 s`.
   - saved the fresh rerun artifacts under
     `.tmp/netflix-smoke-runtime/2026-04-25-carry-forward-slice/`, with tracked

@@ -3,7 +3,7 @@
 This document defines how `heronwin` should decide between:
 
 - changing prompts or skills
-- changing `herface` runtime code
+- changing assistant runtime code
 
 The default policy is:
 
@@ -15,7 +15,7 @@ The default policy is:
 
 Keep scenario behavior easy to evolve in prompts while reserving code for logic that must be reliable across turns, models, and prompt wording.
 
-This is the main development approach for `herface`, not a secondary preference.
+This is the main development approach for HeronWin assistants, not a secondary preference.
 
 ## Default Rule
 
@@ -121,7 +121,7 @@ Before implementing a fix, answer these questions:
 
 ## Repository Policy
 
-For `herface`, use this split:
+For HeronWin assistants, use this split:
 
 - Core prompt:
   stable behavior, response contract, evidence rules, uncertainty handling, and skill interaction rules

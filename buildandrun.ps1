@@ -8,37 +8,34 @@ param(
 
     [switch]$NoBuild,
 
-    [switch]$BrainOnly,
+    [switch]$CursorOnly,
 
-    [switch]$FaceOnly,
+    [switch]$TarsOnly,
 
-    [string[]]$BrainArgs = @()
+    [string[]]$CursorArgs = @(),
+
+    [string[]]$TarsArgs = @()
 )
 
 $ErrorActionPreference = "Stop"
 
-$brainProjectPath = Join-Path $PSScriptRoot "src\head\brain\Brain.csproj"
-$faceProjectPath = Join-Path $PSScriptRoot "src\head\face\Face.csproj"
-$faceExecutablePath = Join-Path $PSScriptRoot "src\head\face\bin\$Configuration\$TargetFramework\Face.exe"
-$resolvedFaceProjectPath = [System.IO.Path]::GetFullPath($faceProjectPath)
-$resolvedBrainProjectPath = [System.IO.Path]::GetFullPath($brainProjectPath)
+$cursorProjectPath = Join-Path $PSScriptRoot "src\assistants\cursor\Cursor.csproj"
+$tarsProjectPath = Join-Path $PSScriptRoot "src\assistants\tars\Tars.csproj"
+$resolvedCursorProjectPath = [System.IO.Path]::GetFullPath($cursorProjectPath)
+$resolvedTarsProjectPath = [System.IO.Path]::GetFullPath($tarsProjectPath)
 $resolvedCognitionProjectPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "src\body\cognition\cognition.csproj"))
 $resolvedExecutionProjectPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "src\body\execution\execution.csproj"))
 $resolvedScenarioPath = $null
-$faceProcess = $null
 
-$runFace = -not $BrainOnly
-$runBrain = -not $FaceOnly
-
-if ($BrainOnly -and $FaceOnly) {
-    throw "Use either -BrainOnly or -FaceOnly, not both."
+if ($CursorOnly -and $TarsOnly) {
+    throw "Use either -CursorOnly or -TarsOnly, not both."
 }
 
-if (-not [string]::IsNullOrWhiteSpace($Scenario) -and $BrainArgs -contains "--scenario") {
-    throw "Use either -Scenario or pass --scenario through -BrainArgs, not both."
+if ($CursorOnly -and -not [string]::IsNullOrWhiteSpace($Scenario)) {
+    throw "-Scenario routes to tars. Use -TarsOnly with -Scenario, or omit -CursorOnly."
 }
 
-foreach ($path in @($brainProjectPath, $faceProjectPath, $resolvedCognitionProjectPath, $resolvedExecutionProjectPath)) {
+foreach ($path in @($cursorProjectPath, $tarsProjectPath, $resolvedCognitionProjectPath, $resolvedExecutionProjectPath)) {
     if (-not (Test-Path $path)) {
         throw "Required path not found: $path"
     }
@@ -57,6 +54,9 @@ if (-not [string]::IsNullOrWhiteSpace($Scenario)) {
     }
 }
 
+$runTars = $TarsOnly -or -not [string]::IsNullOrWhiteSpace($Scenario)
+$runCursor = $CursorOnly -or -not $runTars
+
 function Invoke-DotNetStep {
     param(
         [Parameter(Mandatory = $true)]
@@ -70,29 +70,6 @@ function Invoke-DotNetStep {
     & dotnet @Arguments
     if ($LASTEXITCODE -ne 0) {
         throw "dotnet command failed: dotnet $($Arguments -join ' ')"
-    }
-}
-
-function Stop-RunningFaceProcesses {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$FaceProjectPath
-    )
-
-    $matchingProcesses = Get-CimInstance Win32_Process |
-        Where-Object {
-            $_.Name -ieq "dotnet.exe" -and
-            $_.CommandLine -and
-            $_.CommandLine.IndexOf($FaceProjectPath, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
-        }
-
-    if (-not $matchingProcesses) {
-        return
-    }
-
-    Write-Host "Stopping existing face process(es)..." -ForegroundColor DarkCyan
-    foreach ($process in $matchingProcesses) {
-        Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
     }
 }
 
@@ -133,109 +110,85 @@ function Stop-RunningRepoRuntimeProcesses {
     }
 }
 
-function Build-LaunchProjects {
+function Build-LaunchProject {
     param(
         [Parameter(Mandatory = $true)]
-        [bool]$ShouldBuildFace,
+        [string]$Name,
 
         [Parameter(Mandatory = $true)]
-        [bool]$ShouldBuildBrain
+        [string]$ProjectPath
     )
 
-    if ($ShouldBuildFace) {
-        Invoke-DotNetStep `
-            -Description "Building face ($Configuration | $TargetFramework)..." `
-            -Arguments @(
-                "build",
-                $faceProjectPath,
-                "-c", $Configuration,
-                "-f", $TargetFramework,
-                "--no-restore",
-                "-maxcpucount:1"
-            )
-    }
-
-    if ($ShouldBuildBrain) {
-        Invoke-DotNetStep `
-            -Description "Building brain ($Configuration | $TargetFramework)..." `
-            -Arguments @(
-                "build",
-                $brainProjectPath,
-                "-c", $Configuration,
-                "-f", $TargetFramework,
-                "--no-restore",
-                "-maxcpucount:1"
-            )
-    }
+    Invoke-DotNetStep `
+        -Description "Building $Name ($Configuration | $TargetFramework)..." `
+        -Arguments @(
+            "build",
+            $ProjectPath,
+            "-c", $Configuration,
+            "-f", $TargetFramework,
+            "--no-restore",
+            "-maxcpucount:1"
+        )
 }
 
-if (-not $NoBuild) {
-    if ($runFace) {
-        Stop-RunningFaceProcesses -FaceProjectPath $resolvedFaceProjectPath
-    }
+function Invoke-Assistant {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
 
-    if ($runBrain) {
-        Stop-RunningRepoRuntimeProcesses `
-            -CommandLineNeedles @($resolvedBrainProjectPath, $resolvedCognitionProjectPath, $resolvedExecutionProjectPath, "src\\head\\brain", "src\\body\\cognition", "src\\body\\execution") `
-            -ProcessNames @("cognition.exe", "execution.exe")
-    }
+        [Parameter(Mandatory = $true)]
+        [string]$ProjectPath,
 
-    Build-LaunchProjects -ShouldBuildFace:$runFace -ShouldBuildBrain:$runBrain
-}
+        [string[]]$AssistantArgs = @()
+    )
 
-if ($runFace) {
-    Stop-RunningFaceProcesses -FaceProjectPath $resolvedFaceProjectPath
-
-    if (-not (Test-Path $faceExecutablePath)) {
-        throw "Built face executable not found: $faceExecutablePath"
-    }
-
-    Write-Host "Starting face in a separate process without a console window..." -ForegroundColor Cyan
-    $faceProcess = Start-Process `
-        -FilePath $faceExecutablePath `
-        -WorkingDirectory $PSScriptRoot `
-        -PassThru
-}
-
-if ($runBrain) {
-    $brainArgsList = @(
+    $dotnetArgs = @(
         "run",
-        "--project", $brainProjectPath,
+        "--project", $ProjectPath,
         "-c", $Configuration,
         "-f", $TargetFramework
     )
 
     if ($NoBuild) {
-        $brainArgsList += "--no-build"
+        $dotnetArgs += "--no-build"
     }
 
-    if ($BrainArgs.Count -gt 0) {
-        $brainArgsList += "--"
-        if (-not [string]::IsNullOrWhiteSpace($Scenario)) {
-            $brainArgsList += @("--scenario", $resolvedScenarioPath)
-        }
-
-        $brainArgsList += $BrainArgs
-    }
-    elseif (-not [string]::IsNullOrWhiteSpace($Scenario)) {
-        $brainArgsList += "--"
-        $brainArgsList += @("--scenario", $resolvedScenarioPath)
+    if ($AssistantArgs.Count -gt 0) {
+        $dotnetArgs += "--"
+        $dotnetArgs += $AssistantArgs
     }
 
-    Write-Host "Running brain..." -ForegroundColor Cyan
-    try {
-        & dotnet @brainArgsList
-        if ($LASTEXITCODE -ne 0) {
-            throw "brain exited with code $LASTEXITCODE"
-        }
-    }
-    finally {
-        if ($faceProcess -and -not $faceProcess.HasExited) {
-            Write-Host "Stopping face because brain exited..." -ForegroundColor DarkCyan
-            Stop-Process -Id $faceProcess.Id -Force -ErrorAction SilentlyContinue
-        }
+    Write-Host "Running $Name..." -ForegroundColor Cyan
+    & dotnet @dotnetArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Name exited with code $LASTEXITCODE"
     }
 }
-else {
-    Write-Host "Face was started. Brain launch was skipped because -FaceOnly was specified." -ForegroundColor DarkCyan
+
+if (-not $NoBuild) {
+    Stop-RunningRepoRuntimeProcesses `
+        -CommandLineNeedles @($resolvedCursorProjectPath, $resolvedTarsProjectPath, $resolvedCognitionProjectPath, $resolvedExecutionProjectPath, "src\\assistants\\cursor", "src\\assistants\\tars", "src\\body\\cognition", "src\\body\\execution") `
+        -ProcessNames @("cognition.exe", "execution.exe")
+
+    if ($runCursor) {
+        Build-LaunchProject -Name "cursor" -ProjectPath $cursorProjectPath
+    }
+
+    if ($runTars) {
+        Build-LaunchProject -Name "tars" -ProjectPath $tarsProjectPath
+    }
+}
+
+if ($runCursor) {
+    Invoke-Assistant -Name "cursor" -ProjectPath $cursorProjectPath -AssistantArgs $CursorArgs
+}
+
+if ($runTars) {
+    $effectiveTarsArgs = @()
+    if (-not [string]::IsNullOrWhiteSpace($resolvedScenarioPath)) {
+        $effectiveTarsArgs += @("--scenario", $resolvedScenarioPath)
+    }
+
+    $effectiveTarsArgs += $TarsArgs
+    Invoke-Assistant -Name "tars" -ProjectPath $tarsProjectPath -AssistantArgs $effectiveTarsArgs
 }
