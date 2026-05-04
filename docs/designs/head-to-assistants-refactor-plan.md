@@ -1,7 +1,7 @@
 # Head To Assistants Refactor Plan
 
 Last updated: 2026-05-03
-Status: draft for review
+Status: structural host split implemented; deeper runner ownership cleanup remains
 
 ## Summary
 
@@ -15,6 +15,56 @@ assistant-oriented projects:
 
 The goal is to make each assistant own its control loop and context policy,
 while keeping provider, tool, prompt, and configuration plumbing shared.
+
+## Implementation Status - 2026-05-03
+
+The structural refactor pass is implemented:
+
+- `src/head` moved to `src/assistants`.
+- the retired `face` UI project and named-pipe status bridge were removed.
+- `brain` is now a shared library, not an executable.
+- `tars` and `cursor` host projects were added with matching test projects.
+- `tars` accepts scenario input through `--scenario`; ad-hoc `--command` and
+  `--commands-file` input were removed.
+- `cursor` owns the interactive launch path.
+- both assistant CLIs expose the shared `--trace-report` diagnostic command.
+- assistant-specific `.env.example` files and prompt profiles were added for
+  `tars` and `cursor`, with shared prompt/skill content under
+  `.github/agents/shared`.
+- the solution, launcher, live docs, and component READMEs now point at the
+  `src/assistants` layout.
+
+Verified in the 2026-05-03 session:
+
+```powershell
+dotnet build src\heronwin.sln
+dotnet test src\heronwin.sln
+dotnet run --project src\assistants\tars -- --help
+dotnet run --project src\assistants\cursor -- --help
+dotnet run --project src\assistants\cursor -- --trace-report .tmp\trace-smoke.jsonl
+rg -n "src[/\\]head|head[/\\]brain|dotnet run --project src[/\\]head|BrainOnly|FaceOnly|--command|--commands-file|brain \.env|herface|face UI|settings window" README.md docs .github\agents src\body src\assistants buildandrun.ps1
+```
+
+Live scenario measurement:
+
+- `tars` / `OpenAiCodex` passed
+  `src\scenarios\netflix-boyfriend-on-demand.yml` in `246.797 s` scenario
+  elapsed, with `5` turns, `12` LLM responses, and average LLM attempt
+  latency of `16.233 s`.
+- OpenAI API reruns with `gpt-5.4-mini` and `gpt-5.5` both selected the correct
+  provider/model, but stopped at turn 1 with API `429` quota/billing errors, so
+  no OpenAI API speed measurement was captured.
+
+Still left for the next cleanup pass:
+
+- move more assistant-specific runner/context policy out of shared `brain` and
+  into `tars` / `cursor`.
+- split or move scenario-only trace sections and scenario runner tests toward
+  `tars`.
+- split or move interactive voice/text policy and tests toward `cursor`.
+- rerun the OpenAI API comparison after the API quota/billing issue is cleared.
+- decide on the remaining compatibility questions: namespace naming, legacy
+  `.env` fallback lifetime, and trace file naming.
 
 ## Opinion On The Latest Direction
 

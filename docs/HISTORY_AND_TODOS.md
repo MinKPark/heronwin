@@ -16,7 +16,7 @@ This file has two jobs:
 
 | Status | Priority | Item | Next move |
 |--------|----------|------|-----------|
-| `next` | `P0` | Cut scripted Netflix smoke runtime below one minute. | Tighten scenario validation, then compare one clean OpenAI API `gpt-5.4` and `gpt-5.4-mini` rerun after rate limits reset. Keep targeting fewer LLM calls, but separate provider latency from behavior quality. |
+| `next` | `P0` | Cut scripted Netflix smoke runtime below one minute. | Use the 2026-05-03 `tars` / `OpenAiCodex` pass (`246.797 s`) as the current post-refactor baseline, then rerun OpenAI API `gpt-5.5` and `gpt-5.4-mini` after the API quota/billing blocker is cleared. |
 | `next` | `P0` | Make scripted scenario pass/fail stricter for incomplete final outcomes. | A `gpt-5.4` API run passed current checks even though Turn 5 said playback was not confirmed; update assertions/evaluator so incomplete final replies cannot pass just because required title text appears. |
 | `next` | `P1` | Decide whether to add separate scripted coverage for app-first launch. | The current Netflix smoke is now explicitly website-navigation-based; add another smoke if we want deterministic coverage for the app-first fallback-confirmation path. |
 | `next` | `P1` | Finish the compact-tree rollout in `cognition`. | Add the opt-in screenshot-vs-compact evaluation harness, then run the documented parity checks, benchmarks, and manual evaluation passes in [Cognition Compact Tree Migration](./designs/cognition-compact-tree-migration.md). |
@@ -28,6 +28,51 @@ This file has two jobs:
 
 These notes describe local work that exists in the working tree but is not yet
 part of committed repo history.
+
+- End-of-day 2026-05-03 update:
+  - implemented the structural pass from
+    [Head To Assistants Refactor Plan](./designs/head-to-assistants-refactor-plan.md):
+    `src/head` moved to `src/assistants`, the retired `face` UI project was
+    removed, `brain` became a shared library, and runnable hosts now live in
+    `src/assistants/tars` and `src/assistants/cursor`.
+  - added `tars.tests` and `cursor.tests`, assistant-specific prompt profiles,
+    assistant-specific `.env.example` files, and the shared
+    `.github/agents/shared` prompt/skill layout.
+  - updated the solution, launcher, live setup docs, component READMEs, and
+    prompt docs for the `src/assistants` layout.
+  - verified in this session:
+    - `dotnet build src\heronwin.sln` passed.
+    - `dotnet test src\heronwin.sln` passed.
+    - `dotnet run --project src\assistants\tars -- --help` passed.
+    - `dotnet run --project src\assistants\cursor -- --help` passed.
+    - cursor trace-report smoke against `.tmp\trace-smoke.jsonl` passed.
+    - the stale-reference scan for live docs/source passed with only
+      historical-doc references intentionally remaining.
+  - latest live measurements:
+    - `tars` with `OpenAiCodex / codex-default` passed
+      `src\scenarios\netflix-boyfriend-on-demand.yml` in `246.797 s` scenario
+      elapsed, with `5` turns, `12` LLM responses, and `16.233 s` average LLM
+      attempt latency. The trace report is in
+      `.tmp\tars-boyfriend-20260503-161820\trace-report.md`.
+    - `tars` with `OpenAiApi / gpt-5.4-mini` selected the OpenAI API provider
+      correctly but failed on turn 1 with API `429` quota/billing error. Logs
+      are under `.tmp\tars-boyfriend-openaiapi-20260503-180911\`.
+    - `tars` with `OpenAiApi / gpt-5.5` also selected the OpenAI API provider
+      correctly but failed on turn 1 with the same API `429` quota/billing
+      error. Logs are under
+      `.tmp\tars-boyfriend-openaiapi-gpt55-20260503-183125\`.
+  - blocker:
+    - OpenAI API speed comparison cannot be measured until the account quota or
+      billing issue behind the `429` response is cleared.
+  - first steps for the next session:
+    - review the wrap-up doc changes and commit them with the assistant
+      refactor work if they look right.
+    - after OpenAI API access is healthy, rerun
+      `LLM_PROVIDER=openai-api` / `OPENAI_MODEL=gpt-5.5`
+      `dotnet run --project src\assistants\tars -- --scenario src\scenarios\netflix-boyfriend-on-demand.yml`.
+    - continue Phase 3 of the refactor by moving scenario-only runner/context
+      policy and tests toward `tars`, while moving interactive voice/text
+      policy and tests toward `cursor`.
 
 - End-of-day 2026-04-25 update:
   - implemented scripted lookahead for no-op next turns and added trace-report
