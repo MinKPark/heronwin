@@ -21,7 +21,7 @@ Status captured at 2026-04-26 17:42 PDT.
 
 ## Node.js Removal
 
-The old generated Node.js process-manager package is gone from `src/body/process-manager`.
+The old generated Node.js process-manager package is gone from `src/tools/process-manager`.
 
 What changed:
 
@@ -139,8 +139,8 @@ Docs updated today:
 - `docs/HISTORY_AND_TODOS.md`
 - `docs/get-started-script-mode.md`
 - `docs/get-started-voice-mode.md`
-- `docs/designs/body-cognition-execution-refactor.md`
-- `src/body/README.md`
+- `docs/designs/tools-cognition-execution-refactor.md`
+- `src/tools/README.md`
 - `src/head/brain/README.md`
 - `src/head/brain/.env.example`
 

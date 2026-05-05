@@ -33,5 +33,5 @@ Launcher:
 - [brain](../src/assistants/brain/README.md)
 - [cursor](../src/assistants/cursor/README.md)
 - [tars](../src/assistants/tars/README.md)
-- [body](../src/body/README.md)
+- [tools](../src/tools/README.md)
 - [agent prompts and skills](../.github/agents/README.md)

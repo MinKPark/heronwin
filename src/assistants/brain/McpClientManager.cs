@@ -982,7 +982,7 @@ internal sealed class McpClientManager : IAsyncDisposable
 
         if (DebugTrace.IsEnabled && IsDesktopAutomationServer(server))
         {
-            environment["BODY_WINDOWS_DEBUG"] = "1";
+            environment["TOOLS_WINDOWS_DEBUG"] = "1";
         }
     }
 

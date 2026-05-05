@@ -42,7 +42,7 @@ dotnet test src\heronwin.sln
 dotnet run --project src\assistants\tars -- --help
 dotnet run --project src\assistants\cursor -- --help
 dotnet run --project src\assistants\cursor -- --trace-report .tmp\trace-smoke.jsonl
-rg -n "src[/\\]head|head[/\\]brain|dotnet run --project src[/\\]head|BrainOnly|FaceOnly|--command|--commands-file|brain \.env|herface|face UI|settings window" README.md docs .github\agents src\body src\assistants buildandrun.ps1
+rg -n "src[/\\]head|head[/\\]brain|dotnet run --project src[/\\]head|BrainOnly|FaceOnly|--command|--commands-file|brain \.env|herface|face UI|settings window" README.md docs .github\agents src\tools src\assistants buildandrun.ps1
 ```
 
 Live scenario measurement:
@@ -111,7 +111,7 @@ Important current couplings:
   reference `src/head/brain`.
 - `DotEnvLoader` searches several legacy brain paths, including
   `src/head/brain/.env`.
-- `Brain.csproj` references the `body/cognition` and `body/execution` projects
+- `Brain.csproj` references the `tools/cognition` and `tools/execution` projects
   with `ReferenceOutputAssembly="false"` so the MCP server binaries are built
   with the runtime.
 
@@ -166,7 +166,7 @@ needs these concrete adjustments:
   the moved runtime without the UI, but once `cursor` and `tars` exist the
   launcher should be rewritten around those hosts instead of only path-edited.
 - `Brain.csproj` is currently an executable and carries build-order references
-  to `body/cognition` and `body/execution`. After `brain` becomes a library,
+  to `tools/cognition` and `tools/execution`. After `brain` becomes a library,
   move those build-order references to runnable host projects unless a local
   build proves transitive references are enough.
 - `Brain.csproj` currently carries `NAudio` because audio code lives in
@@ -490,7 +490,7 @@ Use assistant-specific `.env.example` files as the default local setup:
 Each assistant should normally load its own `.env` from its project folder so
 relative MCP binary paths are resolved from a stable, assistant-specific base.
 For example, values copied from `src/head/brain/.env.example` that use
-`../../body/...` remain correct when copied to `src/assistants/tars/.env` or
+`../../tools/...` remain correct when copied to `src/assistants/tars/.env` or
 `src/assistants/cursor/.env`, but they do not mean the same thing from a shared
 `src/assistants/.env`.
 
@@ -505,7 +505,7 @@ kind and default project path. Search order should be:
 
 The shared `src/assistants/.env` option should be documented as a convenience
 for global settings. If it contains relative MCP paths, those paths must be
-relative to `src/assistants` (for example `../body/...`) or be absolute paths.
+relative to `src/assistants` (for example `../tools/...`) or be absolute paths.
 Do not use `src/assistants/brain/.env` as a normal lookup target because
 `brain` is no longer a launched assistant host after the split.
 
@@ -531,8 +531,8 @@ Build references:
 
 - `tars` references `brain`
 - `cursor` references `brain`
-- `tars` and `cursor` keep build-order-only references to `body/cognition` and
-  `body/execution` if their runs need those binaries built
+- `tars` and `cursor` keep build-order-only references to `tools/cognition` and
+  `tools/execution` if their runs need those binaries built
 - `cursor` owns the `NAudio` package reference after audio code moves out of
   `brain`
 - every assistant CLI references shared `brain` diagnostics for `--trace-report`
@@ -572,7 +572,7 @@ Must update:
 - `docs/GOAL_AND_DESIGN.md`
 - `docs/README.md`
 - `docs/HISTORY_AND_TODOS.md` current-todos section
-- `src/body/README.md`
+- `src/tools/README.md`
 - `src/assistants/brain/README.md`
 - `src/assistants/tars/README.md`
 - `src/assistants/cursor/README.md`
@@ -635,7 +635,7 @@ todo rows that mention deleted projects, old paths, or old launcher commands.
 After implementation, run stale-reference searches and review each hit:
 
 ```powershell
-rg -n "src[/\\]head|head[/\\]brain|dotnet run --project src[/\\]head|BrainOnly|FaceOnly|--command|--commands-file|brain \.env|herface|face UI|settings window" README.md docs .github/agents src/body src/assistants buildandrun.ps1
+rg -n "src[/\\]head|head[/\\]brain|dotnet run --project src[/\\]head|BrainOnly|FaceOnly|--command|--commands-file|brain \.env|herface|face UI|settings window" README.md docs .github/agents src/tools src/assistants buildandrun.ps1
 ```
 
 Expected result:

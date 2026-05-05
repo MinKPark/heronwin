@@ -1,8 +1,8 @@
 using System.ComponentModel;
-using HeronWin.Body.DesktopAutomation;
+using HeronWin.Tools.DesktopAutomation;
 using ModelContextProtocol.Server;
 
-namespace HeronWin.Body.Execution;
+namespace HeronWin.Tools.Execution;
 
 [McpServerToolType]
 public static class ExecutionTools

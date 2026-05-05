@@ -4,7 +4,7 @@ using System.Drawing.Imaging;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace HeronWin.Body.DesktopAutomation;
+namespace HeronWin.Tools.DesktopAutomation;
 
 internal static class CompactUiSnapshotJson
 {

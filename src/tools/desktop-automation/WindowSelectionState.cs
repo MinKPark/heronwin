@@ -1,4 +1,4 @@
-namespace HeronWin.Body.DesktopAutomation;
+namespace HeronWin.Tools.DesktopAutomation;
 
 public sealed class WindowSelectionState
 {

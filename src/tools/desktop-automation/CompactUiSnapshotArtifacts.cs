@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-namespace HeronWin.Body.DesktopAutomation;
+namespace HeronWin.Tools.DesktopAutomation;
 
 internal sealed class CompactArtifactRenderSummary
 {

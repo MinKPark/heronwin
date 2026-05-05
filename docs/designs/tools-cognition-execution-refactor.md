@@ -1,11 +1,11 @@
-# Body Refactor And Tool Naming Normalization
+# Tools Refactor And Tool Naming Normalization
 
 Last updated: 2026-04-19
 Status: completed
 
 ## Summary
 
-This design records the cutover from `src/herbody` to `src/body` and the
+This design records the cutover from `src/herbody` to `src/tools` and the
 replacement of the former `eyesandhands` MCP server with two MCP servers:
 `cognition` and `execution`.
 
@@ -14,7 +14,7 @@ been folded into `brain` as built-in process listing/start/stop tools.
 
 The main goals are:
 
-- rename `herbody` to `body` in one pass,
+- rename `herbody` to `tools` in one pass,
 - split observation and action into separate MCP servers,
 - move desktop session ownership into `brain`,
 - make the MCP layer stateless and explicit,
@@ -25,7 +25,7 @@ The main goals are:
 
 As of 2026-04-18, the structural cutover is complete for the main runtime path:
 
-- `src/body` is the active tree, and `brain` references `cognition` and
+- `src/tools` is the active tree, and `brain` references `cognition` and
   `execution`.
 - `DesktopSessionContext` is in place, and the main brain/test call paths are
   retargeted to the new tool and server names.
@@ -71,15 +71,15 @@ Remaining follow-up after the cutover:
 
 ### Repository and project structure
 
-- `src/herbody` becomes `src/body`.
+- `src/herbody` becomes `src/tools`.
 - Process listing/start/stop behavior lives in `brain`.
 - The current `eyesandhands` code is split into:
   - a shared Windows automation library,
   - a `cognition` MCP host,
   - an `execution` MCP host.
 - Existing namespaces and project names move from `HeronWin.HerBody.*` to
-  `HeronWin.Body.*`.
-- `micrecorder` moves under `src/body` as a rename-only carry-forward item.
+  `HeronWin.Tools.*`.
+- `micrecorder` moves under `src/tools` as a rename-only carry-forward item.
 
 ### Session ownership
 
@@ -116,7 +116,7 @@ does not use the normal app-first launch branch. The first step explicitly says
 `Navigate the active browser tab directly to https://www.netflix.com/`, which
 means the website route is part of the scenario contract rather than a fallback.
 
-![Rendered brain-orchestrated request flow](./body-cognition-execution-refactor-flow.svg)
+![Rendered brain-orchestrated request flow](./tools-cognition-execution-refactor-flow.svg)
 
 ### Scenario Notes
 
@@ -199,7 +199,7 @@ Use these nouns consistently:
   actions, and only escalate to `capture_window_screenshot` when the UI tree is
   missing the needed state change or is otherwise insufficient.
 
-### Body
+### Tools
 
 - Split the current `eyesandhands` host into a shared automation library plus
   separate cognition and execution hosts.
@@ -214,7 +214,7 @@ Use these nouns consistently:
 
 - Update `.github/agents` prompts and skills from `eyesandhands/...` to
   `cognition/...` and `execution/...`.
-- Update repository docs to describe `body`, the server split, and
+- Update repository docs to describe `tools`, the server split, and
   `brain`-owned desktop session state.
 
 ## Verification

@@ -1,4 +1,4 @@
-# body
+# tools
 
 MCP (Model Context Protocol) servers and shared Windows automation code for **heronwin**.
 
@@ -16,7 +16,7 @@ Process listing, start, and stop tools live inside the shared assistant library 
 
 ## Adding a New Server
 
-1. Create a new subdirectory such as `src/body/my-server/`.
+1. Create a new subdirectory such as `src/tools/my-server/`.
 2. Implement a stdio-based MCP server using the C# MCP SDK.
 3. Register the server in an assistant `.env` file by adding it to `MCP_SERVERS`. Start from `src/assistants/cursor/.env.example` or `src/assistants/tars/.env.example` if you do not have one yet.
 

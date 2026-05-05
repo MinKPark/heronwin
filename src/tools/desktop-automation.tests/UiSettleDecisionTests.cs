@@ -1,7 +1,7 @@
 using System.Windows.Automation;
 using Xunit;
 
-namespace HeronWin.Body.DesktopAutomation.Tests;
+namespace HeronWin.Tools.DesktopAutomation.Tests;
 
 public sealed class UiSettleDecisionTests
 {

@@ -11,10 +11,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\brain\Brain.csproj" />
-    <ProjectReference Include="..\..\body\cognition\cognition.csproj"
+    <ProjectReference Include="..\..\tools\cognition\cognition.csproj"
                       ReferenceOutputAssembly="false"
                       PrivateAssets="all" />
-    <ProjectReference Include="..\..\body\execution\execution.csproj"
+    <ProjectReference Include="..\..\tools\execution\execution.csproj"
                       ReferenceOutputAssembly="false"
                       PrivateAssets="all" />
   </ItemGroup>

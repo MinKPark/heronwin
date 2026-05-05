@@ -186,7 +186,7 @@ Source shape: `git log --date=short --pretty=format:"%ad %h %s"`
   issues, and updated the active todo list to make runtime performance the top
   priority.
 - `2026-04-18` (18 commits): split the docs, added `process-manager`, finished
-  the `body` / `cognition` / `execution` cutover, normalized tool names and
+  the `tools` / `cognition` / `execution` cutover, normalized tool names and
   renamed `src\herhead` to `src\head`, tightened Netflix/browser guardrails
   and test coverage, moved compact-tree compaction into `cognition` with
   rendered artifacts, `llmTree` projections, and omitted-children tracking,

@@ -60,7 +60,7 @@ The startup skill already expresses that playbook in
 
 Today `desktop-automation` returns this raw structure from
 `list_windows` in
-`src/body/desktop-automation/WindowAutomation.cs`.
+`src/tools/desktop-automation/WindowAutomation.cs`.
 
 Current records:
 

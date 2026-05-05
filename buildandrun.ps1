@@ -23,8 +23,8 @@ $cursorProjectPath = Join-Path $PSScriptRoot "src\assistants\cursor\Cursor.cspro
 $tarsProjectPath = Join-Path $PSScriptRoot "src\assistants\tars\Tars.csproj"
 $resolvedCursorProjectPath = [System.IO.Path]::GetFullPath($cursorProjectPath)
 $resolvedTarsProjectPath = [System.IO.Path]::GetFullPath($tarsProjectPath)
-$resolvedCognitionProjectPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "src\body\cognition\cognition.csproj"))
-$resolvedExecutionProjectPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "src\body\execution\execution.csproj"))
+$resolvedCognitionProjectPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "src\tools\cognition\cognition.csproj"))
+$resolvedExecutionProjectPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "src\tools\execution\execution.csproj"))
 $resolvedScenarioPath = $null
 
 if ($CursorOnly -and $TarsOnly) {
@@ -167,7 +167,7 @@ function Invoke-Assistant {
 
 if (-not $NoBuild) {
     Stop-RunningRepoRuntimeProcesses `
-        -CommandLineNeedles @($resolvedCursorProjectPath, $resolvedTarsProjectPath, $resolvedCognitionProjectPath, $resolvedExecutionProjectPath, "src\\assistants\\cursor", "src\\assistants\\tars", "src\\body\\cognition", "src\\body\\execution") `
+        -CommandLineNeedles @($resolvedCursorProjectPath, $resolvedTarsProjectPath, $resolvedCognitionProjectPath, $resolvedExecutionProjectPath, "src\\assistants\\cursor", "src\\assistants\\tars", "src\\tools\\cognition", "src\\tools\\execution") `
         -ProcessNames @("cognition.exe", "execution.exe")
 
     if ($runCursor) {

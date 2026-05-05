@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
-    <RootNamespace>HeronWin.Body.DesktopAutomation.Tests</RootNamespace>
+    <RootNamespace>HeronWin.Tools.DesktopAutomation.Tests</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>

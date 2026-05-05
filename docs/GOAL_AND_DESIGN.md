@@ -7,9 +7,9 @@
 - `src/assistants/brain`: shared library for provider clients, prompt loading, MCP integration, built-in process tools, configuration, debug tracing, trace reports, and desktop session primitives.
 - `src/assistants/cursor`: interactive voice/text assistant.
 - `src/assistants/tars`: scenario assistant for YAML scenario files and log-based assertions.
-- `src/body/cognition`: MCP server for Windows UI inspection.
-- `src/body/execution`: MCP server for Windows UI interaction.
-- `src/body/desktop-automation`: shared Windows automation library used by the body servers.
+- `src/tools/cognition`: MCP server for Windows UI inspection.
+- `src/tools/execution`: MCP server for Windows UI interaction.
+- `src/tools/desktop-automation`: shared Windows automation library used by the cognition and execution MCP servers.
 
 The retired `face` UI and named-pipe status bridge are no longer part of the active architecture.
 

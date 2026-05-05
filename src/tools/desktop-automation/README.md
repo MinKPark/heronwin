@@ -11,6 +11,6 @@ This project contains the Win32, UI Automation, selection, menu, screenshot, and
 
 ## Debugging
 
-Set `BODY_WINDOWS_DEBUG=1` or pass `--debug` to the host project you are running to emit timestamped diagnostics on stderr.
+Set `TOOLS_WINDOWS_DEBUG=1` or pass `--debug` to the host project you are running to emit timestamped diagnostics on stderr.
 
 Screenshots and other debug artifacts continue to use the `BRAIN_DEBUG_ARTIFACT_DIR` override when it is available.

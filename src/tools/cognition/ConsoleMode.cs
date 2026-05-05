@@ -1,6 +1,6 @@
-using HeronWin.Body.DesktopAutomation;
+using HeronWin.Tools.DesktopAutomation;
 
-namespace HeronWin.Body.Cognition;
+namespace HeronWin.Tools.Cognition;
 
 internal static class ConsoleMode
 {

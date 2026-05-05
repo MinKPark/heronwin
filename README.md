@@ -15,7 +15,7 @@ src/
     cursor/       interactive voice/text assistant
     tars/         scenario assistant
     *.tests/      assistant and shared runtime tests
-  body/           MCP servers and shared desktop automation code
+  tools/          MCP servers and shared desktop automation code
   scenarios/      YAML scenarios for tars
 ```
 
@@ -52,7 +52,7 @@ The launcher defaults to `cursor` and routes `-Scenario` to `tars`:
 - [brain README](./src/assistants/brain/README.md)
 - [tars README](./src/assistants/tars/README.md)
 - [cursor README](./src/assistants/cursor/README.md)
-- [body README](./src/body/README.md)
+- [tools README](./src/tools/README.md)
 
 ## License
 

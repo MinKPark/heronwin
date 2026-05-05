@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -8,7 +8,7 @@ using System.Windows.Forms;
 using System.Drawing;
 using System.Drawing.Imaging;
 
-namespace HeronWin.Body.DesktopAutomation;
+namespace HeronWin.Tools.DesktopAutomation;
 
 internal static class WindowAutomation
 {
@@ -86,7 +86,7 @@ internal static class WindowAutomation
     private static readonly string DefaultScreenshotDirectory = Path.Combine(
         Path.GetTempPath(),
         "heronwin",
-        "body",
+        "tools",
         "windows");
     private const int MaxKeyboardNavigationSteps = 48;
 

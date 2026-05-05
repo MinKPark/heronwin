@@ -1,8 +1,8 @@
-namespace HeronWin.Body.DesktopAutomation;
+namespace HeronWin.Tools.DesktopAutomation;
 
 internal static class DebugTrace
 {
-    private const string DebugEnvironmentVariable = "BODY_WINDOWS_DEBUG";
+    private const string DebugEnvironmentVariable = "TOOLS_WINDOWS_DEBUG";
     private static readonly object SyncRoot = new();
     private static volatile bool _isEnabled;
 

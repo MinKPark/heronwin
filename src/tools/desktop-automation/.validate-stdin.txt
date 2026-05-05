@@ -17,7 +17,7 @@ info: ModelContextProtocol.Server.StdioServerTransport[1256455528]
 
 
 
-namespace HeronWin.Body.DesktopAutomation;
+namespace HeronWin.Tools.DesktopAutomation;
 
 internal static class ConsoleMode
 {
@@ -88,11 +88,11 @@ internal static class ConsoleMode
     }
 }
 
-namespace HeronWin.Body.DesktopAutomation;
+namespace HeronWin.Tools.DesktopAutomation;
 
 internal static class DebugTrace
 {
-    private const string DebugEnvironmentVariable = "BODY_WINDOWS_DEBUG";
+    private const string DebugEnvironmentVariable = "TOOLS_WINDOWS_DEBUG";
     private static readonly object SyncRoot = new();
     private static volatile bool _isEnabled;
 
@@ -168,7 +168,7 @@ internal static class DebugTrace
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
-    <RootNamespace>HeronWin.Body.DesktopAutomation</RootNamespace>
+    <RootNamespace>HeronWin.Tools.DesktopAutomation</RootNamespace>
     <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
 
@@ -186,7 +186,7 @@ internal static class DebugTrace
 using System.ComponentModel;
 using ModelContextProtocol.Server;
 
-namespace HeronWin.Body.DesktopAutomation;
+namespace HeronWin.Tools.DesktopAutomation;
 
 [McpServerToolType]
 public static class EyesAndHandsTools
@@ -458,7 +458,7 @@ public static class EyesAndHandsTools
     }
 }
 
-namespace HeronWin.Body.DesktopAutomation;
+namespace HeronWin.Tools.DesktopAutomation;
 
 internal static class InteractionWindowResolver
 {
@@ -487,7 +487,7 @@ internal static class InteractionWindowResolver
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace HeronWin.Body.DesktopAutomation;
+namespace HeronWin.Tools.DesktopAutomation;
 
 internal static class NativeMethods
 {
@@ -644,7 +644,7 @@ internal static class NativeMethods
     }
 }
 
-using HeronWin.Body.DesktopAutomation;
+using HeronWin.Tools.DesktopAutomation;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -737,7 +737,7 @@ dotnet run --project .\eyesandhands.csproj -- --debug
 ```
 
 The normal startup mode is an MCP stdio server intended to be launched by an MCP client.
-Use `--debug` or set `BODY_WINDOWS_DEBUG=1` to emit timestamped diagnostics on stderr, including per-poll UI settle checks.
+Use `--debug` or set `TOOLS_WINDOWS_DEBUG=1` to emit timestamped diagnostics on stderr, including per-poll UI settle checks.
 
 ### Console Helpers
 
@@ -1522,7 +1522,7 @@ Notes:
 
 using System.Collections.Concurrent;
 
-namespace HeronWin.Body.DesktopAutomation;
+namespace HeronWin.Tools.DesktopAutomation;
 
 public sealed class UiAutomationExecutor : IDisposable
 {
@@ -1534,7 +1534,7 @@ public sealed class UiAutomationExecutor : IDisposable
     {
         _thread = new Thread(RunLoop)
         {
-            Name = "body-windows-uia-sta",
+            Name = "tools-windows-uia-sta",
             IsBackground = true,
         };
 
@@ -1641,7 +1641,7 @@ using System.Windows.Forms;
 using System.Drawing;
 using System.Drawing.Imaging;
 
-namespace HeronWin.Body.DesktopAutomation;
+namespace HeronWin.Tools.DesktopAutomation;
 
 internal static class WindowAutomation
 {
@@ -5868,7 +5868,7 @@ internal enum TaskbarActivationMode
     FocusOnly,
 }
 
-namespace HeronWin.Body.DesktopAutomation;
+namespace HeronWin.Tools.DesktopAutomation;
 
 public sealed class WindowSelectionState
 {

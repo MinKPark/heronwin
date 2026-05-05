@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1060" viewBox="0 0 1600 1060" role="img" aria-labelledby="title desc">
   <title id="title">Assistants component diagram</title>
-  <desc id="desc">Component diagram showing tars and cursor assistant projects using shared brain library components and body MCP servers.</desc>
+  <desc id="desc">Component diagram showing tars and cursor assistant projects using shared brain library components and desktop MCP servers.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#31445f"/>
@@ -18,7 +18,7 @@
       .tars { fill: #eaf4ff; stroke: #5b9bd5; }
       .cursor { fill: #eaf8f1; stroke: #54a978; }
       .brain { fill: #fff4e6; stroke: #d08a2f; }
-      .body { fill: #f2efff; stroke: #7d6dcc; }
+      .tools { fill: #f2efff; stroke: #7d6dcc; }
       .line { stroke: #31445f; stroke-width: 2.2; fill: none; marker-end: url(#arrow); }
       .soft-line { stroke: #718198; stroke-width: 1.8; fill: none; marker-end: url(#arrow); stroke-dasharray: 6 5; }
       .label { font: 600 13px "Segoe UI", Arial, sans-serif; fill: #31445f; }
@@ -28,7 +28,7 @@
 
   <rect class="page" x="0" y="0" width="1600" height="1060"/>
   <text class="title" x="800" y="58" text-anchor="middle">Head To Assistants Refactor Components</text>
-  <text class="subtitle" x="800" y="86" text-anchor="middle">Assistant-specific runners and context managers use shared brain mechanics and body MCP servers.</text>
+  <text class="subtitle" x="800" y="86" text-anchor="middle">Assistant-specific runners and context managers use shared brain mechanics and desktop MCP servers.</text>
 
   <rect class="group" x="60" y="130" width="430" height="650"/>
   <text class="group-title" x="90" y="170">assistants/tars</text>
@@ -148,16 +148,16 @@
   <path class="line" d="M780 386 L820 386"/>
 
   <rect class="group" x="380" y="835" width="840" height="150"/>
-  <text class="group-title" x="410" y="875">body</text>
+  <text class="group-title" x="410" y="875">tools</text>
   <text class="group-subtitle" x="410" y="900">local MCP servers and shared desktop automation</text>
 
-  <rect class="box body" x="440" y="925" width="210" height="48"/>
+  <rect class="box tools" x="440" y="925" width="210" height="48"/>
   <text class="box-title" x="545" y="955" text-anchor="middle">cognition MCP</text>
 
-  <rect class="box body" x="695" y="925" width="210" height="48"/>
+  <rect class="box tools" x="695" y="925" width="210" height="48"/>
   <text class="box-title" x="800" y="955" text-anchor="middle">desktop-automation</text>
 
-  <rect class="box body" x="950" y="925" width="210" height="48"/>
+  <rect class="box tools" x="950" y="925" width="210" height="48"/>
   <text class="box-title" x="1055" y="955" text-anchor="middle">execution MCP</text>
 
   <path class="line" d="M650 949 L695 949"/>

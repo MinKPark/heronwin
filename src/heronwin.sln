@@ -1,17 +1,17 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.5.2.0
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "body", "body", "{4297FEFB-3DB8-2E3F-8FE4-C37F4169AE42}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tools", "tools", "{4297FEFB-3DB8-2E3F-8FE4-C37F4169AE42}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "desktop-automation", "body\desktop-automation\desktop-automation.csproj", "{A7507561-0C8C-D674-6204-3731DA2F9F6C}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "desktop-automation", "tools\desktop-automation\desktop-automation.csproj", "{A7507561-0C8C-D674-6204-3731DA2F9F6C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "cognition", "body\cognition\cognition.csproj", "{9D50FE14-C52D-4AF2-91D8-2488F5A1A5C8}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "cognition", "tools\cognition\cognition.csproj", "{9D50FE14-C52D-4AF2-91D8-2488F5A1A5C8}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "execution", "body\execution\execution.csproj", "{7119E2A9-4701-4A79-B367-56AC9FD7F056}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "execution", "tools\execution\execution.csproj", "{7119E2A9-4701-4A79-B367-56AC9FD7F056}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HeronWin.Body.DesktopAutomation.Tests", "body\desktop-automation.tests\HeronWin.Body.DesktopAutomation.Tests.csproj", "{B5F75D69-7F11-4D9F-981D-D239A5273E02}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HeronWin.Tools.DesktopAutomation.Tests", "tools\desktop-automation.tests\HeronWin.Tools.DesktopAutomation.Tests.csproj", "{B5F75D69-7F11-4D9F-981D-D239A5273E02}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "assistants", "assistants", "{6D14CB61-8201-932C-6D22-64C714DC885C}"
 EndProject

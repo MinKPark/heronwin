@@ -1,8 +1,8 @@
 using System.ComponentModel;
-using HeronWin.Body.DesktopAutomation;
+using HeronWin.Tools.DesktopAutomation;
 using ModelContextProtocol.Server;
 
-namespace HeronWin.Body.Cognition;
+namespace HeronWin.Tools.Cognition;
 
 [McpServerToolType]
 public static class CognitionTools

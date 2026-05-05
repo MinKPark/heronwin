@@ -7,7 +7,7 @@
       .panel { fill: #ffffff; stroke: #d6d6db; stroke-width: 2; rx: 18; ry: 18; }
       .title { font: 700 30px Arial, Helvetica, sans-serif; fill: #111111; }
       .subtitle { font: 700 22px Arial, Helvetica, sans-serif; fill: #111111; }
-      .body { font: 16px Arial, Helvetica, sans-serif; fill: #222222; }
+      .copy { font: 16px Arial, Helvetica, sans-serif; fill: #222222; }
       .small { font: 14px Arial, Helvetica, sans-serif; fill: #444444; }
       .box { fill: #ffffff; stroke: #555555; stroke-width: 2; rx: 12; ry: 12; }
       .box-red { fill: #fff2f1; stroke: #d35b50; stroke-width: 2; rx: 12; ry: 12; }
@@ -46,7 +46,7 @@
   <rect class="bg" x="0" y="0" width="1400" height="1160"/>
 
   <text class="title" x="700" y="52" text-anchor="middle">Observed Failure Loop and Proposed Guardrails</text>
-  <text class="body" x="700" y="84" text-anchor="middle">What happened in the stuck Netflix run, and what the next patch should make visible and prevent.</text>
+  <text class="copy" x="700" y="84" text-anchor="middle">What happened in the stuck Netflix run, and what the next patch should make visible and prevent.</text>
 
   <rect class="panel" x="40" y="120" width="630" height="990"/>
   <rect class="panel" x="730" y="120" width="630" height="990"/>
@@ -58,31 +58,31 @@
   <text class="small" x="1045" y="188" text-anchor="middle">Make the decisions explicit in logs, and tighten the rules that allowed the rewrite.</text>
 
   <rect class="box-blue" x="110" y="230" width="490" height="90"/>
-  <text class="body" x="355" y="262" text-anchor="middle">Turn 1 user/scenario text</text>
+  <text class="copy" x="355" y="262" text-anchor="middle">Turn 1 user/scenario text</text>
   <text class="small" x="355" y="287" text-anchor="middle">Navigate to Netflix and wait until either profile selection</text>
   <text class="small" x="355" y="307" text-anchor="middle">or Netflix home is visible.</text>
 
   <rect class="box-green" x="120" y="370" width="470" height="86"/>
-  <text class="body" x="355" y="402" text-anchor="middle">Brain reaches Netflix profile picker</text>
+  <text class="copy" x="355" y="402" text-anchor="middle">Brain reaches Netflix profile picker</text>
   <text class="small" x="355" y="427" text-anchor="middle">"Who's watching?" with Min, Esther, Henry, Yoon.</text>
 
   <rect class="box-amber" x="120" y="506" width="470" height="96"/>
-  <text class="body" x="355" y="538" text-anchor="middle">Assistant draft stops at confirmation</text>
+  <text class="copy" x="355" y="538" text-anchor="middle">Assistant draft stops at confirmation</text>
   <text class="small" x="355" y="563" text-anchor="middle">"Netflix is open, and the profile screen is up."</text>
   <text class="small" x="355" y="583" text-anchor="middle">No actual Min selection yet.</text>
 
   <rect class="box-amber" x="120" y="652" width="470" height="104"/>
-  <text class="body" x="355" y="684" text-anchor="middle">Internal profile auto-follow-through runs</text>
+  <text class="copy" x="355" y="684" text-anchor="middle">Internal profile auto-follow-through runs</text>
   <text class="small" x="355" y="709" text-anchor="middle">Brain invokes a stored Netflix profile target because the</text>
   <text class="small" x="355" y="729" text-anchor="middle">reply stopped before completing the requested selection.</text>
 
   <rect class="box-red" x="120" y="806" width="470" height="102"/>
-  <text class="body" x="355" y="838" text-anchor="middle">State drifts away from Netflix profile picker</text>
+  <text class="copy" x="355" y="838" text-anchor="middle">State drifts away from Netflix profile picker</text>
   <text class="small" x="355" y="863" text-anchor="middle">The active page becomes Edge new-tab / Copilot content.</text>
   <text class="small" x="355" y="883" text-anchor="middle">The original profile path is now stale.</text>
 
   <rect class="box-red" x="110" y="958" width="490" height="96"/>
-  <text class="body" x="355" y="990" text-anchor="middle">Named-target rewrite misfires</text>
+  <text class="copy" x="355" y="990" text-anchor="middle">Named-target rewrite misfires</text>
   <text class="small" x="355" y="1015" text-anchor="middle">Original turn text still contains "Netflix home".</text>
   <text class="small" x="355" y="1035" text-anchor="middle">Rewrite scans current UI tree, matches Edge Home button, rewrites click.</text>
 
@@ -97,28 +97,28 @@
   <path class="arrow-red" d="M355 1056 L355 1074"/>
 
   <rect class="box-blue" x="802" y="226" width="486" height="96"/>
-  <text class="body" x="1045" y="258" text-anchor="middle">1. Add shared internal continuation tracing</text>
+  <text class="copy" x="1045" y="258" text-anchor="middle">1. Add shared internal continuation tracing</text>
   <text class="small" x="1045" y="283" text-anchor="middle">Log considered, start, step, skip, complete, and abort.</text>
   <text class="small" x="1045" y="303" text-anchor="middle">Keep policy detection local, but centralize the event lifecycle.</text>
 
   <rect class="box-green" x="802" y="372" width="486" height="102"/>
-  <text class="body" x="1045" y="404" text-anchor="middle">2. Keep app policy in app skill files</text>
+  <text class="copy" x="1045" y="404" text-anchor="middle">2. Keep app policy in app skill files</text>
   <text class="small" x="1045" y="429" text-anchor="middle">Netflix profile and PIN rules live in the Netflix skill group.</text>
   <text class="small" x="1045" y="449" text-anchor="middle">Core runtime only adds generic tracing, rewrite rules, and guardrails.</text>
 
   <rect class="box-green" x="802" y="524" width="486" height="102"/>
-  <text class="body" x="1045" y="556" text-anchor="middle">3. Require activation intent for generic named-target rewrite</text>
+  <text class="copy" x="1045" y="556" text-anchor="middle">3. Require activation intent for generic named-target rewrite</text>
   <text class="small" x="1045" y="581" text-anchor="middle">Passive visibility text can mention "Home" without becoming</text>
   <text class="small" x="1045" y="601" text-anchor="middle">permission to click the browser's Home button.</text>
 
   <rect class="box-blue" x="802" y="676" width="486" height="114"/>
-  <text class="body" x="1045" y="708" text-anchor="middle">4. Trace requested target, matched target, and skip reason</text>
+  <text class="copy" x="1045" y="708" text-anchor="middle">4. Trace requested target, matched target, and skip reason</text>
   <text class="small" x="1045" y="733" text-anchor="middle">Requested path, requested element summary, matched path,</text>
   <text class="small" x="1045" y="753" text-anchor="middle">matched element summary, profile-picker visibility,</text>
   <text class="small" x="1045" y="773" text-anchor="middle">rewrite eligibility, and explicit reason for rewrite or no rewrite.</text>
 
   <rect class="box-green" x="802" y="840" width="486" height="112"/>
-  <text class="body" x="1045" y="872" text-anchor="middle">5. Regression tests for this exact class of bug</text>
+  <text class="copy" x="1045" y="872" text-anchor="middle">5. Regression tests for this exact class of bug</text>
   <text class="small" x="1045" y="897" text-anchor="middle">Passive "wait until home/profile visible" prompt should not</text>
   <text class="small" x="1045" y="917" text-anchor="middle">trigger the Netflix continuation policy or stale-path rewrite to Home.</text>
   <text class="small" x="1045" y="937" text-anchor="middle">Explicit "Select Min" should still resolve to the correct target.</text>

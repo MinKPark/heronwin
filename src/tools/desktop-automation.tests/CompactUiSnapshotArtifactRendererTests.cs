@@ -3,7 +3,7 @@ using System.Drawing.Imaging;
 using System.Text.Json;
 using Xunit;
 
-namespace HeronWin.Body.DesktopAutomation.Tests;
+namespace HeronWin.Tools.DesktopAutomation.Tests;
 
 public sealed class CompactUiSnapshotArtifactRendererTests
 {

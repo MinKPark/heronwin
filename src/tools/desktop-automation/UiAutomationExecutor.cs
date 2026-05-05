@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 
-namespace HeronWin.Body.DesktopAutomation;
+namespace HeronWin.Tools.DesktopAutomation;
 
 public sealed class UiAutomationExecutor : IDisposable
 {
@@ -12,7 +12,7 @@ public sealed class UiAutomationExecutor : IDisposable
     {
         _thread = new Thread(RunLoop)
         {
-            Name = "body-windows-uia-sta",
+            Name = "tools-windows-uia-sta",
             IsBackground = true,
         };
 
