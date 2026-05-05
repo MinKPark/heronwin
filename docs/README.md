@@ -1,16 +1,14 @@
-# HeronWin Docs
+# HeronWin User Docs
 
-Start here:
+These docs cover how to configure and run HeronWin.
 
 - [Get Started](./GET_STARTED.md)
 - [Scenario Mode](./get-started-script-mode.md)
 - [Voice And Text Mode](./get-started-voice-mode.md)
 - [OpenAI Configuration](./get-started-openaiconfig.md)
-- [Goal And Design](./GOAL_AND_DESIGN.md)
-- [History And Todos](./HISTORY_AND_TODOS.md)
-- [Development Guardrails](./DEVELOPMENT_GUARDRAILS.md)
+- [Create App Skills](./APP_SKILLS.md)
 
-Historical docs under `docs/designs`, `docs/bugs`, `docs/perfbase`, and daily summaries may still reference the pre-refactor `src/head/brain` layout, old launcher flags, or the retired companion UI. Live setup docs and component READMEs should use `src/assistants`, `cursor`, and `tars`.
+Developer-facing design notes, bug writeups, performance baselines, and project history live in [devdocs](../devdocs/README.md).
 
 ## Run And Verify
 

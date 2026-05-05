@@ -3,7 +3,7 @@
 Last updated: 2026-04-22
 Status: in progress
 Depends on:
-- `docs/HISTORY_AND_TODOS.md`
+- `devdocs/HISTORY_AND_TODOS.md`
 - `src/scenarios/netflix-boyfriend-on-demand.yml`
 
 ## Summary
@@ -32,7 +32,7 @@ round trips before smaller tool or snapshot improvements can matter.
 
 A repeatable repo-native trace report now exists via
 `brain.exe --trace-report <path>`. The fresh baseline artifacts are saved under
-ignored `.tmp/`, and the tracked summary lives under `docs/perfbase/`.
+ignored `.tmp/`, and the tracked summary lives under `devdocs/perfbase/`.
 
 ## Remaining Deferred Sections
 
@@ -124,7 +124,7 @@ Completed baseline capture:
 - raw metadata:
   `.tmp/netflix-smoke-runtime/2026-04-22-baseline/README.md`
 - tracked summary:
-  `docs/perfbase/2026-04-22-netflix-smoke-baseline.md`
+  `devdocs/perfbase/2026-04-22-netflix-smoke-baseline.md`
 
 ### 2. Use The Repeatable Trace Report
 

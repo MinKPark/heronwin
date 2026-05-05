@@ -2,7 +2,7 @@
 
 Last updated: 2026-04-19
 Status: completed
-Depends on: `docs/designs/brain-debuggability-and-rewrite-guardrails.md`
+Depends on: `devdocs/designs/brain-debuggability-and-rewrite-guardrails.md`
 
 ## Summary
 

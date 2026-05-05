@@ -569,9 +569,9 @@ Must update:
 - `docs/get-started-script-mode.md`
 - `docs/get-started-voice-mode.md`
 - `docs/get-started-openaiconfig.md`
-- `docs/GOAL_AND_DESIGN.md`
+- `devdocs/GOAL_AND_DESIGN.md`
 - `docs/README.md`
-- `docs/HISTORY_AND_TODOS.md` current-todos section
+- `devdocs/HISTORY_AND_TODOS.md` current-todos section
 - `src/tools/README.md`
 - `src/assistants/brain/README.md`
 - `src/assistants/tars/README.md`
@@ -617,7 +617,7 @@ Remove or move:
 
 ### Historical Docs Policy
 
-Historical docs under `docs/designs`, `docs/bugs`, `docs/perfbase`, and daily
+Historical docs under `devdocs/designs`, `devdocs/bugs`, `devdocs/perfbase`, and daily
 summaries can keep old paths where they describe old runs. Add a short note in
 the docs index explaining that historical docs may reference `src/head/brain`
 from before the refactor.
@@ -626,7 +626,7 @@ Historical docs should only be edited when they are linked from live setup
 instructions or when their current wording claims to describe the active
 architecture.
 
-`docs/HISTORY_AND_TODOS.md` is mixed-purpose: its daily-history sections are
+`devdocs/HISTORY_AND_TODOS.md` is mixed-purpose: its daily-history sections are
 historical, but its current-todos section is live project guidance. Update live
 todo rows that mention deleted projects, old paths, or old launcher commands.
 

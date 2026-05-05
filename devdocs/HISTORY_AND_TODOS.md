@@ -121,7 +121,7 @@ part of committed repo history.
   - `src/assistants/brain/TurnProcessor.cs`
   - `src/assistants/brain.tests/AgentRunnerContinuationTests.cs`
   - `src/assistants/brain.tests/TraceReportTests.cs`
-  - the updated repo docs in this folder and under `docs/perfbase/`
+  - the updated repo docs in this folder and under `devdocs/perfbase/`
 - Local 2026-04-25 progress:
   - landed the first scripted-only turn-start reuse slice from
     [Scripted Cross-Turn Evidence Reuse Plan](./designs/scripted-cross-turn-evidence-reuse-plan.md):
@@ -146,7 +146,7 @@ part of committed repo history.
   - saved the fresh rerun artifacts under
     `.tmp/netflix-smoke-runtime/2026-04-25-carry-forward-slice/`, with tracked
     summary in
-    [docs/perfbase/2026-04-25-netflix-smoke-carry-forward-slice.md](./perfbase/2026-04-25-netflix-smoke-carry-forward-slice.md).
+    [devdocs/perfbase/2026-04-25-netflix-smoke-carry-forward-slice.md](./perfbase/2026-04-25-netflix-smoke-carry-forward-slice.md).
   - the fresh rerun clearly used turn-start carry-forward on scripted turns
     `2` through `5`, and turns `2` through `5` no longer opened with the old
     `list_windows` then `describe_window` discovery pair.
@@ -173,7 +173,7 @@ part of committed repo history.
 Source shape: `git log --date=short --pretty=format:"%ad %h %s"`
 
 - `2026-04-22` (1 commit): added the scripted cross-turn evidence reuse plan,
-  the tracked Netflix smoke baseline summary under `docs/perfbase`, and the
+  the tracked Netflix smoke baseline summary under `devdocs/perfbase`, and the
   repo-native trace-report implementation and focused tests that make later
   before/after runtime comparisons repeatable.
 - `2026-04-21` (1 commit): added the scripted Netflix smoke runtime

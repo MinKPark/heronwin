@@ -32,11 +32,11 @@ Landed on 2026-04-19:
 - activation-intent guardrails on generic named-target rewrites
 - sensitive `type_window_text` argument redaction in debug previews
 - follow-on generic continuation and discrete-slot migration under
-  `docs/designs/generic-continuations-and-discrete-entry-plan.md`, which
+  `devdocs/designs/generic-continuations-and-discrete-entry-plan.md`, which
   removed the old Netflix-specific continuation and PIN helper names from
   production runtime
 - the broader app-boundary follow-through under
-  `docs/designs/app-agnostic-runtime-and-skills-plan.md`, including boundary
+  `devdocs/designs/app-agnostic-runtime-and-skills-plan.md`, including boundary
   enforcement tests and generic chooser-surface cleanup, is now complete
 
 ## Visual Overview

@@ -3,8 +3,8 @@
 Last updated: 2026-04-19
 Status: completed
 Depends on:
-- `docs/designs/app-agnostic-runtime-and-skills-plan.md`
-- `docs/designs/brain-debuggability-and-rewrite-guardrails.md`
+- `devdocs/designs/app-agnostic-runtime-and-skills-plan.md`
+- `devdocs/designs/brain-debuggability-and-rewrite-guardrails.md`
 
 ## Summary
 

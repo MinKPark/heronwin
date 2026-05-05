@@ -3,10 +3,10 @@
 Last updated: 2026-04-25
 Status: first slice landed, follow-up measurement in progress
 Depends on:
-- `docs/designs/netflix-smoke-runtime-performance-plan.md`
-- `docs/perfbase/2026-04-22-netflix-smoke-baseline.md`
+- `devdocs/designs/netflix-smoke-runtime-performance-plan.md`
+- `devdocs/perfbase/2026-04-22-netflix-smoke-baseline.md`
 - `.tmp/netflix-smoke-runtime/2026-04-22-baseline/trace-report.md`
-- `docs/perfbase/2026-04-25-netflix-smoke-carry-forward-slice.md`
+- `devdocs/perfbase/2026-04-25-netflix-smoke-carry-forward-slice.md`
 - `src/head/brain/Conversation.cs`
 - `src/head/brain/DesktopSessionContext.cs`
 - `src/head/brain/TurnProcessor.cs`
@@ -69,7 +69,7 @@ This is intentionally separate from:
   - the fresh scripted rerun passed in `776.349 s`, saved under
     `.tmp/netflix-smoke-runtime/2026-04-25-carry-forward-slice/`, with tracked
     summary in
-    [docs/perfbase/2026-04-25-netflix-smoke-carry-forward-slice.md](../perfbase/2026-04-25-netflix-smoke-carry-forward-slice.md)
+    [devdocs/perfbase/2026-04-25-netflix-smoke-carry-forward-slice.md](../perfbase/2026-04-25-netflix-smoke-carry-forward-slice.md)
   - the new trace shows `agent.turn.ready_state_used` and
     `agent.turn.carry_forward_evidence_used` on turns `2` through `5`
   - turns `2` through `5` no longer start with the old

@@ -135,11 +135,11 @@ Docs updated today:
 - `README.md`
 - `docs/README.md`
 - `docs/GET_STARTED.md`
-- `docs/GOAL_AND_DESIGN.md`
-- `docs/HISTORY_AND_TODOS.md`
+- `devdocs/GOAL_AND_DESIGN.md`
+- `devdocs/HISTORY_AND_TODOS.md`
 - `docs/get-started-script-mode.md`
 - `docs/get-started-voice-mode.md`
-- `docs/designs/tools-cognition-execution-refactor.md`
+- `devdocs/designs/tools-cognition-execution-refactor.md`
 - `src/tools/README.md`
 - `src/head/brain/README.md`
 - `src/head/brain/.env.example`

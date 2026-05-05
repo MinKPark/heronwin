@@ -43,12 +43,24 @@ The launcher defaults to `cursor` and routes `-Scenario` to `tars`:
 
 ## Documentation
 
+User docs:
+
 - [get started](./docs/GET_STARTED.md)
 - [scenario mode](./docs/get-started-script-mode.md)
 - [voice/text mode](./docs/get-started-voice-mode.md)
 - [OpenAI configuration](./docs/get-started-openaiconfig.md)
+- [create app skills](./docs/APP_SKILLS.md)
 - [docs index](./docs/README.md)
-- [goal and design](./docs/GOAL_AND_DESIGN.md)
+
+Developer docs:
+
+- [developer docs index](./devdocs/README.md)
+- [goal and design](./devdocs/GOAL_AND_DESIGN.md)
+- [development guardrails](./devdocs/DEVELOPMENT_GUARDRAILS.md)
+- [history and todos](./devdocs/HISTORY_AND_TODOS.md)
+
+Component docs:
+
 - [brain README](./src/assistants/brain/README.md)
 - [tars README](./src/assistants/tars/README.md)
 - [cursor README](./src/assistants/cursor/README.md)
