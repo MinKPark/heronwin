@@ -100,6 +100,6 @@ No new test cases were added today. The desktop-automation test project was rena
 
 | Seq | Follow-up | Reason |
 | ---: | --- | --- |
-| 1 | Sweep any remaining external references to `src/body` or `HeronWin.Body.*` (scripts, CI, local dev notes). | Today's rename covered the in-repo surface; ad-hoc tooling outside the repo may still use the old names. |
+| 1 | Completed 2026-05-10: swept tracked and hidden repo surfaces for old `body` / `herbody` paths, namespaces, and debug environment variables. Removed stale `.validate-*.txt` desktop-automation artifacts and ignored future validation output. | Remaining old-name mentions in this summary and the tools refactor design are historical migration notes. |
 | 2 | Confirm `devdocs/README.md` stays in sync as new design or perfbase docs land. | The new index needs to be updated alongside future doc additions. |
 | 3 | Decide whether `daily-work-summary-*.md` files should live under a dedicated `devdocs/daily/` subfolder once a few more accumulate. | The flat layout works for two summaries but will get noisy over time. |

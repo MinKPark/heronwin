@@ -6,6 +6,7 @@
 
 # Logs
 *.log
+.validate-*.txt
 
 # OS
 .DS_Store
