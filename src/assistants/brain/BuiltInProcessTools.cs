@@ -1,10 +1,32 @@
 using System.Diagnostics;
+using System.Globalization;
+using System.Text;
 using System.Text.Json;
 
 namespace HeronWin.Brain;
 
+internal sealed record ProcessSummary(
+    int? Pid,
+    string Name,
+    string? SessionName,
+    string? User,
+    string? RawLine);
+
+internal sealed record StartProcessArguments(
+    string Command,
+    IReadOnlyList<string> Args,
+    string? WorkingDirectory);
+
+internal sealed record StopProcessArguments(int Pid, bool Force);
+
 internal static class BuiltInProcessTools
 {
+    internal enum ProcessListFormat
+    {
+        WindowsTaskListCsv,
+        PsAux
+    }
+
     private static readonly IReadOnlyDictionary<string, ToolDefinition> DefinitionsByName =
         new Dictionary<string, ToolDefinition>(StringComparer.Ordinal)
         {
@@ -87,11 +109,17 @@ internal static class BuiltInProcessTools
     {
         try
         {
-            var output = OperatingSystem.IsWindows()
+            var format = OperatingSystem.IsWindows()
+                ? ProcessListFormat.WindowsTaskListCsv
+                : ProcessListFormat.PsAux;
+            var output = format == ProcessListFormat.WindowsTaskListCsv
                 ? await RunForOutputAsync("tasklist", ["/FO", "CSV", "/NH"], cancellationToken)
                 : await RunForOutputAsync("ps", ["aux"], cancellationToken);
+            var normalizedOutput = FormatProcessList(ParseProcessList(output, format));
 
-            return new ToolCallOutcome(output.Trim(), []);
+            return new ToolCallOutcome(
+                string.IsNullOrWhiteSpace(normalizedOutput) ? output.Trim() : normalizedOutput,
+                []);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -103,18 +131,11 @@ internal static class BuiltInProcessTools
     {
         try
         {
-            var command = GetRequiredString(arguments, "command");
-            var args = GetOptionalStringArray(arguments, "args");
-            var cwd = GetOptionalString(arguments, "cwd");
-
-            if (!string.IsNullOrWhiteSpace(cwd) && !Directory.Exists(cwd))
-            {
-                throw new DirectoryNotFoundException($"Working directory not found: {cwd}");
-            }
+            var parsedArguments = ParseStartProcessArguments(arguments);
 
             var startInfo = new ProcessStartInfo
             {
-                FileName = command,
+                FileName = parsedArguments.Command,
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardInput = true,
@@ -122,12 +143,12 @@ internal static class BuiltInProcessTools
                 RedirectStandardError = true
             };
 
-            if (!string.IsNullOrWhiteSpace(cwd))
+            if (!string.IsNullOrWhiteSpace(parsedArguments.WorkingDirectory))
             {
-                startInfo.WorkingDirectory = cwd;
+                startInfo.WorkingDirectory = parsedArguments.WorkingDirectory;
             }
 
-            foreach (var arg in args)
+            foreach (var arg in parsedArguments.Args)
             {
                 startInfo.ArgumentList.Add(arg);
             }
@@ -154,19 +175,19 @@ internal static class BuiltInProcessTools
         var pidText = "(unknown)";
         try
         {
-            var pid = GetRequiredPositiveInt(arguments, "pid");
-            pidText = pid.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            var force = GetOptionalBool(arguments, "force") ?? false;
+            var parsedArguments = ParseStopProcessArguments(arguments);
+            var pid = parsedArguments.Pid;
+            pidText = pid.ToString(CultureInfo.InvariantCulture);
 
             using var process = Process.GetProcessById(pid);
-            if (!force && process.CloseMainWindow())
+            if (!parsedArguments.Force && process.CloseMainWindow())
             {
                 return new ToolCallOutcome($"Sent close request to process {pid}", []);
             }
 
-            process.Kill(entireProcessTree: force);
+            process.Kill(entireProcessTree: parsedArguments.Force);
             return new ToolCallOutcome(
-                force
+                parsedArguments.Force
                     ? $"Killed process {pid} and its child processes"
                     : $"Stopped process {pid}",
                 []);
@@ -175,6 +196,112 @@ internal static class BuiltInProcessTools
         {
             return new ToolCallOutcome($"Failed to stop process {pidText}: {ex.Message}", [], true);
         }
+    }
+
+    internal static StartProcessArguments ParseStartProcessArguments(IReadOnlyDictionary<string, object?> arguments)
+    {
+        var command = GetRequiredString(arguments, "command");
+        var args = GetOptionalStringArray(arguments, "args");
+        var cwd = GetOptionalString(arguments, "cwd");
+
+        if (!string.IsNullOrWhiteSpace(cwd) && !Directory.Exists(cwd))
+        {
+            throw new DirectoryNotFoundException($"Working directory not found: {cwd}");
+        }
+
+        return new StartProcessArguments(command, args, cwd);
+    }
+
+    internal static StopProcessArguments ParseStopProcessArguments(IReadOnlyDictionary<string, object?> arguments)
+    {
+        var pid = GetRequiredPositiveInt(arguments, "pid");
+        var force = GetOptionalBool(arguments, "force") ?? false;
+        return new StopProcessArguments(pid, force);
+    }
+
+    internal static IReadOnlyList<ProcessSummary> ParseProcessList(string output, ProcessListFormat format)
+        => format switch
+        {
+            ProcessListFormat.WindowsTaskListCsv => ParseWindowsTaskListCsv(output),
+            ProcessListFormat.PsAux => ParsePsAux(output),
+            _ => []
+        };
+
+    internal static IReadOnlyList<ProcessSummary> ParseWindowsTaskListCsv(string output)
+    {
+        var result = new List<ProcessSummary>();
+        foreach (var rawLine in EnumerateNonEmptyLines(output))
+        {
+            var fields = ParseCsvLine(rawLine);
+            if (fields.Count < 2 ||
+                string.IsNullOrWhiteSpace(fields[0]) ||
+                !int.TryParse(fields[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var pid))
+            {
+                continue;
+            }
+
+            result.Add(new ProcessSummary(
+                pid,
+                fields[0],
+                fields.Count > 2 ? EmptyToNull(fields[2]) : null,
+                null,
+                rawLine));
+        }
+
+        return result;
+    }
+
+    internal static IReadOnlyList<ProcessSummary> ParsePsAux(string output)
+    {
+        var result = new List<ProcessSummary>();
+        foreach (var rawLine in EnumerateNonEmptyLines(output))
+        {
+            if (rawLine.StartsWith("USER ", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var fields = rawLine.Split(
+                null as char[],
+                11,
+                StringSplitOptions.RemoveEmptyEntries);
+            if (fields.Length < 11 ||
+                !int.TryParse(fields[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var pid) ||
+                string.IsNullOrWhiteSpace(fields[10]))
+            {
+                continue;
+            }
+
+            result.Add(new ProcessSummary(
+                pid,
+                fields[10],
+                null,
+                fields[0],
+                rawLine));
+        }
+
+        return result;
+    }
+
+    internal static string FormatProcessList(IReadOnlyList<ProcessSummary> processes)
+    {
+        if (processes.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var lines = new List<string> { "PID\tName\tSession\tUser" };
+        foreach (var process in processes)
+        {
+            lines.Add(string.Join(
+                '\t',
+                process.Pid?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
+                SanitizeProcessListCell(process.Name),
+                SanitizeProcessListCell(process.SessionName),
+                SanitizeProcessListCell(process.User)));
+        }
+
+        return string.Join(Environment.NewLine, lines);
     }
 
     private static async Task<string> RunForOutputAsync(
@@ -353,4 +480,72 @@ internal static class BuiltInProcessTools
         using var document = JsonDocument.Parse(schemaJson);
         return new ToolDefinition(name, description, document.RootElement.Clone());
     }
+
+    private static IEnumerable<string> EnumerateNonEmptyLines(string text)
+    {
+        using var reader = new StringReader(text);
+        string? line;
+        while ((line = reader.ReadLine()) is not null)
+        {
+            if (!string.IsNullOrWhiteSpace(line))
+            {
+                yield return line.Trim();
+            }
+        }
+    }
+
+    private static IReadOnlyList<string> ParseCsvLine(string line)
+    {
+        var fields = new List<string>();
+        var field = new StringBuilder();
+        var inQuotes = false;
+
+        for (var i = 0; i < line.Length; i++)
+        {
+            var current = line[i];
+            if (inQuotes)
+            {
+                if (current == '"' && i + 1 < line.Length && line[i + 1] == '"')
+                {
+                    field.Append('"');
+                    i++;
+                }
+                else if (current == '"')
+                {
+                    inQuotes = false;
+                }
+                else
+                {
+                    field.Append(current);
+                }
+
+                continue;
+            }
+
+            if (current == ',')
+            {
+                fields.Add(field.ToString());
+                field.Clear();
+            }
+            else if (current == '"')
+            {
+                inQuotes = true;
+            }
+            else
+            {
+                field.Append(current);
+            }
+        }
+
+        fields.Add(field.ToString());
+        return fields;
+    }
+
+    private static string? EmptyToNull(string? text)
+        => string.IsNullOrWhiteSpace(text) ? null : text;
+
+    private static string SanitizeProcessListCell(string? text)
+        => string.IsNullOrWhiteSpace(text)
+            ? string.Empty
+            : text.Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ').Trim();
 }

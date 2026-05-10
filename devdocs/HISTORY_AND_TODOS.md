@@ -22,7 +22,7 @@ This file has two jobs:
 | `next` | `P1` | Finish the compact-tree rollout in `cognition`. | Add the opt-in screenshot-vs-compact evaluation harness, then run the documented parity checks, benchmarks, and manual evaluation passes in [Cognition Compact Tree Migration](./designs/cognition-compact-tree-migration.md). |
 | `next` | `P1` | Split more assistant-specific runner policy out of the shared library. | Move scenario-only runner/context code toward `tars` and interactive-only voice/text policy toward `cursor` as the next cleanup pass. |
 | `next` | `P1` | Broaden the prompt and skill intent vocabulary. | Add a small set of generic intents and cover them with activation tests. |
-| `soon` | `P2` | Broaden automated tests for built-in process tools. | Add process-list parsing and safe start/stop integration coverage later. |
+| `done` | `P2` | Broaden automated tests for built-in process tools. | Completed 2026-05-10: added process-list parsing/formatting coverage, start/stop argument validation coverage, and safe start/list/stop integration tests for test-owned processes. |
 
 ## Working-Tree Notes
 

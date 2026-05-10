@@ -19,6 +19,7 @@ These docs cover project design, development guardrails, bugs, performance notes
 - [App-Agnostic Runtime And Skills Plan](./designs/app-agnostic-runtime-and-skills-plan.md)
 - [Brain Debuggability And Rewrite Guardrails](./designs/brain-debuggability-and-rewrite-guardrails.md)
 - [Brain OpenAI ChatGPT Subscription](./designs/brain-openai-chatgpt-subscription.md)
+- [Built-In Process Tools Test Plan](./designs/built-in-process-tools-test-plan.md)
 - [Cognition Compact Tree Migration](./designs/cognition-compact-tree-migration.md)
 - [Compact Window Inventory Plan](./designs/compact-window-inventory-plan.md)
 - [Generic Continuations And Discrete Entry Plan](./designs/generic-continuations-and-discrete-entry-plan.md)

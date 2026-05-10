@@ -37,8 +37,6 @@ test surface without being specific to `cursor` or `tars`.
   benchmarks, and manual evaluation passes.
 - Broaden the prompt and skill intent vocabulary, with focused activation
   tests for the new generic intents.
-- Broaden automated tests for built-in process tools, including process-list
-  parsing and safe start/stop integration coverage.
 - Keep repository housekeeping current, including keeping developer indexes
   aligned with new docs.
 
