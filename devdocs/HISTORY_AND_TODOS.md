@@ -29,149 +29,48 @@ This file has two jobs:
 These notes describe local work that exists in the working tree but is not yet
 part of committed repo history.
 
-- End-of-day 2026-05-03 update:
-  - implemented the structural pass from
-    [Head To Assistants Refactor Plan](./designs/head-to-assistants-refactor-plan.md):
-    `src/head` moved to `src/assistants`, the retired `face` UI project was
-    removed, `brain` became a shared library, and runnable hosts now live in
-    `src/assistants/tars` and `src/assistants/cursor`.
-  - added `tars.tests` and `cursor.tests`, assistant-specific prompt profiles,
-    assistant-specific `.env.example` files, and the shared
-    `.github/agents/shared` prompt/skill layout.
-  - updated the solution, launcher, live setup docs, component READMEs, and
-    prompt docs for the `src/assistants` layout.
-  - verified in this session:
-    - `dotnet build src\heronwin.sln` passed.
-    - `dotnet test src\heronwin.sln` passed.
-    - `dotnet run --project src\assistants\tars -- --help` passed.
-    - `dotnet run --project src\assistants\cursor -- --help` passed.
-    - cursor trace-report smoke against `.tmp\trace-smoke.jsonl` passed.
-    - the stale-reference scan for live docs/source passed with only
-      historical-doc references intentionally remaining.
-  - latest live measurements:
-    - `tars` with `OpenAiCodex / codex-default` passed
-      `src\scenarios\netflix-boyfriend-on-demand.yml` in `246.797 s` scenario
-      elapsed, with `5` turns, `12` LLM responses, and `16.233 s` average LLM
-      attempt latency. The trace report is in
-      `.tmp\tars-boyfriend-20260503-161820\trace-report.md`.
-    - `tars` with `OpenAiApi / gpt-5.4-mini` selected the OpenAI API provider
-      correctly but failed on turn 1 with API `429` quota/billing error. Logs
-      are under `.tmp\tars-boyfriend-openaiapi-20260503-180911\`.
-    - `tars` with `OpenAiApi / gpt-5.5` also selected the OpenAI API provider
-      correctly but failed on turn 1 with the same API `429` quota/billing
-      error. Logs are under
-      `.tmp\tars-boyfriend-openaiapi-gpt55-20260503-183125\`.
-  - blocker:
-    - OpenAI API speed comparison cannot be measured until the account quota or
-      billing issue behind the `429` response is cleared.
+- End-of-day 2026-05-10 update:
+  - before this wrap-up doc edit, `git status --short` was clean at commit
+    `4b8994b` on `main` / `origin/main`.
+  - this wrap-up pass adds documentation-only local changes: the 2026-05-10
+    daily summary, daily-summary index links, and this handoff update.
+  - no builds or tests were rerun during this wrap-up pass. The process-tools
+    implementation plan records the verification that ran earlier on
+    2026-05-10:
+    - `dotnet test src\assistants\brain.tests\HeronWin.Brain.Tests.csproj --filter "FullyQualifiedName~BuiltInProcessToolsTests|FullyQualifiedName~McpClientManagerTests"`
+    - `dotnet test src\heronwin.sln`
   - first steps for the next session:
-    - review the wrap-up doc changes and commit them with the assistant
-      refactor work if they look right.
-    - after OpenAI API access is healthy, rerun
-      `LLM_PROVIDER=openai-api` / `OPENAI_MODEL=gpt-5.5`
-      `dotnet run --project src\assistants\tars -- --scenario src\scenarios\netflix-boyfriend-on-demand.yml`.
-    - continue Phase 3 of the refactor by moving scenario-only runner/context
-      policy and tests toward `tars`, while moving interactive voice/text
-      policy and tests toward `cursor`.
-
-- End-of-day 2026-04-25 update:
-  - implemented scripted lookahead for no-op next turns and added trace-report
-    lookahead metrics.
-  - fixed trace-report timing alignment so `assistant.reply.elapsedMs` is not
-    treated as a normal event duration.
-  - moved direct browser URL+Enter batching into the Edge browser skill.
-  - fixed a `JsonDocument` lifetime bug in generic named-target rewriting and
-    covered it with
-    `EvaluateGenericContainerActionToNamedTarget_UsesExactCaseSnapshotTreeAfterParseScope`.
-  - strengthened the generic desktop startup skill to use exact
-    `windowHandle` activation when available and to continue into the requested
-    destination/action after foregrounding an app.
-  - verified in this wrap-up pass:
-    - `dotnet test src\assistants\brain.tests\HeronWin.Brain.Tests.csproj` passed
-      with `267` total tests.
-  - latest live measurements:
-    - Codex-backed `gpt-5.4-mini` browser-skill rerun passed in `242.735 s`.
-    - OpenAI API `gpt-5.4` rerun passed current checks in `98.172 s`, but with
-      a Turn 5 quality caveat: the final reply said playback was not confirmed.
-    - OpenAI API `gpt-5.4-mini` did not produce a clean pass today; after the
-      startup-skill fix it reached Turn 5 once, then failed on `429` TPM limits.
-  - saved measurement notes in:
-    - [Netflix OpenAI API GPT-5.4 Rerun](./perfbase/2026-04-25-netflix-openai-api-gpt-5.4.md)
-    - [Netflix OpenAI API GPT-5.4-Mini Attempts](./perfbase/2026-04-25-netflix-openai-api-gpt-5.4-mini-attempts.md)
-  - no `Brain` scenario process was left running after the interrupted mini
-    rerun; remaining `dotnet` processes appeared to be VS/MSBuild/test
-    infrastructure.
-  - first steps for the next session:
-    - inspect the `gpt-5.4-mini` Turn 4/5 trace under
-      `.tmp/netflix-smoke-runtime/2026-04-25-openai-api-gpt-5.4-mini-aborted-clean-rerun/`.
-    - tighten scenario failure detection for incomplete final replies and reply
-      contradictions.
-    - after the OpenAI API TPM window is clear, rerun one clean
-      `LLM_PROVIDER=openai-api` / `OPENAI_MODEL=gpt-5.4-mini` scenario without
-      preceding failed attempts.
-    - compare `gpt-5.4`, `gpt-5.4-mini`, and Codex-backed runs on both latency
-      and final-state quality before choosing the default provider/model.
-
-- Current uncommitted local changes now include the first scripted carry-forward
-  implementation pass in:
-  - `src/assistants/brain/DesktopSessionContext.cs`
-  - `src/assistants/brain/Conversation.cs`
-  - `src/assistants/brain/DebugTrace.cs`
-  - `src/assistants/brain/ScenarioTesting.cs`
-  - `src/assistants/brain/TurnProcessor.cs`
-  - `src/assistants/brain.tests/AgentRunnerContinuationTests.cs`
-  - `src/assistants/brain.tests/TraceReportTests.cs`
-  - the updated repo docs in this folder and under `devdocs/perfbase/`
-- Local 2026-04-25 progress:
-  - landed the first scripted-only turn-start reuse slice from
-    [Scripted Cross-Turn Evidence Reuse Plan](./designs/scripted-cross-turn-evidence-reuse-plan.md):
-    `DesktopSessionContext` now carries freshness/provenance metadata for UI
-    tree and focus evidence, and `Conversation.RunTurnAsync(...)` can inject
-    conservative carry-forward current-screen evidence before the first LLM
-    request of later scripted turns.
-  - added explicit turn-start trace events:
-    `agent.turn.ready_state_used`,
-    `agent.turn.ready_state_skipped`,
-    `agent.turn.carry_forward_evidence_used`, and
-    `agent.turn.carry_forward_evidence_skipped`.
-  - added `promptTokenEstimate` to `llm.request` and a new
-    `Turn-start helper time` bucket in the repo-native trace report.
-  - extended focused tests around scripted carry-forward injection, stale-skip
-    fallback, and trace-report helper bucketing.
-  - verified in this session:
-    - `dotnet test src\assistants\brain.tests\HeronWin.Brain.Tests.csproj` passed
-      with `252` total tests.
-    - `\.\buildandrun.ps1 -TarsOnly -Scenario src\scenarios\netflix-boyfriend-on-demand.yml`
-      passed on 2026-04-25 with scenario elapsed `776.349 s`.
-  - saved the fresh rerun artifacts under
-    `.tmp/netflix-smoke-runtime/2026-04-25-carry-forward-slice/`, with tracked
-    summary in
-    [devdocs/perfbase/2026-04-25-netflix-smoke-carry-forward-slice.md](./perfbase/2026-04-25-netflix-smoke-carry-forward-slice.md).
-  - the fresh rerun clearly used turn-start carry-forward on scripted turns
-    `2` through `5`, and turns `2` through `5` no longer opened with the old
-    `list_windows` then `describe_window` discovery pair.
-  - caveat: the 2026-04-25 rerun landed directly on Netflix home in turn `1`,
-    so turns `2` and `3` became valid no-op checks instead of exercising the
-    older profile-picker and PIN path. That means the runtime win is real, but
-    the turn-by-turn comparison with the 2026-04-22 profile-flow baseline is
-    not perfectly apples to apples.
-  - new top hotspot exposed by the rerun:
-    turn `1` browser entry and site navigation regressed to `457.760 s`, so
-    the next P0 slice should target browser-entry stability or a cleaner
-    scenario start state.
-- First step for the next session:
-  - commit this first-slice carry-forward pass and its measurement docs, then
-    capture a more controlled rerun that forces the earlier profile-picker or
-    PIN path before deciding the next runtime slice.
-  - in parallel, inspect turn `1` browser-entry churn from the 2026-04-25
-    trace and decide whether the next fix should stabilize direct Netflix tab
-    navigation, open a cleaner browser surface first, or tighten the
-    address-bar retry path.
+    - review and commit the wrap-up docs if they look right.
+    - resume the active P0 scripted scenario assertion work so incomplete final
+      outcomes cannot pass on required-title text alone.
+    - after the OpenAI API quota/billing blocker is cleared, rerun the
+      `OpenAiApi` Netflix smoke comparisons for `gpt-5.5` and `gpt-5.4-mini`.
 
 ## Daily Repo History
 
 Source shape: `git log --date=short --pretty=format:"%ad %h %s"`
 
+- `2026-05-10` (3 commits): swept stale validation artifacts and old-name
+  references, moved daily summaries under `devdocs/daily/2026/`, added the
+  daily-summary index, and completed the P2 built-in process-tools coverage
+  pass with parsing, argument-validation, and safe start/list/stop tests.
+- `2026-05-04` (5 commits): renamed the source/tooling surface from `body` to
+  `tools`, split developer documentation into `devdocs/`, added daily-summary
+  documentation for the restructure, and refreshed setup and project docs for
+  the new layout.
+- `2026-05-03` (5 commits): executed the head-to-assistants refactor plan by
+  moving `src/head` into `src/assistants`, deleting the retired `face` UI,
+  turning `brain` into the shared library, and adding the runnable `tars` and
+  `cursor` assistant hosts with tests and configuration.
+- `2026-04-26` (9 commits): removed the separate process-manager service,
+  added built-in process tools, tightened prompt guidance for deterministic
+  same-surface actions, added Netflix search/profile/PIN skill updates,
+  improved trace model resolution, documented OpenAI configuration, and added
+  the post-action UI settle delay.
+- `2026-04-25` (10 commits): landed scripted turn-start evidence carry-forward,
+  compact window inventory, MCP call instrumentation, scripted lookahead for
+  no-op next turns, trace-report fixes, browser/startup skill tightening, and
+  tracked Netflix smoke rerun notes.
 - `2026-04-22` (1 commit): added the scripted cross-turn evidence reuse plan,
   the tracked Netflix smoke baseline summary under `devdocs/perfbase`, and the
   repo-native trace-report implementation and focused tests that make later
