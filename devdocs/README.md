@@ -7,8 +7,12 @@ These docs cover project design, development guardrails, bugs, performance notes
 - [Goal And Design](./GOAL_AND_DESIGN.md)
 - [Development Guardrails](./DEVELOPMENT_GUARDRAILS.md)
 - [History And Todos](./HISTORY_AND_TODOS.md)
-- [Daily Work Summary 2026-04-26](./daily-work-summary-2026-04-26.md)
-- [Daily Work Summary 2026-05-04](./daily-work-summary-2026-05-04.md)
+
+## Daily Summaries
+
+- [Daily Summary Index](./daily/)
+- [Daily Work Summary 2026-04-26](./daily/2026/daily-work-summary-2026-04-26.md)
+- [Daily Work Summary 2026-05-04](./daily/2026/daily-work-summary-2026-05-04.md)
 
 ## Design Docs
 

@@ -53,7 +53,7 @@ Moved from `docs/` to `devdocs/`:
 - `DEVELOPMENT_GUARDRAILS.md`
 - `GOAL_AND_DESIGN.md`
 - `HISTORY_AND_TODOS.md`
-- `daily-work-summary-2026-04-26.md`
+- `daily-work-summary-2026-04-26.md` (now under `devdocs/daily/2026/`)
 - The `bugs/` folder (including `README.md` and the two 2026-04-19 Netflix bug notes)
 - The `designs/` folder (all design docs and SVG flow diagrams)
 - The `perfbase/` folder (Netflix smoke baselines and reruns)
@@ -79,7 +79,7 @@ Touched docs today:
 - `docs/APP_SKILLS.md` (new)
 - `devdocs/README.md` (new)
 - `devdocs/HISTORY_AND_TODOS.md`
-- `devdocs/daily-work-summary-2026-04-26.md`
+- `devdocs/daily/2026/daily-work-summary-2026-04-26.md`
 - `devdocs/designs/app-agnostic-runtime-and-skills-plan.md`
 - `devdocs/designs/brain-debuggability-and-rewrite-guardrails.md`
 - `devdocs/designs/compact-window-inventory-plan.md`
@@ -102,4 +102,4 @@ No new test cases were added today. The desktop-automation test project was rena
 | ---: | --- | --- |
 | 1 | Completed 2026-05-10: swept tracked and hidden repo surfaces for old `body` / `herbody` paths, namespaces, and debug environment variables. Removed stale `.validate-*.txt` desktop-automation artifacts and ignored future validation output. | Remaining old-name mentions in this summary and the tools refactor design are historical migration notes. |
 | 2 | Confirm `devdocs/README.md` stays in sync as new design or perfbase docs land. | The new index needs to be updated alongside future doc additions. |
-| 3 | Decide whether `daily-work-summary-*.md` files should live under a dedicated `devdocs/daily/` subfolder once a few more accumulate. | The flat layout works for two summaries but will get noisy over time. |
+| 3 | Completed 2026-05-10: moved `daily-work-summary-*.md` files under year folders in `devdocs/daily/`. | Keeps the `devdocs/` root focused on the stable index and leaves room for future years of summaries. |
