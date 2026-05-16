@@ -121,6 +121,40 @@ public sealed class TraceReportTests
     }
 
     [Fact]
+    public void Generate_UsesCodexSparkModelFromSessionStart()
+    {
+        var tracePath = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllLines(
+                tracePath,
+                [
+                    CreateTraceLine(
+                        "2026-05-16T09:00:00.0000000-07:00",
+                        1,
+                        "session.start",
+                        """{"llmProvider":"OpenAiCodex","openAiModel":"gpt-5.4-mini","openAiCodexModel":"gpt-5.3-codex-spark"}"""),
+                    CreateTraceLine(
+                        "2026-05-16T09:00:01.0000000-07:00",
+                        2,
+                        "display.info",
+                        """{"message":"Session completed"}""")
+                ]);
+
+            var report = BrainTraceReporter.Generate(tracePath);
+            var markdown = report.ToMarkdown();
+
+            Assert.Equal("OpenAiCodex", report.Provider);
+            Assert.Equal("gpt-5.3-codex-spark", report.Model);
+            Assert.Contains("Provider / model: `OpenAiCodex / gpt-5.3-codex-spark`", markdown, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(tracePath);
+        }
+    }
+
+    [Fact]
     public void Generate_IncludesTurnStartHelperBucket()
     {
         var tracePath = Path.GetTempFileName();

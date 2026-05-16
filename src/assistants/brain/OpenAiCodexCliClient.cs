@@ -10,12 +10,14 @@ internal sealed class OpenAiCodexCliClient(
     string cliCommand,
     string model) : ILlmClient
 {
+    private readonly OpenAiCodexModelInfo _modelInfo = OpenAiCodexModels.Resolve(model);
+
     public LlmProviderId ProviderId => LlmProviderId.OpenAiCodex;
-    public string DisplayName => string.IsNullOrWhiteSpace(model)
+    public string DisplayName => _modelInfo.UsesDefaultModel
         ? "ChatGPT / Codex sign-in"
-        : $"ChatGPT / Codex sign-in ({model})";
+        : $"ChatGPT / Codex sign-in ({_modelInfo.EffectiveModel})";
     public LlmModelProfile ModelProfile { get; } =
-        LlmModelProfiles.Create(LlmProviderId.OpenAiCodex, string.IsNullOrWhiteSpace(model) ? "codex-default" : model);
+        LlmModelProfiles.Create(LlmProviderId.OpenAiCodex, OpenAiCodexModels.Resolve(model).EffectiveModel);
 
     public async Task<ChatResult> ChatAsync(
         IReadOnlyList<AgentMessage> messages,
@@ -23,7 +25,7 @@ internal sealed class OpenAiCodexCliClient(
         string? systemPrompt,
         CancellationToken cancellationToken)
     {
-        var bridgeRequest = CodexBridgeRequest.Create(messages, tools, systemPrompt);
+        var bridgeRequest = CodexBridgeRequest.Create(messages, tools, systemPrompt, _modelInfo);
         var schemaPath = CodexCliArtifacts.EnsureSchemaFile();
         var outputPath = Path.Combine(Path.GetTempPath(), $"brain-codex-output-{Guid.NewGuid():N}.json");
         var imageDirectory = Path.Combine(Path.GetTempPath(), $"brain-codex-images-{Guid.NewGuid():N}");
@@ -44,6 +46,7 @@ internal sealed class OpenAiCodexCliClient(
                 schemaPath,
                 outputPath,
                 imagePaths,
+                bridgeRequest.OmittedImageCount,
                 cancellationToken);
 
             if (!File.Exists(outputPath))
@@ -105,6 +108,7 @@ internal sealed class OpenAiCodexCliClient(
         string schemaPath,
         string outputPath,
         IReadOnlyList<string> imagePaths,
+        int omittedImageCount,
         CancellationToken cancellationToken)
     {
         DebugTrace.WriteStructuredEvent(
@@ -113,37 +117,25 @@ internal sealed class OpenAiCodexCliClient(
             {
                 ["provider"] = "openai-codex",
                 ["command"] = cliCommand,
-                ["model"] = string.IsNullOrWhiteSpace(model) ? "(default)" : model,
+                ["model"] = _modelInfo.TraceModel,
                 ["images"] = imagePaths.Count,
+                ["imagesOmitted"] = omittedImageCount,
             });
 
+        var codexArgs = OpenAiCodexCliSupport.BuildExecArguments(
+            _modelInfo,
+            schemaPath,
+            outputPath,
+            imagePaths);
         using var process = OpenAiCodexCliSupport.StartProcess(
             cliCommand,
             Directory.GetCurrentDirectory(),
             args =>
             {
-                args.Add("exec");
-                args.Add("--sandbox");
-                args.Add("read-only");
-                args.Add("--color");
-                args.Add("never");
-                args.Add("--output-schema");
-                args.Add(schemaPath);
-                args.Add("--output-last-message");
-                args.Add(outputPath);
-                if (!string.IsNullOrWhiteSpace(model))
+                foreach (var arg in codexArgs)
                 {
-                    args.Add("--model");
-                    args.Add(model);
+                    args.Add(arg);
                 }
-
-                foreach (var imagePath in imagePaths)
-                {
-                    args.Add("--image");
-                    args.Add(imagePath);
-                }
-
-                args.Add("-");
             });
 
         using var cancellationRegistration = cancellationToken.Register(() =>
@@ -179,7 +171,7 @@ internal sealed class OpenAiCodexCliClient(
             {
                 ["provider"] = "openai-codex",
                 ["command"] = cliCommand,
-                ["model"] = string.IsNullOrWhiteSpace(model) ? "(default)" : model,
+                ["model"] = _modelInfo.TraceModel,
                 ["exitCode"] = process.ExitCode,
                 ["outputPreview"] = DebugTrace.Preview(processOutput, 1200),
             });
@@ -309,6 +301,44 @@ internal static class OpenAiCodexCliSupport
                ?? throw new InvalidOperationException($"Could not start \"{cliCommand}\".");
     }
 
+    public static IReadOnlyList<string> BuildExecArguments(
+        OpenAiCodexModelInfo modelInfo,
+        string schemaPath,
+        string outputPath,
+        IReadOnlyList<string> imagePaths)
+    {
+        var args = new List<string>
+        {
+            "exec",
+            "--sandbox",
+            "read-only",
+            "--color",
+            "never",
+            "--output-schema",
+            schemaPath,
+            "--output-last-message",
+            outputPath
+        };
+
+        if (!modelInfo.UsesDefaultModel)
+        {
+            args.Add("--model");
+            args.Add(modelInfo.EffectiveModel);
+        }
+
+        if (modelInfo.SupportsImageInputs)
+        {
+            foreach (var imagePath in imagePaths)
+            {
+                args.Add("--image");
+                args.Add(imagePath);
+            }
+        }
+
+        args.Add("-");
+        return args;
+    }
+
     public static string SummarizeOutput(string stdout, string stderr)
     {
         var combined = string.Join(
@@ -373,14 +403,17 @@ internal sealed record CodexImageAttachment(string FileName, byte[] Bytes);
 
 internal sealed record CodexBridgeRequest(
     string Prompt,
-    IReadOnlyList<CodexImageAttachment> ImageAttachments)
+    IReadOnlyList<CodexImageAttachment> ImageAttachments,
+    int OmittedImageCount)
 {
     public static CodexBridgeRequest Create(
         IReadOnlyList<AgentMessage> messages,
         IReadOnlyList<ToolDefinition> tools,
-        string? systemPrompt)
+        string? systemPrompt,
+        OpenAiCodexModelInfo modelInfo)
     {
         var imageAttachments = new List<CodexImageAttachment>();
+        var omittedImageCount = 0;
         var conversation = new List<object>(messages.Count);
 
         for (var index = 0; index < messages.Count; index += 1)
@@ -405,19 +438,26 @@ internal sealed record CodexBridgeRequest(
 
                 case AgentMessage.VisualContext visualContext:
                     var imageFileNames = new List<string>(visualContext.Images.Count);
-                    for (var imageIndex = 0; imageIndex < visualContext.Images.Count; imageIndex += 1)
+                    if (modelInfo.SupportsImageInputs)
                     {
-                        var fileName = $"message-{index + 1:D3}-image-{imageIndex + 1:D2}{GetFileExtension(visualContext.Images[imageIndex].MimeType)}";
-                        imageAttachments.Add(new CodexImageAttachment(
-                            fileName,
-                            Convert.FromBase64String(visualContext.Images[imageIndex].Base64Data)));
-                        imageFileNames.Add(fileName);
+                        for (var imageIndex = 0; imageIndex < visualContext.Images.Count; imageIndex += 1)
+                        {
+                            var fileName = $"message-{index + 1:D3}-image-{imageIndex + 1:D2}{GetFileExtension(visualContext.Images[imageIndex].MimeType)}";
+                            imageAttachments.Add(new CodexImageAttachment(
+                                fileName,
+                                Convert.FromBase64String(visualContext.Images[imageIndex].Base64Data)));
+                            imageFileNames.Add(fileName);
+                        }
+                    }
+                    else
+                    {
+                        omittedImageCount += visualContext.Images.Count;
                     }
 
                     conversation.Add(new
                     {
                         role = "user_visual",
-                        content = visualContext.Content,
+                        content = BuildVisualContextContent(visualContext, modelInfo),
                         images = imageFileNames
                     });
                     break;
@@ -488,7 +528,21 @@ internal sealed record CodexBridgeRequest(
         {{JsonSerializer.Serialize(envelope, JsonSerializerOptionsCache.Default)}}
         """;
 
-        return new CodexBridgeRequest(prompt, imageAttachments);
+        return new CodexBridgeRequest(prompt, imageAttachments, omittedImageCount);
+    }
+
+    private static string BuildVisualContextContent(
+        AgentMessage.VisualContext visualContext,
+        OpenAiCodexModelInfo modelInfo)
+    {
+        if (modelInfo.SupportsImageInputs || visualContext.Images.Count == 0)
+        {
+            return visualContext.Content;
+        }
+
+        return
+            $"{visualContext.Content}\n\n" +
+            $"Image attachments omitted: {visualContext.Images.Count} image(s) were not sent because Codex model \"{modelInfo.EffectiveModel}\" is text-only. Rely on textual UI/tree context only.";
     }
 
     private static object DeserializeToolArguments(string rawArguments)

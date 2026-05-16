@@ -81,13 +81,27 @@ internal static class LlmModelProfiles
     }
 
     private static LlmModelProfile CreateOpenAiCodexProfile(string modelName)
-        => new(
+    {
+        var modelInfo = OpenAiCodexModels.Resolve(modelName);
+        if (modelInfo.IsSpark)
+        {
+            return new LlmModelProfile(
+                LlmProviderId.OpenAiCodex,
+                modelInfo.EffectiveModel,
+                ContextCompressionTriggerRatio: 0.52,
+                WindowSnapshotCharBudget: 4_800,
+                FocusSnapshotCharBudget: 2_400,
+                MaxThrottleRetries: 0);
+        }
+
+        return new LlmModelProfile(
             LlmProviderId.OpenAiCodex,
-            modelName,
+            modelInfo.EffectiveModel,
             ContextCompressionTriggerRatio: 0.58,
             WindowSnapshotCharBudget: 6_500,
             FocusSnapshotCharBudget: 3_200,
             MaxThrottleRetries: 0);
+    }
 
     private static LlmModelProfile CreateFallbackProfile(LlmProviderId providerId, string modelName)
         => new(

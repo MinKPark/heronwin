@@ -69,7 +69,7 @@ internal sealed record AppConfig(
             Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? string.Empty,
             Environment.GetEnvironmentVariable("OPENAI_MODEL") ?? "gpt-5.4-mini",
             Environment.GetEnvironmentVariable("OPENAI_CODEX_COMMAND") ?? "codex",
-            Environment.GetEnvironmentVariable("OPENAI_CODEX_MODEL") ?? string.Empty,
+            OpenAiCodexModels.NormalizeConfiguredModel(Environment.GetEnvironmentVariable("OPENAI_CODEX_MODEL")),
             ParseDouble(Environment.GetEnvironmentVariable("LLM_TEMPERATURE"), 0),
             Environment.GetEnvironmentVariable("TTS_MODEL") ?? "gpt-4o-mini-tts",
             Environment.GetEnvironmentVariable("TTS_VOICE") ?? "marin",

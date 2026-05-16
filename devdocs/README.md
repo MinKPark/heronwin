@@ -22,6 +22,7 @@ These docs cover project design, development guardrails, bugs, performance notes
 - [Brain OpenAI ChatGPT Subscription](./designs/brain-openai-chatgpt-subscription.md)
 - [Built-In Process Tools Test Plan](./designs/built-in-process-tools-test-plan.md)
 - [Cognition Compact Tree Migration](./designs/cognition-compact-tree-migration.md)
+- [Codex Spark Support Plan](./designs/codex-spark-support-plan.md)
 - [Compact Window Inventory Plan](./designs/compact-window-inventory-plan.md)
 - [Generic Continuations And Discrete Entry Plan](./designs/generic-continuations-and-discrete-entry-plan.md)
 - [Head To Assistants Refactor Plan](./designs/head-to-assistants-refactor-plan.md)

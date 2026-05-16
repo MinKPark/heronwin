@@ -23,4 +23,16 @@ For the Codex route:
 codex login
 ```
 
+Leave `OPENAI_CODEX_MODEL` empty to use the Codex CLI default model, or set it
+explicitly. For Codex Spark:
+
+```dotenv
+LLM_PROVIDER=openai-codex
+OPENAI_CODEX_COMMAND=codex
+OPENAI_CODEX_MODEL=gpt-5.3-codex-spark
+```
+
+HeronWin treats Codex Spark as text-only and omits screenshot attachments for
+that model so `codex exec` does not receive unsupported `--image` inputs.
+
 Voice transcription uses OpenAI Whisper, so set `OPENAI_API_KEY` for `cursor` voice mode even when the active chat provider is `claude-api`.
