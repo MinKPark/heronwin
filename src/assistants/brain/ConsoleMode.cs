@@ -251,7 +251,7 @@ internal static class BrainConsoleMode
         Console.WriteLine();
         Console.WriteLine("Accessibility validation notes:");
         Console.WriteLine("  Direct validation requires both --ux-scenario and --validation-config.");
-        Console.WriteLine("  The Phase 2 runner writes deterministic no-op reports without LLM or live UI calls.");
+        Console.WriteLine("  AVA drives the scenario itself, collects UI evidence, and writes Markdown/JSON reports.");
     }
 
     private static string RequireValue(string[] args, ref int index, string flag)

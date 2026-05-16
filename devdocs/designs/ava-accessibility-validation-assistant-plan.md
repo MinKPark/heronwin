@@ -1,7 +1,7 @@
 # AVA Accessibility Validation Assistant Plan
 
 Last updated: 2026-05-16
-Status: draft for review
+Status: revised draft for AVA-owned execution review
 
 ## Summary
 
@@ -13,14 +13,19 @@ The near-term goal is not to certify legal compliance. The goal is to produce a
 repeatable technical validation report that helps developers and reviewers find
 accessibility defects, collect evidence, and decide what needs human review.
 
-AVA should start as an extended and enhanced scenario assistant derived from
-`tars`. The scenario remains the source of truth for what the user is trying to
-do, while the AVA engine validates accessibility at each scenario step.
+AVA should not be a passive validator wrapped around a TARS run. AVA should be
+its own assistant client: it reads the UX scenario, drives the UI through action
+tools, inspects the UI through evidence tools, evaluates accessibility at
+configured checkpoints, and writes the report. The scenario remains the source
+of truth for what the user is trying to do, but AVA is the actor during an AVA
+validation run.
 
 The proposed first version should focus on:
 
-- TARS-style scenario execution with accessibility validation checkpoints
+- AVA-owned scenario execution with accessibility validation checkpoints
+- a separate AVA client/runner from TARS, sharing only assistant-neutral pieces
 - Windows UI Automation snapshots and focus evidence
+- semantic UI action, keyboard navigation, and fallback-action evidence
 - browser-hosted web experiences as exposed through UI Automation
 - keyboard and focus traversal checks
 - name, role, value, and state checks
@@ -60,16 +65,17 @@ HeronWin already has the right host split for AVA:
 - `src/assistants/brain`: shared prompt loading, provider clients, MCP
   integration, tracing, YAML parsing, and diagnostics.
 - `src/assistants/cursor`: interactive voice/text assistant.
-- `src/assistants/tars`: scenario assistant for reproducible YAML runs and the
-  closest existing model for AVA's execution loop.
+- `src/assistants/tars`: scenario assistant for reproducible YAML runs and a
+  useful reference for the scenario file shape.
 - `src/tools/cognition`: read-only Windows UI inspection MCP server.
 - `src/tools/execution`: Windows UI action MCP server.
 - `src/tools/desktop-automation`: shared Windows automation library.
 
-AVA should become a third runnable assistant host, but its first implementation
-should be TARS-plus rather than a separate generic scanner. It should reuse the
-scenario-runner concepts from `tars` and add per-step accessibility validation,
-evidence capture, and reporting.
+AVA should become a third runnable assistant host with its own active
+drive-and-inspect loop. It can reuse the same UX scenario file shape and any
+assistant-neutral parser, MCP, trace, or single-turn primitives, but it should
+not be implemented as a thin wrapper around TARS and should not ask TARS to run
+the UI while AVA only looks at the result.
 
 ```text
 src/assistants/
@@ -123,12 +129,15 @@ artifacts/ava/
 ## Assistant Boundary
 
 AVA should own accessibility validation policy, scenario-validation shape,
-per-step checkpoint behavior, report presentation, and rule-pack selection.
+UI-driving strategy, inspection strategy, per-step checkpoint behavior, report
+presentation, and rule-pack selection.
 
-`tars` should remain the general scenario assistant. AVA may reuse or extract
-TARS scenario-runner pieces, but AVA's validation lifecycle should be explicit:
-execute a scenario step, collect accessibility evidence, run validators, attach
-the result to that step, and decide whether to continue.
+`tars` should remain the general functional scenario assistant. During an AVA
+run, TARS should not run the UI scenario as a child process, background driver,
+or hidden orchestrator. AVA may reuse or extract assistant-neutral pieces from
+TARS, but AVA's validation lifecycle must be explicit: inspect the current UI
+when needed, execute a scenario step, collect accessibility evidence, run
+validators, attach the result to that step, and decide whether to continue.
 
 `brain` should own shared mechanics only:
 
@@ -139,8 +148,30 @@ the result to that step, and decide whether to continue.
 - debug trace and artifact helpers
 - reusable report utilities if they are genuinely assistant-neutral
 
-`tools/cognition` and `tools/desktop-automation` should own raw evidence
-collection. They should not know about Section 508, WCAG, or AVA scoring.
+`tools/cognition`, `tools/execution`, and `tools/desktop-automation` should own
+raw UI inspection and action primitives. They should not know about Section 508,
+WCAG, AVA scoring, or report policy.
+
+## Client Boundary
+
+AVA and TARS need different assistant client implementations even when they
+consume the same UX scenario shape.
+
+- TARS client: optimize for functional scenario completion, scripted prompts,
+  log assertions, reproducible traces, and scenario pass/fail.
+- AVA client: optimize for active accessibility validation. It must drive and
+  inspect the UI in one evidence timeline, choosing actions based on the current
+  accessibility surface and recording how discoverable, focusable, invokable,
+  stable, and understandable the UI was during execution.
+- Shared pieces may include YAML scenario parsing, provider setup, MCP server
+  connection management, debug trace writing, report helpers, and a narrow
+  assistant-neutral single-turn primitive if it exposes full tool traces.
+- AVA-owned pieces must include checkpoint scheduling, target-resolution policy,
+  semantic-action versus coordinate-fallback policy, keyboard traversal policy,
+  continuation policy, evidence bundling, validator scheduling, and AVA reports.
+- A TARS trace may be useful later as a comparison fixture, but it is not the
+  primary input for AVA validation. Primary AVA evidence comes from AVA's own
+  actions, inspections, and tool traces.
 
 ## Standards Scope
 
@@ -188,7 +219,8 @@ dotnet run --project src/assistants/ava -- --ux-scenario src/scenarios/accessibi
 The UX scenario and validation config should be separate first-class inputs:
 
 - `--ux-scenario`: existing TARS scenario shape. This answers "what does the
-  user do?" and should remain runnable by `tars` without AVA-specific fields.
+  user do?" and may remain runnable by `tars` as a functional smoke outside an
+  AVA validation run.
 - `--validation-config`: AVA validation overlay. This answers "what does AVA
   check, when does it collect evidence, and what fails the run?"
 
@@ -224,14 +256,15 @@ dotnet run --project src/assistants/ava -- --report .\artifacts\ava\latest\repor
 ```
 
 For the first implementation pass, UX scenario files plus validation config
-files are the contract. This keeps AVA reproducible like `tars` and ensures
-validation is tied to user journeys, not only static screens.
+files are the contract. This keeps AVA reproducible and ensures validation is
+tied to user journeys, not only static screens. The UX scenario may remain
+format-compatible with TARS for reuse, but AVA must consume and execute it with
+the AVA client during validation runs.
 
-Current code note: `BrainConsoleMode` only understands `--scenario` and
-`--trace-report` for TARS. AVA should add an AVA-specific parser/options type,
-such as `ParseAva`, rather than overloading `ParseTars`. The parser must
-accept `--ux-scenario`, `--validation-config`, `--run`, `--trace-report`, and
-`--help`, and it should reject incompatible combinations with tests.
+AVA should keep an AVA-specific parser/options type, such as `ParseAva`, rather
+than overloading `ParseTars`. The parser must accept `--ux-scenario`,
+`--validation-config`, `--run`, `--trace-report`, and `--help`, and it should
+reject incompatible combinations with tests.
 
 ## Scenario-Driven Validation Model
 
@@ -245,20 +278,24 @@ step. Each scenario step should produce three related outcomes:
   retries, ambiguity, fallback behavior, or failure reveal accessibility
   friction that a human user may also face?
 
-The UX scenario remains unchanged from TARS. AVA treats each item in the
-scenario's `commands` list as a validation checkpoint opportunity and layers the
-validation config over those commands at runtime.
+The UX scenario can keep the same minimal file shape used by TARS so scenarios
+remain shareable, but the runtime responsibility is different. AVA treats each
+item in the scenario's `commands` list as both an action it must drive and a
+validation checkpoint opportunity. The validation config is layered over those
+commands inside the AVA client at runtime.
 
 Core runtime concepts:
 
-- UX command: a single entry from the TARS `commands` list.
+- UX command: a single entry from the UX scenario `commands` list.
 - Command index: 1-based position of the UX command, used by validation config
   overrides.
 - Generated step id: stable runtime id such as `command-1`, used for artifacts,
   trace events, and report anchors.
 - Validation checkpoint: a configured point before and/or after a UX command
   where AVA collects evidence and runs validators.
-- Functional result: TARS-style outcome for the UX command.
+- AVA command driver: the AVA-owned interaction loop that can inspect, choose a
+  target, act through semantic UIA/keyboard/other tools, and record fallbacks.
+- Functional result: AVA-observed outcome for the UX command.
 - Validation result: AVA outcome for the configured validators at that command.
 - Execution accessibility result: AVA's assessment of the execution path,
   including interaction count, retries, focus stability, target ambiguity,
@@ -272,17 +309,20 @@ The default lifecycle for each command should be:
    command index.
 3. Optionally collect pre-command evidence when the validation config requests
    it.
-4. Execute the command using TARS-style assistant orchestration.
-5. Record the functional result, assistant reply, tool trace, retries, fallback
-   paths, target ambiguity, and any TARS assertion impact.
-6. Evaluate the command execution path for accessibility friction.
-7. Wait for the configured post-command settle point.
-8. Collect post-command evidence with `cognition` tools.
-9. Normalize evidence into AVA snapshots.
-10. Run the validators selected by the command override or validation defaults.
-11. Attach findings, evidence paths, execution accessibility notes, and
+4. Build an AVA action plan using AVA's prompt, tool policy, and current UI
+   evidence as needed.
+5. Drive the UI through `tools/execution`, preferring semantic UIA actions and
+   keyboard paths before coordinate or raw-input fallbacks.
+6. Record the functional result, assistant reply, tool trace, retries, fallback
+   paths, target ambiguity, and any UX assertion impact.
+7. Evaluate the command execution path for accessibility friction.
+8. Wait for the configured post-command settle point.
+9. Collect post-command evidence with `tools/cognition`.
+10. Normalize evidence into AVA snapshots.
+11. Run the validators selected by the command override or validation defaults.
+12. Attach findings, evidence paths, execution accessibility notes, and
    pass/fail status to the command result.
-12. Continue, stop, or fail fast based on the validation config policy.
+13. Continue, stop, or fail fast based on the validation config policy.
 
 Checkpoint timing should be explicit:
 
@@ -315,7 +355,7 @@ Functional and validation outcomes should remain separate but related:
   scenario can safely continue.
 - If evidence is incomplete, validators should return `needs-review` or
   `not-tested`; they should not silently pass.
-- TARS assertions continue to describe functional success. AVA assertions
+- UX scenario assertions continue to describe functional success. AVA assertions
   describe validation success.
 
 Execution accessibility should not pretend that an automated assistant is a
@@ -358,17 +398,20 @@ Continuation policy should be configurable in the validation config:
 - `threshold`: continue until final report evaluation, then fail if thresholds
   such as `maxCriticalFindings` are exceeded.
 
-Runner reuse constraints:
+Runner and client constraints:
 
+- Do not launch `tars`, consume a TARS trace, or call a TARS-hosted scenario run
+  as the primary AVA validation path. AVA must create its own action and
+  evidence trace.
 - Do not call the current `ScriptedConversationRunner.RunAsync` unchanged for
   AVA. It stops after the first failing turn, while AVA needs configurable
   continuation and final-report threshold behavior.
-- Prefer extracting a shared turn-execution primitive from TARS that AVA can
-  wrap with validation checkpoints and continuation policy.
-- Disable scripted lookahead for the AVA MVP, or validate synthetic lookahead
-  turns as explicit `command-N` step records. A TARS no-op lookahead turn still
-  corresponds to a UX command and must not disappear from AVA's evidence
-  timeline.
+- Prefer extracting a shared turn-execution primitive only if it is
+  assistant-neutral and exposes full tool traces. AVA must still own validation
+  checkpoints, target-resolution policy, fallback policy, and continuation.
+- Disable TARS scripted lookahead for the AVA MVP. If AVA later implements
+  lookahead or planning turns, record them as AVA planning evidence and do not
+  let them disappear from the evidence timeline.
 
 The per-command report record should include:
 
@@ -385,8 +428,8 @@ The per-command report record should include:
 - continuation decision
 
 For example, a UX command can say "Submit the visible form without entering
-required fields." AVA should execute that command through the normal scenario
-runner, then validate the resulting error state: whether focus moved
+required fields." AVA should execute that command through the AVA scenario
+driver, then validate the resulting error state: whether focus moved
 predictably, whether required-field errors are exposed through UIA names or
 relationships, whether controls still have usable name/role/value/state, and
 whether keyboard traversal remains possible.
@@ -408,14 +451,15 @@ form submission, modal dialogs can trap keyboard users, and dynamic content may
 not expose updated state. AVA should catch those problems at the moment the
 scenario reaches them.
 
-## TARS Scenario And Validation Config Shape
+## UX Scenario And Validation Config Shape
 
 AVA should separate the user journey from the accessibility validation overlay.
 That split lets product, design, QA, or support teams share UX scenarios while
 accessibility specialists share validation configs that can be reused across
 many journeys.
 
-The UX scenario must use the same shape as existing TARS scenario files:
+The UX scenario should use the same minimal shape as existing TARS scenario
+files for format compatibility:
 
 ```yaml
 name: Checkout Flow UX Smoke
@@ -463,7 +507,7 @@ assertions:
   requireEvidenceArtifacts: true
 ```
 
-AVA should treat each TARS `commands` entry as a scenario step at runtime. The
+AVA should treat each UX scenario `commands` entry as a step at runtime. The
 runtime can assign generated step ids such as `command-1`, `command-2` for
 reporting and artifact paths, but those ids must not be required in the UX
 scenario file. Per-command validation overrides should use a 1-based
@@ -488,6 +532,8 @@ The first useful AVA evidence bundle should contain:
   command text, functional result
 - validation config metadata: config path, profile, selected validators,
   validation result, and continuation policy
+- AVA client metadata: driver version, action policy, inspection policy, and
+  configured fallback policy
 - execution path metadata: tool calls, retries, fallback actions, failed
   targets, ambiguous targets, focus recovery, and elapsed time per command
 - window metadata: title, process, bounds, selected target strategy
@@ -663,7 +709,9 @@ unit coverage.
 - Inventory existing tests in `brain.tests`, `tars.tests`, tool tests, and
   prompt-loader tests that AVA can reuse or extend.
 - Identify unit-test gaps that must be filled before each implementation slice.
-- Lock AVA MVP as scenario-first and scenario-only.
+- Lock AVA MVP as scenario-first, scenario-only, and AVA-driven.
+- Lock the AVA/TARS client split: AVA must not invoke TARS as the UI driver or
+  treat TARS traces as primary validation evidence.
 - Confirm the default profile name: proposed `federal-windows-uia-min`.
 - Confirm initial report output location under `artifacts/ava`.
 - Decide the default step policy for critical findings: continue and report,
@@ -688,8 +736,8 @@ unit coverage.
 - Update `.github/agents/README.md` when the AVA prompt profile exists.
 - Update root setup docs and `docs/README.md` only after the AVA host can run
   `--help`, so live setup docs continue to describe runnable assistants.
-- Reuse or extract TARS scenario-runner concepts so AVA starts from the same
-  reproducible execution model.
+- Sketch the AVA client/runner boundary early, even if the first skeleton only
+  supports `--help`, so later phases do not accidentally wrap TARS.
 
 Verification:
 
@@ -711,10 +759,13 @@ dotnet run --project src\assistants\ava -- --help
 - Add UX scenario and validation config loader tests.
 - Add step result, validation checkpoint, and report models.
 - Add Markdown/JSON serialization.
-- Add a configurable runner path that can continue after validation failures,
-  stop after functional failures, or fail only at final report evaluation.
-- Decide whether AVA disables TARS lookahead for MVP or records lookahead no-op
-  commands as explicit validated step results.
+- Add AVA runner/client contracts for per-command active execution records,
+  evidence records, and continuation decisions.
+- Add a configurable AVA runner path that can continue after validation
+  failures, stop after functional failures, or fail only at final report
+  evaluation.
+- Explicitly disable inherited TARS lookahead behavior for MVP. Future AVA
+  planning turns must be recorded as AVA evidence, not hidden TARS no-op turns.
 - Add sample `ux/active-window-smoke.yml`.
 - Add sample `validation-configs/federal-windows-uia-min.yml`.
 - Make a no-op validation run produce a report with `not-tested` findings
@@ -727,16 +778,26 @@ dotnet test src\assistants\ava.tests\HeronWin.Ava.Tests.csproj
 dotnet run --project src\assistants\ava -- --ux-scenario src\scenarios\accessibility\ux\active-window-smoke.yml --validation-config src\scenarios\accessibility\validation-configs\federal-windows-uia-min.yml
 ```
 
-### Phase 3 - Evidence Collection MVP
+### Phase 3 - Active Drive And Evidence Collection MVP
 
-- Start with fixture-backed unit tests for evidence bundle writing,
-  debug-trace correlation, compact snapshot normalization, and missing-evidence
-  handling.
+- Start with fixture-backed unit tests for the AVA command driver, mocked
+  action/evidence sequencing, evidence bundle writing, debug-trace correlation,
+  compact snapshot normalization, and missing-evidence handling.
+- Implement an AVA-owned per-command driver that connects to both `cognition`
+  and `execution` MCP servers.
+- For each command, let AVA collect optional pre-command evidence, drive the UI,
+  collect post-command evidence, and collect failure evidence when execution
+  fails.
 - Reuse `cognition.describe_window`.
 - Reuse `cognition.describe_window_focus`.
 - Reuse `cognition.capture_window_screenshot`.
+- Reuse `execution` actions for semantic UI actions, keyboard interaction, and
+  controlled fallback input.
 - Add AVA evidence bundle writer keyed by scenario step id.
-- Preserve debug trace correlation between report evidence and MCP calls.
+- Preserve debug trace correlation between AVA action calls, evidence calls, and
+  report evidence.
+- Record fallback from semantic action to keyboard, coordinate, or raw input as
+  execution accessibility evidence.
 - Avoid adding standards logic to the MCP tools.
 
 Possible tool enhancement if current evidence is insufficient:
@@ -792,10 +853,13 @@ Unit tests:
 - validation config parsing
 - compatibility with existing TARS scenario files
 - AVA CLI parsing and invalid argument combinations
+- AVA/TARS client boundary: AVA runs do not invoke the TARS scenario runner
+- AVA command driver action/evidence sequencing with mocked MCP tools
 - assistant id normalization for AVA config and prompt loading
 - per-step validation-default inheritance
 - continuation policy behavior
-- lookahead disabled or recorded as explicit no-op step behavior
+- inherited TARS lookahead disabled; future AVA planning turns recorded as AVA
+  evidence
 - profile selection
 - rule-pack selection
 - report serialization
@@ -807,8 +871,10 @@ Integration tests:
 
 - AVA help command
 - no-op scenario report generation with per-step `not-tested` results
+- AVA-owned active driver smoke with mocked or fixture-backed action/evidence
+  tools
 - fixture-backed evidence validation
-- existing-shape two-command TARS scenario with a validation checkpoint after
+- existing-shape two-command UX scenario with a validation checkpoint after
   each command
 - optional live Windows app smoke when UI automation is available
 
@@ -821,8 +887,10 @@ Manual checks:
 
 ## Open Questions For Review
 
-- Should AVA share runner code directly with `tars`, or should we extract a
-  small shared scenario-runner primitive that both hosts use?
+- Which assistant-neutral single-turn primitive, if any, should be extracted so
+  AVA and TARS can share transport without sharing client policy?
+- What should AVA's first semantic-action policy be before it falls back to
+  keyboard, coordinate, or raw input?
 - Should critical accessibility findings fail the scenario immediately by
   default, or should AVA continue the full scenario and fail only in the final
   report?
@@ -840,8 +908,10 @@ Manual checks:
 Build AVA in thin vertical slices:
 
 1. Add the assistant host and prompt profile.
-2. Reuse the TARS-style scenario execution shape.
-3. Produce a per-step report from a scenario, even before validators are smart.
+2. Keep the compatible UX scenario shape, but implement an AVA-owned
+   drive-and-inspect client.
+3. Produce a per-step report from AVA's own action and evidence timeline, even
+   before validators are smart.
 4. Normalize UIA evidence by scenario step.
 5. Add deterministic validators with fixture tests.
 6. Add web-specific evidence and rule mapping.

@@ -50,7 +50,8 @@ internal sealed record AvaStepResult(
     string ContinuationPolicy,
     AvaStepEvidenceReference Evidence,
     IReadOnlyList<AvaCheckpointResult> Checkpoints,
-    IReadOnlyList<AvaAccessibilityFinding> Findings);
+    IReadOnlyList<AvaAccessibilityFinding> Findings,
+    AvaCommandExecutionResult? Execution = null);
 
 internal sealed record AvaCheckpointResult(
     string Timing,
@@ -295,6 +296,12 @@ internal static class AvaReportWriter
             builder.AppendLine();
             builder.AppendLine($"- Command: `{step.Command}`");
             builder.AppendLine($"- Continuation policy: `{step.ContinuationPolicy}`");
+            if (step.Execution is not null)
+            {
+                builder.AppendLine($"- Execution: `{step.Execution.Status}` - {step.Execution.Summary}");
+                builder.AppendLine($"- Execution tool calls: `{step.Execution.ToolCallCount}` (`{step.Execution.ToolErrorCount}` errors)");
+            }
+
             builder.AppendLine($"- Checkpoints: `{string.Join(", ", step.Checkpoints.Select(static checkpoint => checkpoint.Timing))}`");
             builder.AppendLine($"- Evidence: `{step.Evidence.ManifestPath}` (`{step.Evidence.Status}`, {step.Evidence.EntryCount} entries)");
 

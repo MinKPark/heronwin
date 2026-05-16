@@ -51,6 +51,11 @@ internal static class AvaProfileCatalog
             return Rule("WEB-WCAG-2.4.3-FOCUS-EVIDENCE", "WCAG 2.0 SC 2.4.3 Focus Order");
         }
 
+        if (findingId.StartsWith("AVA-EXECUTION-FAILED-", StringComparison.Ordinal))
+        {
+            return Rule("WEB-EXECUTION-ACCESSIBILITY", "Automated execution accessibility evidence");
+        }
+
         return ResolveSharedEvidenceRule(findingId, "WEB-UIA-EVIDENCE", "UI Automation evidence for federal-web-min");
     }
 
@@ -74,6 +79,11 @@ internal static class AvaProfileCatalog
         if (findingId.StartsWith("AVA-FOCUS-MISSING-", StringComparison.Ordinal))
         {
             return Rule("UIA-KEYBOARD-FOCUS-EVIDENCE", "UI Automation keyboard focus evidence");
+        }
+
+        if (findingId.StartsWith("AVA-EXECUTION-FAILED-", StringComparison.Ordinal))
+        {
+            return Rule("UIA-EXECUTION-ACCESSIBILITY", "Automated execution accessibility evidence");
         }
 
         return ResolveSharedEvidenceRule(findingId, "UIA-EVIDENCE", "UI Automation deterministic evidence");

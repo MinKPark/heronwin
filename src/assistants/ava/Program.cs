@@ -37,6 +37,13 @@ if (consoleOptions.IsTraceReport)
     return;
 }
 
+var cancellationSource = new CancellationTokenSource();
+Console.CancelKeyPress += (_, eventArgs) =>
+{
+    eventArgs.Cancel = true;
+    cancellationSource.Cancel();
+};
+
 try
 {
     var validationInputs = ResolveValidationInputs(consoleOptions);
@@ -44,17 +51,92 @@ try
     var validationConfig = AvaValidationConfigLoader.LoadFromFile(validationInputs.ValidationConfigPath);
     var runId = CreateRunId();
     var outputDirectory = Path.Combine(Directory.GetCurrentDirectory(), "artifacts", "ava", runId);
-    McpClientManager? mcpClientManager = null;
+    var appConfig = AppConfig.Load("ava");
+    var provider = LlmProviderCatalog.Resolve(appConfig);
+    if (!provider.Capabilities.SupportsScriptedMode)
+    {
+        Display.Error($"{provider.DisplayName} does not support AVA scenario validation mode.");
+        Environment.ExitCode = 1;
+        return;
+    }
 
+    provider.ValidateConfiguration(appConfig);
+    ArtifactCleanup.CleanupPreviousRunArtifacts(AppContext.BaseDirectory, Environment.ProcessPath);
+    DebugTrace.Configure(true);
+    Display.Banner("ava", "accessibility validation assistant");
+
+    var httpClientSetup = BrainHttpClientFactory.Create();
+    using var httpClient = httpClientSetup.Client;
+    await using var mcpClientManager = new McpClientManager();
+
+    DebugTrace.WriteStructuredEvent(
+        "session.start",
+        new Dictionary<string, object?>
+        {
+            ["pid"] = Environment.ProcessId,
+            ["process"] = Environment.ProcessPath ?? "(unknown)",
+            ["cwd"] = Directory.GetCurrentDirectory(),
+            ["baseDir"] = AppContext.BaseDirectory,
+            ["sessionId"] = DebugTrace.SessionId,
+            ["assistantId"] = "ava",
+            ["launchMode"] = "accessibility-validation",
+            ["uxScenarioPath"] = validationInputs.UxScenarioPath,
+            ["validationConfigPath"] = validationInputs.ValidationConfigPath,
+            ["runId"] = runId,
+            ["debugTraceEnabled"] = DebugTrace.IsEnabled,
+            ["llmProvider"] = appConfig.LlmProvider.ToString(),
+            ["openAiModel"] = appConfig.OpenAiModel,
+            ["openAiCodexModel"] = appConfig.OpenAiCodexModel,
+            ["anthropicModel"] = appConfig.AnthropicModel,
+            ["maxContextTokens"] = appConfig.MaxContextTokens,
+            ["postActionUiSettleDelayMs"] = appConfig.PostActionUiSettleDelayMs,
+            ["logsDirectory"] = DebugTrace.BuildLogsDirectory(AppContext.BaseDirectory),
+            ["mcpServers"] = appConfig.McpServers.Select(server => new Dictionary<string, object?>
+            {
+                ["name"] = server.Name,
+                ["command"] = server.Command,
+                ["args"] = server.Args ?? [],
+                ["envKeys"] = server.Env?.Keys.OrderBy(static key => key, StringComparer.OrdinalIgnoreCase).ToArray() ?? [],
+            }).ToArray(),
+            ["displayTopology"] = DisplayTopology.Capture(),
+            ["textLogPath"] = DebugTrace.LogFilePath,
+            ["jsonLogPath"] = DebugTrace.JsonLogFilePath,
+        });
+
+    Display.Info($"LLM: {provider.DisplayName}");
+    if (httpClientSetup.BypassedBrokenLoopbackProxy)
+    {
+        Display.Warn(
+            $"Ignoring broken loopback proxy setting for outbound API calls: {httpClientSetup.BypassedProxyValue}");
+    }
+
+    if (!string.IsNullOrWhiteSpace(DebugTrace.LogFilePath))
+    {
+        Display.Info($"Debug trace: {DebugTrace.LogFilePath}");
+        if (!string.IsNullOrWhiteSpace(DebugTrace.JsonLogFilePath))
+        {
+            Display.Info($"Debug trace JSONL: {DebugTrace.JsonLogFilePath}");
+        }
+    }
+
+    var tools = await ConnectMcpServersAsync(appConfig, mcpClientManager, cancellationSource.Token);
+    var evidenceCollector = HasEvidenceTools(tools)
+        ? new AvaMcpEvidenceCollector(mcpClientManager)
+        : null;
+    if (evidenceCollector is null)
+    {
+        Display.Warn("AVA evidence tools are not available; validation findings will report evidence gaps.");
+    }
+
+    var llmClient = provider.CreateClient(appConfig, httpClient);
+    var commandDriver = new AvaBrainCommandDriver(
+        appConfig,
+        llmClient,
+        mcpClientManager,
+        DebugTrace.JsonLogFilePath);
     try
     {
-        var evidenceCollector = await CreateEvidenceCollectorAsync(validationConfig);
-        if (evidenceCollector.Manager is not null)
-        {
-            mcpClientManager = evidenceCollector.Manager;
-        }
-
-        var report = await AvaNoOpValidationRunner.RunAsync(
+        var report = await AvaValidationRunner.RunAsync(
             new AvaValidationRunRequest(
                 scenarioSuite,
                 validationConfig,
@@ -62,8 +144,9 @@ try
                 validationInputs.ValidationConfigPath,
                 runId,
                 outputDirectory),
-            evidenceCollector.Collector,
-            CancellationToken.None);
+            commandDriver,
+            evidenceCollector,
+            cancellationSource.Token);
 
         var writeResult = AvaReportWriter.Write(report, outputDirectory);
 
@@ -74,9 +157,17 @@ try
     }
     finally
     {
-        if (mcpClientManager is not null)
+        Display.Info("Shutting down...");
+        DebugTrace.WriteEvent("session.shutdown", "AVA validation shutdown completed.");
+        if (!string.IsNullOrWhiteSpace(DebugTrace.LogFilePath))
         {
-            await mcpClientManager.DisposeAsync();
+            Display.Info($"Debug log saved to: {DebugTrace.LogFilePath}");
+            if (!string.IsNullOrWhiteSpace(DebugTrace.JsonLogFilePath))
+            {
+                Display.Info($"Debug JSONL saved to: {DebugTrace.JsonLogFilePath}");
+            }
+
+            Display.Info($"Debug artifacts saved under: {DebugTrace.BuildLogsDirectory(AppContext.BaseDirectory)}");
         }
     }
 }
@@ -100,37 +191,40 @@ static AvaValidationInputPaths ResolveValidationInputs(AvaConsoleOptions options
 static string CreateRunId()
     => $"{DateTimeOffset.UtcNow:yyyyMMddTHHmmssfffZ}-{Environment.ProcessId}";
 
-static async Task<AvaEvidenceCollectorSetup> CreateEvidenceCollectorAsync(AvaValidationConfig validationConfig)
+static async Task<IReadOnlyList<ToolDefinition>> ConnectMcpServersAsync(
+    AppConfig appConfig,
+    McpClientManager mcpClientManager,
+    CancellationToken cancellationToken)
 {
-    if (!AvaNoOpValidationRunner.RequiresDeterministicEvidenceCollection(validationConfig))
-    {
-        return new AvaEvidenceCollectorSetup(null, null);
-    }
-
-    var appConfig = AppConfig.Load("ava");
     if (appConfig.McpServers.Count == 0)
     {
-        return new AvaEvidenceCollectorSetup(null, null);
+        Display.Info("No MCP servers configured. Running without external UI tools.");
+        return await mcpClientManager.ListAllToolsAsync(cancellationToken);
     }
 
-    var manager = new McpClientManager();
     try
     {
-        await manager.ConnectAsync(appConfig.McpServers, CancellationToken.None);
-        await manager.ListAllToolsAsync(CancellationToken.None);
-        return new AvaEvidenceCollectorSetup(new AvaMcpEvidenceCollector(manager), manager);
+        Display.Info($"Connecting to {appConfig.McpServers.Count} MCP server(s)...");
+        await mcpClientManager.ConnectAsync(appConfig.McpServers, cancellationToken);
+        var tools = await mcpClientManager.ListAllToolsAsync(cancellationToken);
+        Display.Info($"MCP tools available: {string.Join(", ", tools.Select(tool => tool.Name).DefaultIfEmpty("(none)"))}");
+        return tools;
     }
-    catch
+    catch (Exception ex)
     {
-        await manager.DisposeAsync();
-        throw;
+        Display.Warn($"MCP connection failed: {ex.Message}");
+        return await mcpClientManager.ListAllToolsAsync(cancellationToken);
     }
+}
+
+static bool HasEvidenceTools(IReadOnlyList<ToolDefinition> tools)
+{
+    var toolNames = tools.Select(static tool => tool.Name).ToHashSet(StringComparer.Ordinal);
+    return toolNames.Contains("describe_window") &&
+        toolNames.Contains("describe_window_focus") &&
+        toolNames.Contains("capture_window_screenshot");
 }
 
 internal sealed record AvaValidationInputPaths(
     string UxScenarioPath,
     string ValidationConfigPath);
-
-internal sealed record AvaEvidenceCollectorSetup(
-    IAvaEvidenceCollector? Collector,
-    McpClientManager? Manager);

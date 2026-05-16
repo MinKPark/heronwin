@@ -1,0 +1,3 @@
+name: Netflix Boyfriend On Demand AVA bundle
+uxScenario: ../netflix-boyfriend-on-demand.yml
+validationConfig: validation-configs/netflix-boyfriend-on-demand-windows-uia-min.yml

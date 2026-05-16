@@ -4,7 +4,7 @@ HeronWin is a Windows desktop assistant system with local MCP tool servers, shar
 
 - `cursor`: interactive voice/text assistant
 - `tars`: scenario assistant for reproducible YAML runs
-- `ava`: accessibility validation assistant skeleton; Phase 1 supports `--help`
+- `ava`: accessibility validation assistant for AVA-owned drive-and-inspect runs
 - `brain`: shared .NET library used by the assistant hosts
 
 ## Repository Layout
@@ -13,7 +13,7 @@ HeronWin is a Windows desktop assistant system with local MCP tool servers, shar
 src/
   assistants/
     brain/        shared provider, prompt, MCP, trace, config, and desktop primitives
-    ava/          accessibility validation assistant skeleton
+    ava/          accessibility validation assistant
     cursor/       interactive voice/text assistant
     tars/         scenario assistant
     *.tests/      assistant and shared runtime tests
@@ -40,6 +40,13 @@ Show AVA help:
 
 ```powershell
 dotnet run --project src/assistants/ava -- --help
+```
+
+Run an AVA accessibility validation bundle:
+
+```powershell
+Copy-Item src/assistants/ava/.env.example src/assistants/ava/.env
+dotnet run --project src/assistants/ava -- --run src/scenarios/accessibility/active-window-smoke.bundle.yml
 ```
 
 The launcher defaults to `cursor` and routes `-Scenario` to `tars`:

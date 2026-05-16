@@ -77,7 +77,7 @@ public sealed class AvaReportTests
                         new AvaCheckpointResult(
                             "after",
                             "not-tested",
-                            "No live UI accessibility checks were executed in the Phase 2 no-op runner.")
+                            "No live UI accessibility checks were executed in the report-only runner.")
                     ],
                     [
                         new AvaAccessibilityFinding(

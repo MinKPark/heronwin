@@ -1,0 +1,11 @@
+name: Netflix Boyfriend On Demand Windows UIA minimum
+profile: federal-windows-uia-min
+continuationPolicy: continue-and-report
+checkpoints:
+  - after
+steps:
+  - name: Netflix landing or home state
+  - name: Profile selection accessibility
+  - name: Profile PIN accessibility
+  - name: Netflix search results accessibility
+  - name: Title details and playback actionability

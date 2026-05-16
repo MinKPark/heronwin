@@ -18,6 +18,7 @@ dotnet test src\heronwin.sln
 dotnet run --project src\assistants\cursor
 dotnet run --project src\assistants\tars -- --scenario src\scenarios\netflix-boyfriend-on-demand.yml
 dotnet run --project src\assistants\ava -- --help
+dotnet run --project src\assistants\ava -- --run src\scenarios\accessibility\active-window-smoke.bundle.yml
 ```
 
 Launcher:
