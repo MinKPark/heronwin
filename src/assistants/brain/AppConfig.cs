@@ -132,9 +132,10 @@ internal sealed record AppConfig(
     private static bool LooksLikeDeprecatedCodexAlias(string value)
         => value.Trim().ToLowerInvariant() is "gpt" or "chatgpt" or "chatgpt-web";
 
-    private static string NormalizeAssistantId(string value)
+    internal static string NormalizeAssistantId(string value)
         => value.Trim().ToLowerInvariant() switch
         {
+            "ava" => "ava",
             "tars" => "tars",
             "cursor" => "cursor",
             _ => "cursor"

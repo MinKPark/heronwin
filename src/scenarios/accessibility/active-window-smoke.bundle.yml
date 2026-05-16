@@ -1,0 +1,3 @@
+name: Active window smoke accessibility bundle
+uxScenario: ux/active-window-smoke.yml
+validationConfig: validation-configs/federal-windows-uia-min.yml

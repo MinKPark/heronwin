@@ -176,6 +176,35 @@ public sealed class AgentPromptLoaderTests
     }
 
     [Fact]
+    public void Load_AvaProfile_UsesAvaPromptAndAccessibilitySkill()
+    {
+        var repoRoot = FindRepoRoot();
+        var originalDirectory = Directory.GetCurrentDirectory();
+        var originalAgentOverride = Environment.GetEnvironmentVariable("AGENT_DEFINITION_PATH");
+        var originalAvaOverride = Environment.GetEnvironmentVariable("AVA_AGENT_DEFINITION_PATH");
+
+        try
+        {
+            Environment.SetEnvironmentVariable("AGENT_DEFINITION_PATH", null);
+            Environment.SetEnvironmentVariable("AVA_AGENT_DEFINITION_PATH", null);
+            Directory.SetCurrentDirectory(repoRoot);
+
+            var catalog = AgentPromptLoader.Load("ava");
+
+            Assert.EndsWith(Path.Combine(".github", "agents", "ava", "ava.agent.md"), catalog.FallbackDefinitionPath);
+            Assert.Contains("accessibility validation assistant", catalog.FallbackDefinition, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("AVA Accessibility Validation Policy", catalog.CoreDefinition, StringComparison.Ordinal);
+            Assert.Contains(catalog.Skills, skill => skill.Key == "accessibility-validation-policy");
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Environment.SetEnvironmentVariable("AGENT_DEFINITION_PATH", originalAgentOverride);
+            Environment.SetEnvironmentVariable("AVA_AGENT_DEFINITION_PATH", originalAvaOverride);
+        }
+    }
+
+    [Fact]
     public void RepositoryDesktopLaunchSkill_IncludesHandleActivationAndContinueGuidance()
     {
         var skillsDirectory = Path.Combine(FindRepoRoot(), ".github", "agents", "shared", "skills");

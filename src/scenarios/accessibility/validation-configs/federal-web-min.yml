@@ -1,0 +1,8 @@
+name: Federal web minimum
+profile: federal-web-min
+continuationPolicy: continue-and-report
+checkpoints:
+  - after
+steps:
+  - name: Browser document inventory
+  - name: Focused browser control accessibility

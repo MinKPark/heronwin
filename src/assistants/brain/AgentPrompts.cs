@@ -234,9 +234,10 @@ internal static class AgentPromptLoader
             .FirstOrDefault(File.Exists);
     }
 
-    private static string NormalizeAssistantId(string value)
+    internal static string NormalizeAssistantId(string value)
         => value.Trim().ToLowerInvariant() switch
         {
+            "ava" => "ava",
             "tars" => "tars",
             "cursor" => "cursor",
             _ => "cursor"

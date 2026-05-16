@@ -1,0 +1,6 @@
+name: Browser page smoke
+commands:
+  - Open or select a representative browser page and identify the document landmark plus primary interactive controls.
+  - Check whether the focused browser page control exposes a name, role, and keyboard action through UI Automation.
+assertions:
+  allowToolErrors: true

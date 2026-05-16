@@ -1,0 +1,6 @@
+name: Active window smoke
+commands:
+  - Describe the currently active window and identify the primary interactive controls.
+  - Check whether the focused control has an accessible name and keyboard path.
+assertions:
+  allowToolErrors: true

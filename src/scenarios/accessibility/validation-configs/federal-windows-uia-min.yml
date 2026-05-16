@@ -1,0 +1,11 @@
+name: Federal Windows UIA minimum
+profile: federal-windows-uia-min
+continuationPolicy: continue-and-report
+checkpoints:
+  - after
+steps:
+  - name: Active window inventory
+  - name: Focused control accessibility
+    checkpoints:
+      - before
+      - after

@@ -1,10 +1,11 @@
 # HeronWin
 
-HeronWin is a Windows desktop assistant system with local MCP tool servers, shared runtime plumbing, and two assistant hosts:
+HeronWin is a Windows desktop assistant system with local MCP tool servers, shared runtime plumbing, and three assistant hosts plus a shared runtime library:
 
 - `cursor`: interactive voice/text assistant
 - `tars`: scenario assistant for reproducible YAML runs
-- `brain`: shared .NET library used by both assistants
+- `ava`: accessibility validation assistant skeleton; Phase 1 supports `--help`
+- `brain`: shared .NET library used by the assistant hosts
 
 ## Repository Layout
 
@@ -12,6 +13,7 @@ HeronWin is a Windows desktop assistant system with local MCP tool servers, shar
 src/
   assistants/
     brain/        shared provider, prompt, MCP, trace, config, and desktop primitives
+    ava/          accessibility validation assistant skeleton
     cursor/       interactive voice/text assistant
     tars/         scenario assistant
     *.tests/      assistant and shared runtime tests
@@ -32,6 +34,12 @@ Run a scenario:
 ```powershell
 Copy-Item src/assistants/tars/.env.example src/assistants/tars/.env
 dotnet run --project src/assistants/tars -- --scenario src/scenarios/netflix-boyfriend-on-demand.yml
+```
+
+Show AVA help:
+
+```powershell
+dotnet run --project src/assistants/ava -- --help
 ```
 
 The launcher defaults to `cursor` and routes `-Scenario` to `tars`:
@@ -62,6 +70,7 @@ Developer docs:
 Component docs:
 
 - [brain README](./src/assistants/brain/README.md)
+- [ava README](./src/assistants/ava/README.md)
 - [tars README](./src/assistants/tars/README.md)
 - [cursor README](./src/assistants/cursor/README.md)
 - [tools README](./src/tools/README.md)

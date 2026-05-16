@@ -16,6 +16,23 @@ internal sealed record BrainConsoleOptions(
     public bool RequiresDebugTrace => IsScripted;
 }
 
+internal sealed record AvaConsoleOptions(
+    bool ShowHelp,
+    string? UxScenarioPath,
+    string? ValidationConfigPath,
+    string? RunBundlePath,
+    string? TraceReportPath)
+{
+    public bool IsValidationRun =>
+        !ShowHelp &&
+        (!string.IsNullOrWhiteSpace(RunBundlePath) ||
+         !string.IsNullOrWhiteSpace(UxScenarioPath) && !string.IsNullOrWhiteSpace(ValidationConfigPath));
+
+    public bool IsTraceReport =>
+        !ShowHelp &&
+        !string.IsNullOrWhiteSpace(TraceReportPath);
+}
+
 internal static class BrainConsoleMode
 {
     public static BrainConsoleOptions Parse(string[] args)
@@ -26,6 +43,100 @@ internal static class BrainConsoleMode
 
     public static BrainConsoleOptions ParseCursor(string[] args)
         => Parse(args, allowScenario: false);
+
+    public static AvaConsoleOptions ParseAva(string[] args)
+    {
+        if (args.Length == 0)
+        {
+            return new AvaConsoleOptions(false, null, null, null, null);
+        }
+
+        var showHelp = false;
+        string? uxScenarioPath = null;
+        string? validationConfigPath = null;
+        string? runBundlePath = null;
+        string? traceReportPath = null;
+
+        for (var index = 0; index < args.Length; index += 1)
+        {
+            var arg = args[index];
+            switch (arg.ToLowerInvariant())
+            {
+                case "--help":
+                case "-h":
+                    showHelp = true;
+                    break;
+
+                case "--ux-scenario":
+                    if (!string.IsNullOrWhiteSpace(uxScenarioPath))
+                    {
+                        throw new InvalidOperationException("Only one --ux-scenario path can be provided.");
+                    }
+
+                    uxScenarioPath = Path.GetFullPath(RequireValue(args, ref index, arg));
+                    break;
+
+                case "--validation-config":
+                    if (!string.IsNullOrWhiteSpace(validationConfigPath))
+                    {
+                        throw new InvalidOperationException("Only one --validation-config path can be provided.");
+                    }
+
+                    validationConfigPath = Path.GetFullPath(RequireValue(args, ref index, arg));
+                    break;
+
+                case "--run":
+                    if (!string.IsNullOrWhiteSpace(runBundlePath))
+                    {
+                        throw new InvalidOperationException("Only one --run bundle path can be provided.");
+                    }
+
+                    runBundlePath = Path.GetFullPath(RequireValue(args, ref index, arg));
+                    break;
+
+                case "--trace-report":
+                    if (!string.IsNullOrWhiteSpace(traceReportPath))
+                    {
+                        throw new InvalidOperationException("Only one --trace-report path can be provided.");
+                    }
+
+                    traceReportPath = Path.GetFullPath(RequireValue(args, ref index, arg));
+                    break;
+
+                default:
+                    throw new InvalidOperationException(
+                        $"Unknown argument \"{arg}\". Use --help to see supported options.");
+            }
+        }
+
+        if (!showHelp)
+        {
+            var hasUxScenario = !string.IsNullOrWhiteSpace(uxScenarioPath);
+            var hasValidationConfig = !string.IsNullOrWhiteSpace(validationConfigPath);
+            var hasRunBundle = !string.IsNullOrWhiteSpace(runBundlePath);
+            var hasTraceReport = !string.IsNullOrWhiteSpace(traceReportPath);
+
+            if (hasTraceReport && (hasUxScenario || hasValidationConfig || hasRunBundle))
+            {
+                throw new InvalidOperationException(
+                    "Use either --trace-report or validation run flags, not both together.");
+            }
+
+            if (hasRunBundle && (hasUxScenario || hasValidationConfig))
+            {
+                throw new InvalidOperationException(
+                    "Use either --run or direct --ux-scenario/--validation-config flags, not both together.");
+            }
+
+            if (hasUxScenario != hasValidationConfig)
+            {
+                throw new InvalidOperationException(
+                    "Direct validation requires both --ux-scenario and --validation-config.");
+            }
+        }
+
+        return new AvaConsoleOptions(showHelp, uxScenarioPath, validationConfigPath, runBundlePath, traceReportPath);
+    }
 
     private static BrainConsoleOptions Parse(string[] args, bool allowScenario)
     {
@@ -123,6 +234,24 @@ internal static class BrainConsoleMode
         Console.WriteLine("  openai-codex starts in text mode and uses your local Codex / ChatGPT sign-in.");
         Console.WriteLine("Tip:");
         Console.WriteLine("  Set DEBUG_TRACE=1 if you also want persistent debug logs in normal voice mode.");
+    }
+
+    public static void PrintAvaHelp()
+    {
+        Console.WriteLine("ava");
+        Console.WriteLine("Usage:");
+        Console.WriteLine("  ava.exe --help");
+        Console.WriteLine("                                           Show this help");
+        Console.WriteLine("  ava.exe --ux-scenario .\\scenario.yml --validation-config .\\validation.yml");
+        Console.WriteLine("                                           Phase 2 accessibility validation entry point");
+        Console.WriteLine("  ava.exe --run .\\bundle.yml");
+        Console.WriteLine("                                           Run a validation bundle with relative scenario/config paths");
+        Console.WriteLine("  ava.exe --trace-report .\\ava.debug.jsonl");
+        Console.WriteLine("                                           Print a markdown latency report for a saved JSONL trace");
+        Console.WriteLine();
+        Console.WriteLine("Accessibility validation notes:");
+        Console.WriteLine("  Direct validation requires both --ux-scenario and --validation-config.");
+        Console.WriteLine("  The Phase 2 runner writes deterministic no-op reports without LLM or live UI calls.");
     }
 
     private static string RequireValue(string[] args, ref int index, string flag)

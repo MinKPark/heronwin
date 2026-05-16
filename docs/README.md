@@ -17,6 +17,7 @@ dotnet build src\heronwin.sln
 dotnet test src\heronwin.sln
 dotnet run --project src\assistants\cursor
 dotnet run --project src\assistants\tars -- --scenario src\scenarios\netflix-boyfriend-on-demand.yml
+dotnet run --project src\assistants\ava -- --help
 ```
 
 Launcher:
@@ -29,6 +30,7 @@ Launcher:
 ## Component Docs
 
 - [brain](../src/assistants/brain/README.md)
+- [ava](../src/assistants/ava/README.md)
 - [cursor](../src/assistants/cursor/README.md)
 - [tars](../src/assistants/tars/README.md)
 - [tools](../src/tools/README.md)
