@@ -1,4 +1,4 @@
-# heronwin
+# HeronWin
 
 HeronWin is a Windows desktop assistant system with local MCP tool servers, shared runtime plumbing, and two assistant hosts:
 
