@@ -127,12 +127,16 @@ public sealed class BoundedTreePromotionTests
             IsSelected: false,
             AvailableActions: ["focus", "invoke"],
             Bounds: null,
-            Children: []);
+            Children: [],
+            AriaRole: "button",
+            AriaProperties: "expanded=false");
 
         Assert.Equal("1/0/3", snapshot.Path);
         Assert.Equal("1/0/3", snapshot.UiPath);
         var json = WindowAutomation.Serialize(snapshot);
         Assert.Contains("\"UiPath\": \"1/0/3\"", json);
+        Assert.Contains("\"AriaRole\": \"button\"", json);
+        Assert.Contains("\"AriaProperties\": \"expanded=false\"", json);
         Assert.DoesNotContain("\"IsOffscreen\": false", json);
         Assert.DoesNotContain("\"HasKeyboardFocus\": false", json);
         Assert.DoesNotContain("\"Children\": []", json);

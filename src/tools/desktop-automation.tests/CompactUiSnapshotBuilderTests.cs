@@ -134,6 +134,35 @@ public sealed class CompactUiSnapshotBuilderTests
     }
 
     [Fact]
+    public void BuildWindowResponse_PreservesAriaPropertiesInCompactTree()
+    {
+        var response = CompactUiSnapshotBuilder.BuildWindowResponse(
+            CreateWindowDescriptor(),
+            Snapshot(
+                "root",
+                "root",
+                "Window",
+                name: "Contoso",
+                children:
+                [
+                    Snapshot(
+                        "0",
+                        "0",
+                        "Button",
+                        name: "Menu",
+                        ariaRole: "button",
+                        ariaProperties: "expanded=false",
+                        actions: ["invoke"])
+                ]),
+            includeImage: false);
+
+        var json = CompactUiSnapshotJson.Serialize(response);
+
+        Assert.Contains("\"ariaRole\":\"button\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"ariaProperties\":\"expanded=false\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void BuildWindowResponse_PrunesLlmChildrenAndReportsOmissions()
     {
         var response = CompactUiSnapshotBuilder.BuildWindowResponse(
@@ -554,7 +583,9 @@ public sealed class CompactUiSnapshotBuilderTests
         bool isSelected = false,
         IReadOnlyList<string>? actions = null,
         ElementBounds? bounds = null,
-        IReadOnlyList<UiElementSnapshot>? children = null)
+        IReadOnlyList<UiElementSnapshot>? children = null,
+        string? ariaRole = null,
+        string? ariaProperties = null)
         => new(
             path,
             uiPath,
@@ -569,5 +600,7 @@ public sealed class CompactUiSnapshotBuilderTests
             isSelected,
             actions ?? [],
             bounds,
-            children ?? []);
+            children ?? [],
+            ariaRole ?? string.Empty,
+            ariaProperties ?? string.Empty);
 }

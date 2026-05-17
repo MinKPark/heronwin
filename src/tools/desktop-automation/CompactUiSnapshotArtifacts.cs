@@ -316,7 +316,9 @@ internal static class CompactUiSnapshotArtifactRenderer
             GetBooleanProperty(element, "IsSelected"),
             GetStringArrayProperty(element, "AvailableActions"),
             bounds,
-            children);
+            children,
+            GetStringProperty(element, "AriaRole") ?? string.Empty,
+            GetStringProperty(element, "AriaProperties") ?? string.Empty);
         return true;
     }
 

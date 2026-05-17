@@ -77,6 +77,8 @@ internal sealed record AvaAccessibilityFinding
         string? toolName = null,
         string? nodeReference = null,
         string? nodeTrace = null,
+        string? automationId = null,
+        string? ariaProperties = null,
         string? exportId = null,
         string? triageCategory = null,
         string? evidenceSummary = null)
@@ -93,6 +95,8 @@ internal sealed record AvaAccessibilityFinding
         ToolName = toolName;
         NodeReference = nodeReference;
         NodeTrace = string.IsNullOrWhiteSpace(nodeTrace) ? null : nodeTrace;
+        AutomationId = string.IsNullOrWhiteSpace(automationId) ? null : automationId;
+        AriaProperties = string.IsNullOrWhiteSpace(ariaProperties) ? null : ariaProperties;
         exportIdOverride = string.IsNullOrWhiteSpace(exportId) ? null : exportId;
         triageCategoryOverride = string.IsNullOrWhiteSpace(triageCategory) ? null : triageCategory;
         evidenceSummaryOverride = string.IsNullOrWhiteSpace(evidenceSummary) ? null : evidenceSummary;
@@ -127,6 +131,10 @@ internal sealed record AvaAccessibilityFinding
     public string? NodeReference { get; init; }
 
     public string? NodeTrace { get; init; }
+
+    public string? AutomationId { get; init; }
+
+    public string? AriaProperties { get; init; }
 }
 
 internal static class AvaTriageCategory
@@ -201,6 +209,16 @@ internal static class AvaFindingExport
         if (!string.IsNullOrWhiteSpace(finding.NodeTrace))
         {
             parts.Add($"trace: {finding.NodeTrace}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(finding.AutomationId))
+        {
+            parts.Add($"automationId: {finding.AutomationId}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(finding.AriaProperties))
+        {
+            parts.Add($"aria: {finding.AriaProperties}");
         }
 
         return parts.Count == 0 ? null : string.Join("; ", parts);
@@ -330,7 +348,7 @@ internal static class AvaReportWriter
             builder.AppendLine($"- Evidence: `{step.Evidence.ManifestPath}` (`{step.Evidence.Status}`, {step.Evidence.EntryCount} entries)");
 
             AppendStepScreenshots(builder, step, outputDirectory);
-            AppendFindingsTable(builder, step.Findings);
+            AppendFindingsTable(builder, step.Findings, outputDirectory);
         }
 
         return builder.ToString();
@@ -677,7 +695,8 @@ internal static class AvaReportWriter
 
     private static void AppendFindingsTable(
         StringBuilder builder,
-        IReadOnlyList<AvaAccessibilityFinding> findings)
+        IReadOnlyList<AvaAccessibilityFinding> findings,
+        string? outputDirectory)
     {
         builder.AppendLine();
         builder.AppendLine("#### Findings");
@@ -725,19 +744,22 @@ internal static class AvaReportWriter
             builder,
             "Automated Failures",
             automatedFailures,
-            "_No automated failures._");
+            "_No automated failures._",
+            outputDirectory);
         AppendFindingCategoryTable(
             builder,
             "Human Review Needed",
             humanReviewNeeded,
-            "_No human review findings._");
+            "_No human review findings._",
+            outputDirectory);
         if (evidenceGaps.Length > 0)
         {
             AppendFindingCategoryTable(
                 builder,
                 "Evidence Gaps",
                 evidenceGaps,
-                "_No evidence gaps._");
+                "_No evidence gaps._",
+                outputDirectory);
         }
 
         if (notTestedFindings.Length > 0)
@@ -746,7 +768,8 @@ internal static class AvaReportWriter
                 builder,
                 "Not Tested",
                 notTestedFindings,
-                "_No not-tested findings._");
+                "_No not-tested findings._",
+                outputDirectory);
         }
 
         if (otherFindings.Length > 0)
@@ -755,7 +778,8 @@ internal static class AvaReportWriter
                 builder,
                 "Other Findings",
                 otherFindings,
-                "_No other findings._");
+                "_No other findings._",
+                outputDirectory);
         }
     }
 
@@ -763,7 +787,8 @@ internal static class AvaReportWriter
         StringBuilder builder,
         string heading,
         IReadOnlyList<AvaAccessibilityFinding> findings,
-        string emptyMessage)
+        string emptyMessage,
+        string? outputDirectory)
     {
         builder.AppendLine($"##### {heading} ({findings.Count})");
         builder.AppendLine();
@@ -774,8 +799,8 @@ internal static class AvaReportWriter
             return;
         }
 
-        builder.AppendLine("| Finding | Source | Checkpoint | Summary | Rule | Evidence | Trace | Export ID |");
-        builder.AppendLine("| --- | --- | --- | --- | --- | --- | --- | --- |");
+        builder.AppendLine("| Finding | Source | Checkpoint | Summary | Rule | Evidence | Element Path | Automation ID | ARIA |");
+        builder.AppendLine("| --- | --- | --- | --- | --- | --- | --- | --- | --- |");
 
         foreach (var finding in findings)
         {
@@ -788,13 +813,15 @@ internal static class AvaReportWriter
             builder.Append(" | ");
             builder.Append(TextCell(finding.Summary));
             builder.Append(" | ");
-            builder.Append(RuleCell(finding));
+            builder.Append(RuleCell(finding, outputDirectory));
             builder.Append(" | ");
             builder.Append(EvidenceLinkCell(finding.EvidenceReference));
             builder.Append(" | ");
             builder.Append(CodeCell(finding.NodeTrace));
             builder.Append(" | ");
-            builder.Append(CodeCell(finding.ExportId));
+            builder.Append(CodeCell(finding.AutomationId));
+            builder.Append(" | ");
+            builder.Append(CodeCell(finding.AriaProperties));
             builder.AppendLine(" |");
         }
 
@@ -865,25 +892,65 @@ internal static class AvaReportWriter
         return builder.ToString().Trim('-');
     }
 
-    private static string RuleCell(AvaAccessibilityFinding finding)
+    private static string RuleCell(AvaAccessibilityFinding finding, string? outputDirectory)
     {
-        var parts = new List<string>();
-        if (!string.IsNullOrWhiteSpace(finding.ProfileId))
+        var ruleIdentifier = RuleIdentifier(finding);
+        if (string.IsNullOrWhiteSpace(ruleIdentifier))
         {
-            parts.Add(CodeCell(finding.ProfileId));
+            return string.Empty;
         }
 
-        if (!string.IsNullOrWhiteSpace(finding.RuleId))
+        return $"[{EscapeLinkText(ruleIdentifier)}]({EscapeLinkDestination(RuleDocumentPath(ruleIdentifier, outputDirectory))})";
+    }
+
+    private static string? RuleIdentifier(AvaAccessibilityFinding finding)
+    {
+        if (string.IsNullOrWhiteSpace(finding.RuleId))
         {
-            parts.Add(CodeCell(finding.RuleId));
+            return string.IsNullOrWhiteSpace(finding.ProfileId)
+                ? null
+                : finding.ProfileId.Trim().ToLowerInvariant();
         }
 
-        if (!string.IsNullOrWhiteSpace(finding.SourceStandard))
+        var normalizedRuleId = finding.RuleId.Trim().ToLowerInvariant();
+        return string.IsNullOrWhiteSpace(finding.ProfileId)
+            ? normalizedRuleId
+            : $"{finding.ProfileId.Trim().ToLowerInvariant()}-{normalizedRuleId}";
+    }
+
+    private static string RuleDocumentPath(string ruleIdentifier, string? outputDirectory)
+    {
+        var relativeDocsPath = $"docs/ava/rules/{ruleIdentifier}.md";
+        if (string.IsNullOrWhiteSpace(outputDirectory))
         {
-            parts.Add(TextCell(finding.SourceStandard));
+            return relativeDocsPath;
         }
 
-        return string.Join("<br>", parts);
+        var repoRoot = FindRepositoryRoot(outputDirectory);
+        if (repoRoot is null)
+        {
+            return relativeDocsPath;
+        }
+
+        return ToRelativeReportPath(
+            outputDirectory,
+            Path.Combine(repoRoot, "docs", "ava", "rules", $"{ruleIdentifier}.md"));
+    }
+
+    private static string? FindRepositoryRoot(string startDirectory)
+    {
+        var directory = new DirectoryInfo(Path.GetFullPath(startDirectory));
+        while (directory is not null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "docs", "README.md")))
+            {
+                return directory.FullName;
+            }
+
+            directory = directory.Parent;
+        }
+
+        return null;
     }
 
     private static string CodeCell(string? value)

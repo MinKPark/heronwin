@@ -113,11 +113,12 @@ public sealed class AvaReportTests
         Assert.Contains("##### Automated Failures (0)", markdown, StringComparison.Ordinal);
         Assert.Contains("##### Human Review Needed (0)", markdown, StringComparison.Ordinal);
         Assert.Contains("##### Not Tested (1)", markdown, StringComparison.Ordinal);
-        Assert.Contains("| Finding | Source | Checkpoint | Summary | Rule | Evidence | Trace | Export ID |", markdown, StringComparison.Ordinal);
+        Assert.Contains("| Finding | Source | Checkpoint | Summary | Rule | Evidence | Element Path | Automation ID | ARIA |", markdown, StringComparison.Ordinal);
         Assert.DoesNotContain("| Node |", markdown, StringComparison.Ordinal);
+        Assert.DoesNotContain("| Export ID |", markdown, StringComparison.Ordinal);
         Assert.Contains("`AVA-NOT-TESTED` |  | `after`", markdown, StringComparison.Ordinal);
-        Assert.Contains("`federal-web-min`<br>`WEB-UIA-EVIDENCE-MISSING`", markdown, StringComparison.Ordinal);
-        Assert.Contains("`ava-114dab35d9fdad7f96fdafa9`", markdown, StringComparison.Ordinal);
+        Assert.Contains("[federal-web-min-web-uia-evidence-missing](docs/ava/rules/federal-web-min-web-uia-evidence-missing.md)", markdown, StringComparison.Ordinal);
+        Assert.DoesNotContain("UI Automation evidence for federal-web-min", markdown, StringComparison.Ordinal);
         Assert.Contains("Evidence: `evidence/step-001/manifest.json` (`missing`, 1 entries)", markdown, StringComparison.Ordinal);
         Assert.Equal(json, AvaReportWriter.ToJson(report));
         Assert.Equal(markdown, AvaReportWriter.ToMarkdown(report));
@@ -204,7 +205,9 @@ public sealed class AvaReportTests
                             "step-001",
                             "describe_window",
                             "actionable-001",
-                            "Window \"Calculator\" [uiPath=root] / Button \"Submit\" [uiPath=0]")
+                            "Window \"Calculator\" / Button \"Submit\"",
+                            "submitButton",
+                            "aria-expanded: false")
                     ])
             ]);
 
@@ -212,12 +215,15 @@ public sealed class AvaReportTests
         var markdown = AvaReportWriter.ToMarkdown(report);
 
         Assert.Contains("\"nodeTrace\":", json, StringComparison.Ordinal);
-        Assert.Contains("Window \\u0022Calculator\\u0022 [uiPath=root] / Button \\u0022Submit\\u0022 [uiPath=0]", json, StringComparison.Ordinal);
+        Assert.Contains("Window \\u0022Calculator\\u0022 / Button \\u0022Submit\\u0022", json, StringComparison.Ordinal);
+        Assert.Contains("\"automationId\": \"submitButton\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"ariaProperties\": \"aria-expanded: false\"", json, StringComparison.Ordinal);
         Assert.Contains("##### Automated Failures (1)", markdown, StringComparison.Ordinal);
         Assert.Contains("##### Human Review Needed (0)", markdown, StringComparison.Ordinal);
         Assert.Contains("`AVA-ACTION-MISSING` | `DESCRIBE-WINDOW` | `after`", markdown, StringComparison.Ordinal);
+        Assert.Contains("[federal-windows-uia-min-uia-control-pattern](docs/ava/rules/federal-windows-uia-min-uia-control-pattern.md)", markdown, StringComparison.Ordinal);
         Assert.Contains("[manifest.json](evidence/step-001/manifest.json)", markdown, StringComparison.Ordinal);
-        Assert.Contains("[manifest.json](evidence/step-001/manifest.json) | `Window \"Calculator\" [uiPath=root] / Button \"Submit\" [uiPath=0]`", markdown, StringComparison.Ordinal);
+        Assert.Contains("[manifest.json](evidence/step-001/manifest.json) | `Window \"Calculator\" / Button \"Submit\"` | `submitButton` | `aria-expanded: false`", markdown, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -319,6 +325,8 @@ public sealed class AvaReportTests
                           {
                             "name": "Submit",
                             "controlType": "Button",
+                            "automationId": "submitButton",
+                            "ariaExpanded": false,
                             "uiPath": "0"
                           }
                         ]
@@ -378,11 +386,14 @@ public sealed class AvaReportTests
             regeneratedReport.Steps.Single().Findings,
             finding => finding.Id.StartsWith("AVA-ACTION-MISSING", StringComparison.Ordinal) &&
                 finding.ToolName == "describe_window");
-        Assert.Equal("Window \"Calculator\" [uiPath=root] / Button \"Submit\" [uiPath=0]", actionFinding.NodeTrace);
-        Assert.Contains("| Finding | Source | Checkpoint | Summary | Rule | Evidence | Trace | Export ID |", markdown, StringComparison.Ordinal);
+        Assert.Equal("Window \"Calculator\" / Button \"Submit\"", actionFinding.NodeTrace);
+        Assert.Equal("submitButton", actionFinding.AutomationId);
+        Assert.Equal("aria-expanded: false", actionFinding.AriaProperties);
+        Assert.Contains("| Finding | Source | Checkpoint | Summary | Rule | Evidence | Element Path | Automation ID | ARIA |", markdown, StringComparison.Ordinal);
         Assert.DoesNotContain("| Node |", markdown, StringComparison.Ordinal);
+        Assert.DoesNotContain("| Export ID |", markdown, StringComparison.Ordinal);
         Assert.Contains("[manifest.json](evidence/step-001/manifest.json)", markdown, StringComparison.Ordinal);
-        Assert.Contains("[manifest.json](evidence/step-001/manifest.json) | `Window \"Calculator\" [uiPath=root] / Button \"Submit\" [uiPath=0]`", markdown, StringComparison.Ordinal);
+        Assert.Contains("[manifest.json](evidence/step-001/manifest.json) | `Window \"Calculator\" / Button \"Submit\"` | `submitButton` | `aria-expanded: false`", markdown, StringComparison.Ordinal);
     }
 
     [Theory]

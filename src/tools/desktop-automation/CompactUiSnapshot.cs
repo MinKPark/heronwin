@@ -93,6 +93,10 @@ internal sealed class CompactUiNode
 
     public string? ClassName { get; init; }
 
+    public string? AriaRole { get; init; }
+
+    public string? AriaProperties { get; init; }
+
     public bool? IsOffscreen { get; init; }
 
     public bool? HasKeyboardFocus { get; init; }
@@ -391,6 +395,8 @@ internal static class CompactUiSnapshotBuilder
             Name = node.Name,
             AutomationId = node.AutomationId,
             ClassName = node.ClassName,
+            AriaRole = node.AriaRole,
+            AriaProperties = node.AriaProperties,
             IsOffscreen = node.IsOffscreen ? true : null,
             HasKeyboardFocus = node.HasKeyboardFocus ? true : null,
             IsKeyboardFocusable = node.IsKeyboardFocusable ? true : null,
@@ -1256,6 +1262,8 @@ internal static class CompactUiSnapshotBuilder
             ControlType = string.IsNullOrWhiteSpace(snapshot.ControlType) ? "Element" : snapshot.ControlType;
             AutomationId = NormalizeInlineText(snapshot.AutomationId);
             ClassName = NormalizeInlineText(snapshot.ClassName);
+            AriaRole = NormalizeInlineText(snapshot.AriaRole);
+            AriaProperties = NormalizeInlineText(snapshot.AriaProperties);
             IsOffscreen = snapshot.IsOffscreen;
             HasKeyboardFocus = snapshot.HasKeyboardFocus;
             IsKeyboardFocusable = snapshot.IsKeyboardFocusable;
@@ -1304,6 +1312,10 @@ internal static class CompactUiSnapshotBuilder
         internal string? AutomationId { get; }
 
         internal string? ClassName { get; }
+
+        internal string? AriaRole { get; }
+
+        internal string? AriaProperties { get; }
 
         internal bool IsOffscreen { get; }
 

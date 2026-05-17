@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 
 namespace HeronWin.Ava;
@@ -12,7 +13,7 @@ internal sealed record AvaDeterministicValidationContext(
 
 internal static class AvaDeterministicValidators
 {
-    private static readonly string[] TreePropertyNames = ["compactTree", "llmTree"];
+    private static readonly string[] FallbackTreePropertyNames = ["compactTree"];
 
     private static readonly string[] NamePropertyNames =
     [
@@ -31,22 +32,43 @@ internal static class AvaDeterministicValidators
         "localizedControlType"
     ];
 
-    private static readonly string[] UiPathPropertyNames =
-    [
-        "uiPath",
-        "path"
-    ];
-
     private static readonly string[] AutomationIdPropertyNames =
     [
         "automationId",
         "id"
     ];
 
+    private static readonly string[] ActionPropertyNames =
+    [
+        "actions",
+        "availableActions"
+    ];
+
+    private static readonly string[] PatternPropertyNames =
+    [
+        "patterns",
+        "availablePatterns"
+    ];
+
+    private static readonly HashSet<string> StructuralActionNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "focus",
+        "scroll_into_view"
+    };
+
+    private static readonly string[] AriaContainerPropertyNames =
+    [
+        "aria",
+        "ariaProperties",
+        "attributes",
+        "properties"
+    ];
+
     private const int MaxNodeTraceSegments = 8;
     private const int LeadingNodeTraceSegments = 2;
     private const int TrailingNodeTraceSegments = 5;
     private const int MaxNodeTraceValueLength = 80;
+    private const int MaxAriaPropertyCount = 8;
 
     private static readonly string[] KeyboardFocusablePropertyNames =
     [
@@ -54,30 +76,6 @@ internal static class AvaDeterministicValidators
         "keyboardFocusable",
         "focusable",
         "canKeyboardFocus"
-    ];
-
-    private static readonly string[] InteractiveRoleTerms =
-    [
-        "button",
-        "checkbox",
-        "combo",
-        "edit",
-        "hyperlink",
-        "link",
-        "list item",
-        "listitem",
-        "menu item",
-        "menuitem",
-        "radio",
-        "slider",
-        "spinner",
-        "splitbutton",
-        "tab item",
-        "tabitem",
-        "text box",
-        "textbox",
-        "tree item",
-        "treeitem"
     ];
 
     private static readonly string[] StrongActionRoleTerms =
@@ -217,11 +215,7 @@ internal static class AvaDeterministicValidators
             return;
         }
 
-        var treeRoots = TreePropertyNames
-            .Select(propertyName => TryGetProperty(document.RootElement, propertyName, out var tree) ? tree : (JsonElement?)null)
-            .Where(static tree => tree is not null)
-            .Select(static tree => tree!.Value)
-            .ToArray();
+        var treeRoots = GetValidationTreeRoots(document.RootElement, record.ToolName);
 
         if (treeRoots.Length == 0)
         {
@@ -229,7 +223,7 @@ internal static class AvaDeterministicValidators
                 context,
                 $"AVA-TREE-MISSING-{context.StepNumber:000}-{ToolToken(record.ToolName)}",
                 AvaFindingStatus.NeedsReview,
-                "Captured tree evidence must include compactTree or llmTree.",
+                "Captured tree evidence must include original UIA tree evidence or compactTree.",
                 toolName: record.ToolName));
             return;
         }
@@ -240,6 +234,80 @@ internal static class AvaDeterministicValidators
             inspector.InspectTreeRoot(treeRoot);
         }
     }
+
+    private static JsonElement[] GetValidationTreeRoots(JsonElement root, string toolName)
+    {
+        if (TryGetOriginalTreeRoot(root, toolName, out var originalTreeRoot))
+        {
+            return [originalTreeRoot];
+        }
+
+        return FallbackTreePropertyNames
+            .Select(propertyName => TryGetProperty(root, propertyName, out var tree) ? tree : (JsonElement?)null)
+            .Where(static tree => tree is not null)
+            .Select(static tree => tree!.Value)
+            .ToArray();
+    }
+
+    private static bool TryGetOriginalTreeRoot(JsonElement root, string toolName, out JsonElement treeRoot)
+    {
+        if (TryGetProperty(root, "debugEvidence", out var debugEvidence) &&
+            debugEvidence.ValueKind == JsonValueKind.Object)
+        {
+            if (IsFocusTool(toolName) &&
+                TryGetNestedProperty(debugEvidence, ["focusTree", "focusedElement"], out treeRoot))
+            {
+                return true;
+            }
+
+            if (TryGetNestedProperty(debugEvidence, ["fullTree", "elementTree"], out treeRoot))
+            {
+                return true;
+            }
+
+            if (TryGetNestedProperty(debugEvidence, ["focusTree", "focusedElement"], out treeRoot))
+            {
+                return true;
+            }
+        }
+
+        if (IsFocusTool(toolName) &&
+            TryGetProperty(root, "focusedElement", out treeRoot))
+        {
+            return true;
+        }
+
+        if (TryGetProperty(root, "elementTree", out treeRoot))
+        {
+            return true;
+        }
+
+        if (TryGetProperty(root, "focusedElement", out treeRoot))
+        {
+            return true;
+        }
+
+        treeRoot = default;
+        return false;
+    }
+
+    private static bool TryGetNestedProperty(JsonElement element, IReadOnlyList<string> propertyPath, out JsonElement value)
+    {
+        value = element;
+        foreach (var propertyName in propertyPath)
+        {
+            if (!TryGetProperty(value, propertyName, out value))
+            {
+                value = default;
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsFocusTool(string toolName)
+        => string.Equals(toolName, "describe_window_focus", StringComparison.OrdinalIgnoreCase);
 
     private static JsonDocument? TryParseJson(string rawOutput, out string parseError)
     {
@@ -268,7 +336,9 @@ internal static class AvaDeterministicValidators
         string summary,
         string? toolName = null,
         string? nodeReference = null,
-        string? nodeTrace = null)
+        string? nodeTrace = null,
+        string? automationId = null,
+        string? ariaProperties = null)
     {
         var rule = AvaProfileCatalog.ResolveRule(context.ProfileId, id);
         return new AvaAccessibilityFinding(
@@ -283,7 +353,9 @@ internal static class AvaDeterministicValidators
             context.StepId,
             toolName,
             nodeReference,
-            nodeTrace);
+            nodeTrace,
+            automationId,
+            ariaProperties);
     }
 
     private static string ToolToken(string toolName)
@@ -432,20 +504,24 @@ internal static class AvaDeterministicValidators
 
         private void InspectNodeIfActionable(JsonElement node, string? nodeTrace)
         {
-            var hasActions = HasNonEmptyCollectionLikeProperty(node, "actions");
-            var hasPatterns = HasNonEmptyCollectionLikeProperty(node, "patterns");
+            var hasActions = HasAnyMeaningfulActionProperty(node);
+            var hasPatterns = HasAnyNonEmptyCollectionLikeProperty(node, PatternPropertyNames);
             var hasKeyboardFocusable = TryGetFirstBoolean(node, KeyboardFocusablePropertyNames, out var isKeyboardFocusable) &&
                 isKeyboardFocusable;
             var hasRole = TryGetFirstString(node, RolePropertyNames, out var role);
-            var hasInteractiveRole = hasRole && ContainsAnyTerm(role, InteractiveRoleTerms);
+            var hasStrongActionRole = hasRole && ContainsAnyTerm(role, StrongActionRoleTerms);
 
-            if (!hasActions && !hasPatterns && !hasKeyboardFocusable && !hasInteractiveRole)
+            if (!hasActions && !hasPatterns && !hasKeyboardFocusable && !hasStrongActionRole)
             {
                 return;
             }
 
             actionableNodeIndex++;
             var nodeReference = $"actionable-{actionableNodeIndex:000}";
+            var automationId = TryGetFirstString(node, AutomationIdPropertyNames, out var foundAutomationId)
+                ? foundAutomationId
+                : null;
+            var ariaProperties = FormatAriaProperties(node);
 
             if (!TryGetFirstString(node, NamePropertyNames, out _))
             {
@@ -456,7 +532,9 @@ internal static class AvaDeterministicValidators
                     "Actionable UI node is missing an accessible name.",
                     record.ToolName,
                     nodeReference,
-                    nodeTrace));
+                    nodeTrace,
+                    automationId,
+                    ariaProperties));
             }
 
             if (!hasRole)
@@ -468,7 +546,9 @@ internal static class AvaDeterministicValidators
                     "Actionable UI node is missing a role or control type.",
                     record.ToolName,
                     nodeReference,
-                    nodeTrace));
+                    nodeTrace,
+                    automationId,
+                    ariaProperties));
             }
 
             if (hasActions || hasPatterns)
@@ -479,7 +559,7 @@ internal static class AvaDeterministicValidators
             // Conservative actionability heuristic:
             // command-like controls normally need an automation pattern or explicit action to explain how they can be invoked.
             // Generic focusable controls can still be valid custom controls, so those are routed to review instead of failure.
-            var status = hasInteractiveRole && ContainsAnyTerm(role, StrongActionRoleTerms)
+            var status = hasStrongActionRole
                 ? AvaFindingStatus.Fail
                 : AvaFindingStatus.NeedsReview;
             findings.Add(CreateFinding(
@@ -489,17 +569,17 @@ internal static class AvaDeterministicValidators
                 "Actionable UI node has no exposed control patterns or explicit actions.",
                 record.ToolName,
                 nodeReference,
-                nodeTrace));
+                nodeTrace,
+                automationId,
+                ariaProperties));
         }
 
         private static bool TryBuildNodeTraceSegment(JsonElement node, out string traceSegment)
         {
             var hasRole = TryGetFirstString(node, RolePropertyNames, out var role);
             var hasName = TryGetFirstString(node, NamePropertyNames, out var name);
-            var hasAutomationId = TryGetFirstString(node, AutomationIdPropertyNames, out var automationId);
-            var hasPath = TryGetTracePath(node, out var pathName, out var path);
 
-            if (!hasRole && !hasName && !hasAutomationId && !hasPath)
+            if (!hasRole && !hasName)
             {
                 traceSegment = string.Empty;
                 return false;
@@ -515,39 +595,210 @@ internal static class AvaDeterministicValidators
                 parts.Add($"\"{CleanTraceValue(name)}\"");
             }
 
-            if (hasAutomationId)
-            {
-                parts.Add($"#{CleanTraceValue(automationId)}");
-            }
-
-            if (hasPath)
-            {
-                parts.Add($"[{pathName}={CleanTraceValue(path)}]");
-            }
-
             traceSegment = string.Join(" ", parts);
             return true;
         }
 
-        private static bool TryGetTracePath(JsonElement node, out string pathName, out string path)
+        private static string? FormatAriaProperties(JsonElement node)
         {
-            foreach (var propertyName in UiPathPropertyNames)
+            var properties = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            CollectAriaProperties(node, properties);
+            if (properties.Count == 0)
             {
-                if (TryGetProperty(node, propertyName, out var property) &&
-                    property.ValueKind == JsonValueKind.String)
+                return null;
+            }
+
+            return string.Join(
+                "; ",
+                properties
+                    .Take(MaxAriaPropertyCount)
+                    .Select(static property => $"{property.Key}: {property.Value}"));
+        }
+
+        private static void CollectAriaProperties(
+            JsonElement node,
+            IDictionary<string, string> properties)
+        {
+            if (node.ValueKind != JsonValueKind.Object)
+            {
+                return;
+            }
+
+            foreach (var property in node.EnumerateObject())
+            {
+                if (property.Name.Equals("ariaProperties", StringComparison.OrdinalIgnoreCase) &&
+                    property.Value.ValueKind == JsonValueKind.String &&
+                    TryCollectSerializedAriaProperties(property.Value.GetString(), properties))
                 {
-                    path = property.GetString()?.Trim() ?? string.Empty;
-                    if (path.Length > 0)
+                    continue;
+                }
+
+                if (IsAriaPropertyName(property.Name) &&
+                    TryFormatAriaValue(property.Value, out var value))
+                {
+                    properties[NormalizeAriaPropertyName(property.Name)] = value;
+                    continue;
+                }
+
+                if (IsAriaContainerPropertyName(property.Name) &&
+                    property.Value.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var childProperty in property.Value.EnumerateObject())
                     {
-                        pathName = propertyName;
-                        return true;
+                        if (childProperty.Name.Equals("ariaProperties", StringComparison.OrdinalIgnoreCase) &&
+                            childProperty.Value.ValueKind == JsonValueKind.String &&
+                            TryCollectSerializedAriaProperties(childProperty.Value.GetString(), properties))
+                        {
+                            continue;
+                        }
+
+                        if (IsAriaPropertyName(childProperty.Name) &&
+                            TryFormatAriaValue(childProperty.Value, out value))
+                        {
+                            properties[NormalizeAriaPropertyName(childProperty.Name)] = value;
+                        }
                     }
                 }
             }
+        }
 
-            pathName = string.Empty;
-            path = string.Empty;
-            return false;
+        private static bool TryCollectSerializedAriaProperties(
+            string? ariaProperties,
+            IDictionary<string, string> properties)
+        {
+            if (string.IsNullOrWhiteSpace(ariaProperties) ||
+                IsUnsupportedPropertyValue(ariaProperties))
+            {
+                return false;
+            }
+
+            var collected = false;
+            foreach (var part in ariaProperties.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var separatorIndex = part.IndexOf('=');
+                if (separatorIndex < 0)
+                {
+                    separatorIndex = part.IndexOf(':');
+                }
+
+                if (separatorIndex <= 0 || separatorIndex == part.Length - 1)
+                {
+                    continue;
+                }
+
+                var name = part[..separatorIndex].Trim();
+                var value = part[(separatorIndex + 1)..].Trim().Trim('"');
+                if (name.Length == 0 ||
+                    !IsMeaningfulString(value) ||
+                    IsUnsupportedPropertyValue(value))
+                {
+                    continue;
+                }
+
+                properties[NormalizeSerializedAriaPropertyName(name)] = CleanTraceValue(value);
+                collected = true;
+            }
+
+            return collected;
+        }
+
+        private static string NormalizeSerializedAriaPropertyName(string propertyName)
+        {
+            var trimmed = propertyName.Trim().Replace('_', '-');
+            if (trimmed.StartsWith("aria-", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith("aria", StringComparison.OrdinalIgnoreCase))
+            {
+                return NormalizeAriaPropertyName(trimmed);
+            }
+
+            return $"aria-{trimmed.ToLowerInvariant()}";
+        }
+
+        private static bool IsAriaContainerPropertyName(string propertyName)
+            => AriaContainerPropertyNames.Contains(propertyName, StringComparer.OrdinalIgnoreCase);
+
+        private static bool IsAriaPropertyName(string propertyName)
+            => propertyName.StartsWith("aria-", StringComparison.OrdinalIgnoreCase) ||
+                propertyName.StartsWith("aria", StringComparison.OrdinalIgnoreCase);
+
+        private static string NormalizeAriaPropertyName(string propertyName)
+        {
+            var trimmed = propertyName.Trim();
+            if (trimmed.StartsWith("aria-", StringComparison.OrdinalIgnoreCase))
+            {
+                return trimmed.ToLowerInvariant();
+            }
+
+            if (trimmed.Equals("aria", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Equals("ariaProperties", StringComparison.OrdinalIgnoreCase))
+            {
+                return trimmed;
+            }
+
+            var suffix = trimmed[4..];
+            if (suffix.Length == 0)
+            {
+                return trimmed;
+            }
+
+            var builder = new StringBuilder("aria");
+            foreach (var character in suffix)
+            {
+                if (char.IsUpper(character))
+                {
+                    builder.Append('-');
+                    builder.Append(char.ToLowerInvariant(character));
+                }
+                else
+                {
+                    builder.Append(char.ToLowerInvariant(character));
+                }
+            }
+
+            return builder.ToString();
+        }
+
+        private static bool TryFormatAriaValue(JsonElement valueElement, out string value)
+        {
+            value = string.Empty;
+            switch (valueElement.ValueKind)
+            {
+                case JsonValueKind.String:
+                    var stringValue = valueElement.GetString() ?? string.Empty;
+                    if (IsUnsupportedPropertyValue(stringValue))
+                    {
+                        return false;
+                    }
+
+                    value = CleanTraceValue(stringValue);
+                    return value.Length > 0;
+                case JsonValueKind.True:
+                    value = "true";
+                    return true;
+                case JsonValueKind.False:
+                    value = "false";
+                    return true;
+                case JsonValueKind.Number:
+                    value = valueElement.GetRawText();
+                    return true;
+                case JsonValueKind.Array:
+                    var values = valueElement
+                        .EnumerateArray()
+                        .Select(static item => item.ValueKind == JsonValueKind.String
+                            ? CleanTraceValue(item.GetString() ?? string.Empty)
+                            : item.GetRawText())
+                        .Where(static item => item.Length > 0 && !IsUnsupportedPropertyValue(item))
+                        .ToArray();
+                    if (values.Length == 0)
+                    {
+                        return false;
+                    }
+
+                    value = string.Join(", ", values);
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         private static string? FormatNodeTrace(IReadOnlyList<string> nodeTrace)
@@ -597,6 +848,35 @@ internal static class AvaDeterministicValidators
             };
         }
 
+        private static bool HasAnyNonEmptyCollectionLikeProperty(JsonElement node, IReadOnlyList<string> propertyNames)
+            => propertyNames.Any(propertyName => HasNonEmptyCollectionLikeProperty(node, propertyName));
+
+        private static bool HasAnyMeaningfulActionProperty(JsonElement node)
+            => ActionPropertyNames.Any(propertyName =>
+                TryGetProperty(node, propertyName, out var property) &&
+                HasMeaningfulActionValue(property));
+
+        private static bool HasMeaningfulActionValue(JsonElement element)
+            => element.ValueKind switch
+            {
+                JsonValueKind.String => IsMeaningfulActionString(element.GetString()),
+                JsonValueKind.Object => element.EnumerateObject().Any(static property => HasMeaningfulActionValue(property.Value)),
+                JsonValueKind.Array => element.EnumerateArray().Any(HasMeaningfulActionValue),
+                JsonValueKind.True => true,
+                JsonValueKind.Number => true,
+                _ => false
+            };
+
+        private static bool IsMeaningfulActionString(string? value)
+        {
+            if (!IsMeaningfulString(value))
+            {
+                return false;
+            }
+
+            return !StructuralActionNames.Contains(value!.Trim());
+        }
+
         private static bool HasMeaningfulValue(JsonElement element)
             => element.ValueKind switch
             {
@@ -619,6 +899,10 @@ internal static class AvaDeterministicValidators
             return !string.Equals(normalized, "none", StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(normalized, "[]", StringComparison.Ordinal);
         }
+
+        private static bool IsUnsupportedPropertyValue(string value)
+            => value.Contains("Unsupported Property", StringComparison.OrdinalIgnoreCase) &&
+               value.Contains("ArgumentException", StringComparison.OrdinalIgnoreCase);
 
         private static bool ContainsAnyTerm(string value, IReadOnlyList<string> terms)
             => terms.Any(term => value.Contains(term, StringComparison.OrdinalIgnoreCase));

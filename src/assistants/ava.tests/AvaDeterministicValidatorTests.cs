@@ -20,6 +20,65 @@ public sealed class AvaDeterministicValidatorTests
         Assert.Equal(AvaFindingStatus.Pass, checkpoint.Status);
     }
 
+    [Fact]
+    public async Task Runner_UsesOriginalDebugTreeInsteadOfLlmProjection()
+    {
+        var report = await RunWithEvidenceAsync([
+            Captured(
+                "describe_window",
+                """
+                {
+                  "debugEvidence": {
+                    "fullTree": {
+                      "elementTree": {
+                        "name": "Submit",
+                        "controlType": "Button",
+                        "isKeyboardFocusable": true,
+                        "availableActions": ["focus", "invoke"]
+                      }
+                    }
+                  },
+                  "compactTree": {
+                    "controlType": "Button",
+                    "isKeyboardFocusable": true
+                  },
+                  "llmTree": {
+                    "controlType": "Button",
+                    "isKeyboardFocusable": true
+                  }
+                }
+                """),
+            Captured(
+                "describe_window_focus",
+                """
+                {
+                  "debugEvidence": {
+                    "focusTree": {
+                      "focusedElement": {
+                        "name": "Submit",
+                        "controlType": "Button",
+                        "isKeyboardFocusable": true,
+                        "availableActions": ["focus", "invoke"]
+                      }
+                    }
+                  },
+                  "compactTree": {
+                    "controlType": "Button",
+                    "isKeyboardFocusable": true
+                  },
+                  "llmTree": {
+                    "controlType": "Button",
+                    "isKeyboardFocusable": true
+                  }
+                }
+                """)
+        ]);
+
+        var step = Assert.Single(report.Steps);
+        Assert.Empty(step.Findings);
+        Assert.Equal(AvaFindingStatus.Pass, Assert.Single(step.Checkpoints).Status);
+    }
+
     [Theory]
     [InlineData("describe_window", """{"compactTree": """, "AVA-TREE-PARSE")]
     [InlineData("describe_window_focus", """{"compactTree": """, "AVA-TREE-PARSE")]
@@ -102,6 +161,38 @@ public sealed class AvaDeterministicValidatorTests
     }
 
     [Fact]
+    public async Task Runner_StructuralAvailableActionsDoNotMakeContainersActionable()
+    {
+        var report = await RunWithEvidenceAsync([
+            Captured(
+                "describe_window",
+                """
+                {
+                  "compactTree": {
+                    "name": "App",
+                    "controlType": "Window",
+                    "children": [
+                      {
+                        "controlType": "Pane",
+                        "availableActions": ["scroll_into_view"]
+                      },
+                      {
+                        "controlType": "ListItem",
+                        "availableActions": ["scroll_into_view"]
+                      }
+                    ]
+                  }
+                }
+                """),
+            Captured("describe_window_focus", ValidButtonTree)
+        ]);
+
+        var step = Assert.Single(report.Steps);
+        Assert.Empty(step.Findings);
+        Assert.Equal(AvaFindingStatus.Pass, Assert.Single(step.Checkpoints).Status);
+    }
+
+    [Fact]
     public async Task Runner_NodeFindingsIncludeReadableElementTrace()
     {
         var report = await RunWithEvidenceAsync([
@@ -123,6 +214,7 @@ public sealed class AvaDeterministicValidatorTests
                             "name": "Submit",
                             "controlType": "Button",
                             "automationId": "submitButton",
+                            "ariaProperties": "expanded=false; current=page",
                             "uiPath": "0/2"
                           }
                         ]
@@ -139,11 +231,43 @@ public sealed class AvaDeterministicValidatorTests
 
         Assert.Equal("actionable-001", finding.NodeReference);
         Assert.Equal(
-            "Window \"Calculator\" [uiPath=root] / Pane \"Main pane\" [uiPath=0] / Button \"Submit\" #submitButton [uiPath=0/2]",
+            "Window \"Calculator\" / Pane \"Main pane\" / Button \"Submit\"",
             finding.NodeTrace);
-        Assert.Contains("trace: Window \"Calculator\" [uiPath=root] / Pane \"Main pane\" [uiPath=0] / Button \"Submit\" #submitButton [uiPath=0/2]",
+        Assert.Equal("submitButton", finding.AutomationId);
+        Assert.Equal("aria-current: page; aria-expanded: false", finding.AriaProperties);
+        Assert.Contains("trace: Window \"Calculator\" / Pane \"Main pane\" / Button \"Submit\"",
             finding.EvidenceSummary,
             StringComparison.Ordinal);
+        Assert.Contains("automationId: submitButton", finding.EvidenceSummary, StringComparison.Ordinal);
+        Assert.Contains("aria: aria-current: page; aria-expanded: false", finding.EvidenceSummary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Runner_IgnoresUnsupportedAriaPropertyPlaceholders()
+    {
+        var report = await RunWithEvidenceAsync([
+            Captured(
+                "describe_window",
+                """
+                {
+                  "compactTree": {
+                    "name": "Submit",
+                    "controlType": "Button",
+                    "automationId": "submitButton",
+                    "ariaRole": "System.ArgumentException: Unsupported Property.",
+                    "ariaProperties": "System.ArgumentException: Unsupported Property.",
+                    "isKeyboardFocusable": true
+                  }
+                }
+                """),
+            Captured("describe_window_focus", ValidButtonTree)
+        ]);
+
+        var finding = Assert.Single(report.Steps.Single().Findings, finding =>
+            finding.Id.StartsWith("AVA-ACTION-MISSING", StringComparison.Ordinal));
+
+        Assert.Equal("submitButton", finding.AutomationId);
+        Assert.Null(finding.AriaProperties);
     }
 
     [Fact]

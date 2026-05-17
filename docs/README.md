@@ -7,6 +7,7 @@ These docs cover how to configure and run HeronWin.
 - [Voice And Text Mode](./get-started-voice-mode.md)
 - [OpenAI Configuration](./get-started-openaiconfig.md)
 - [Create App Skills](./APP_SKILLS.md)
+- [AVA Rule Catalog](./ava/rules/README.md)
 
 Developer-facing design notes, bug writeups, performance baselines, and project history live in [devdocs](../devdocs/README.md).
 

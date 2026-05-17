@@ -14,6 +14,14 @@ internal static class WindowAutomation
 {
     private const int MaxBoundedUiDepth = 4;
 
+    private static readonly AutomationProperty? AriaRoleProperty = CreateOptionalAutomationProperty(
+        "AriaRole",
+        "AutomationElementIdentifiers.AriaRoleProperty");
+
+    private static readonly AutomationProperty? AriaPropertiesProperty = CreateOptionalAutomationProperty(
+        "AriaProperties",
+        "AutomationElementIdentifiers.AriaPropertiesProperty");
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -1015,7 +1023,9 @@ internal static class WindowAutomation
             GetIsSelected(element),
             GetAvailableActions(element),
             GetBoundingRectangle(element),
-            includeChildren ? children : []);
+            includeChildren ? children : [],
+            GetOptionalStringProperty(element, AriaRoleProperty),
+            GetOptionalStringProperty(element, AriaPropertiesProperty));
     }
 
     private static IReadOnlyList<string> GetAvailableActions(AutomationElement element)
@@ -3678,6 +3688,53 @@ internal static class WindowAutomation
         }
     }
 
+    private static AutomationProperty? CreateOptionalAutomationProperty(string identifierName, string programmaticName)
+    {
+        try
+        {
+            var registerMethod = typeof(AutomationProperty).GetMethod(
+                "Register",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            var identifierType = registerMethod?.GetParameters()[0].ParameterType;
+            if (registerMethod is null || identifierType is null)
+            {
+                return null;
+            }
+
+            var identifier = Enum.Parse(identifierType, identifierName);
+            return registerMethod.Invoke(null, [identifier, programmaticName]) as AutomationProperty;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string GetOptionalStringProperty(AutomationElement element, AutomationProperty? property)
+    {
+        if (property is null)
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            var value = element.GetCurrentPropertyValue(property, ignoreDefaultValue: true);
+            if (value is null ||
+                value is Exception ||
+                ReferenceEquals(value, AutomationElement.NotSupported))
+            {
+                return string.Empty;
+            }
+
+            return Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
     private static bool GetIsEnabled(AutomationElement element)
     {
         try
@@ -3868,7 +3925,9 @@ internal sealed record UiElementSnapshot(
     bool IsSelected,
     IReadOnlyList<string> AvailableActions,
     ElementBounds? Bounds,
-    IReadOnlyList<UiElementSnapshot> Children);
+    IReadOnlyList<UiElementSnapshot> Children,
+    string AriaRole = "",
+    string AriaProperties = "");
 
 internal sealed class UiElementSnapshotJsonConverter : JsonConverter<UiElementSnapshot>
 {
@@ -3885,6 +3944,8 @@ internal sealed class UiElementSnapshotJsonConverter : JsonConverter<UiElementSn
         writer.WriteString("ControlType", value.ControlType);
         WriteStringIfMeaningful(writer, "AutomationId", value.AutomationId);
         WriteStringIfMeaningful(writer, "ClassName", value.ClassName);
+        WriteStringIfMeaningful(writer, "AriaRole", value.AriaRole);
+        WriteStringIfMeaningful(writer, "AriaProperties", value.AriaProperties);
         WriteBooleanIfTrue(writer, "IsEnabled", value.IsEnabled);
         WriteBooleanIfTrue(writer, "IsOffscreen", value.IsOffscreen);
         WriteBooleanIfTrue(writer, "HasKeyboardFocus", value.HasKeyboardFocus);
