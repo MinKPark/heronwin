@@ -101,7 +101,6 @@ public sealed class AvaReportTests
         Assert.Contains("\"exportId\": \"ava-114dab35d9fdad7f96fdafa9\"", json, StringComparison.Ordinal);
         Assert.Contains("\"triageCategory\": \"not-tested\"", json, StringComparison.Ordinal);
         Assert.Contains("# AVA Validation Report: Active window smoke", markdown, StringComparison.Ordinal);
-        Assert.Contains("`not-tested`", markdown, StringComparison.Ordinal);
         Assert.Contains("### Steps", markdown, StringComparison.Ordinal);
         Assert.Contains("| Total | Pass | Fail | Needs Review | Not Tested |", markdown, StringComparison.Ordinal);
         Assert.Contains("| 1 | 0 | 0 | 0 | 1 |", markdown, StringComparison.Ordinal);
@@ -111,8 +110,12 @@ public sealed class AvaReportTests
         Assert.Contains("| **Total** | 1 | 0 | 0 | 1 |", markdown, StringComparison.Ordinal);
         Assert.DoesNotContain("Checkpoint status counts", markdown, StringComparison.Ordinal);
         Assert.DoesNotContain("Finding status counts", markdown, StringComparison.Ordinal);
-        Assert.Contains("| Finding | Status | Checkpoint | Summary | Triage | Rule | Evidence | Tool | Node | Trace | Export ID |", markdown, StringComparison.Ordinal);
-        Assert.Contains("`AVA-NOT-TESTED-001` | `not-tested` | `after`", markdown, StringComparison.Ordinal);
+        Assert.Contains("##### Automated Failures (0)", markdown, StringComparison.Ordinal);
+        Assert.Contains("##### Human Review Needed (0)", markdown, StringComparison.Ordinal);
+        Assert.Contains("##### Not Tested (1)", markdown, StringComparison.Ordinal);
+        Assert.Contains("| Finding | Source | Checkpoint | Summary | Rule | Evidence | Trace | Export ID |", markdown, StringComparison.Ordinal);
+        Assert.DoesNotContain("| Node |", markdown, StringComparison.Ordinal);
+        Assert.Contains("`AVA-NOT-TESTED` |  | `after`", markdown, StringComparison.Ordinal);
         Assert.Contains("`federal-web-min`<br>`WEB-UIA-EVIDENCE-MISSING`", markdown, StringComparison.Ordinal);
         Assert.Contains("`ava-114dab35d9fdad7f96fdafa9`", markdown, StringComparison.Ordinal);
         Assert.Contains("Evidence: `evidence/step-001/manifest.json` (`missing`, 1 entries)", markdown, StringComparison.Ordinal);
@@ -210,7 +213,84 @@ public sealed class AvaReportTests
 
         Assert.Contains("\"nodeTrace\":", json, StringComparison.Ordinal);
         Assert.Contains("Window \\u0022Calculator\\u0022 [uiPath=root] / Button \\u0022Submit\\u0022 [uiPath=0]", json, StringComparison.Ordinal);
-        Assert.Contains("`actionable-001` | `Window \"Calculator\" [uiPath=root] / Button \"Submit\" [uiPath=0]`", markdown, StringComparison.Ordinal);
+        Assert.Contains("##### Automated Failures (1)", markdown, StringComparison.Ordinal);
+        Assert.Contains("##### Human Review Needed (0)", markdown, StringComparison.Ordinal);
+        Assert.Contains("`AVA-ACTION-MISSING` | `DESCRIBE-WINDOW` | `after`", markdown, StringComparison.Ordinal);
+        Assert.Contains("[manifest.json](evidence/step-001/manifest.json)", markdown, StringComparison.Ordinal);
+        Assert.Contains("[manifest.json](evidence/step-001/manifest.json) | `Window \"Calculator\" [uiPath=root] / Button \"Submit\" [uiPath=0]`", markdown, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReportWriter_RendersStepScreenshotsBeforeFindings()
+    {
+        var outputDirectory = CreateTemporaryDirectory();
+        var sourceScreenshotPath = Path.Combine(outputDirectory, "window source.png");
+        File.WriteAllText(sourceScreenshotPath, "fake png");
+        var rawScreenshotOutput = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            ImagePath = sourceScreenshotPath,
+            ImageFormat = "png"
+        });
+        var evidenceReference = new AvaEvidenceBundleWriter().WriteStepEvidence(new AvaEvidenceBundleWriteRequest(
+            "run-001",
+            outputDirectory,
+            "step-001",
+            1,
+            "Step 1",
+            "0x00010001",
+            [
+                new AvaEvidenceRecord(
+                    "capture_window_screenshot",
+                    AvaEvidenceStatus.Captured,
+                    101,
+                    rawScreenshotOutput,
+                    "Screenshot captured.",
+                    null)
+            ]));
+        var report = new AvaValidationReport(
+            "run-001",
+            "Active window smoke",
+            "Federal Windows UIA minimum",
+            AvaProfileIds.FederalWindowsUiaMin,
+            "continue-and-report",
+            ["after"],
+            "scenario.yml",
+            "validation.yml",
+            [
+                new AvaStepResult(
+                    1,
+                    "step-001",
+                    "Step 1",
+                    "Describe active window.",
+                    "continue-and-report",
+                    evidenceReference,
+                    [
+                        new AvaCheckpointResult(
+                            "after",
+                            AvaFindingStatus.Pass,
+                            "Fixture pass.")
+                    ],
+                    [])
+            ]);
+
+        var writeResult = AvaReportWriter.Write(report, outputDirectory);
+        var markdown = File.ReadAllText(writeResult.MarkdownPath);
+        var screenshotsIndex = markdown.IndexOf("#### Screenshots", StringComparison.Ordinal);
+        var findingsIndex = markdown.IndexOf("#### Findings", StringComparison.Ordinal);
+
+        Assert.True(screenshotsIndex >= 0);
+        Assert.True(findingsIndex > screenshotsIndex);
+        Assert.Contains("**After checkpoint - Capture Window Screenshot**", markdown, StringComparison.Ordinal);
+        Assert.Contains(
+            "![step-001 After checkpoint Capture Window Screenshot](evidence/step-001/screenshots/001-capture_window_screenshot.png)",
+            markdown,
+            StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(
+            outputDirectory,
+            "evidence",
+            "step-001",
+            "screenshots",
+            "001-capture_window_screenshot.png")));
     }
 
     [Fact]
@@ -299,8 +379,10 @@ public sealed class AvaReportTests
             finding => finding.Id.StartsWith("AVA-ACTION-MISSING", StringComparison.Ordinal) &&
                 finding.ToolName == "describe_window");
         Assert.Equal("Window \"Calculator\" [uiPath=root] / Button \"Submit\" [uiPath=0]", actionFinding.NodeTrace);
-        Assert.Contains("| Finding | Status | Checkpoint | Summary | Triage | Rule | Evidence | Tool | Node | Trace | Export ID |", markdown, StringComparison.Ordinal);
-        Assert.Contains("`actionable-001` | `Window \"Calculator\" [uiPath=root] / Button \"Submit\" [uiPath=0]`", markdown, StringComparison.Ordinal);
+        Assert.Contains("| Finding | Source | Checkpoint | Summary | Rule | Evidence | Trace | Export ID |", markdown, StringComparison.Ordinal);
+        Assert.DoesNotContain("| Node |", markdown, StringComparison.Ordinal);
+        Assert.Contains("[manifest.json](evidence/step-001/manifest.json)", markdown, StringComparison.Ordinal);
+        Assert.Contains("[manifest.json](evidence/step-001/manifest.json) | `Window \"Calculator\" [uiPath=root] / Button \"Submit\" [uiPath=0]`", markdown, StringComparison.Ordinal);
     }
 
     [Theory]

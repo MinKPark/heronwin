@@ -269,7 +269,7 @@ internal static class AvaReportWriter
         var markdownPath = Path.Combine(fullOutputDirectory, "report.md");
 
         File.WriteAllText(jsonPath, ToJson(report), Encoding.UTF8);
-        File.WriteAllText(markdownPath, ToMarkdown(report), Encoding.UTF8);
+        File.WriteAllText(markdownPath, ToMarkdown(report, fullOutputDirectory), Encoding.UTF8);
 
         return new AvaReportWriteResult(markdownPath, jsonPath);
     }
@@ -292,6 +292,9 @@ internal static class AvaReportWriter
     }
 
     public static string ToMarkdown(AvaValidationReport report)
+        => ToMarkdown(report, outputDirectory: null);
+
+    private static string ToMarkdown(AvaValidationReport report, string? outputDirectory)
     {
         var builder = new StringBuilder();
         builder.AppendLine($"# AVA Validation Report: {report.ScenarioName}");
@@ -326,6 +329,7 @@ internal static class AvaReportWriter
             builder.AppendLine($"- Checkpoints: `{string.Join(", ", step.Checkpoints.Select(static checkpoint => checkpoint.Timing))}`");
             builder.AppendLine($"- Evidence: `{step.Evidence.ManifestPath}` (`{step.Evidence.Status}`, {step.Evidence.EntryCount} entries)");
 
+            AppendStepScreenshots(builder, step, outputDirectory);
             AppendFindingsTable(builder, step.Findings);
         }
 
@@ -420,6 +424,257 @@ internal static class AvaReportWriter
     private static int GetStatusCount(IReadOnlyDictionary<string, int> counts, string status)
         => counts.TryGetValue(status, out var count) ? count : 0;
 
+    private static void AppendStepScreenshots(
+        StringBuilder builder,
+        AvaStepResult step,
+        string? outputDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(outputDirectory))
+        {
+            return;
+        }
+
+        var screenshots = LoadStepScreenshots(outputDirectory, step);
+        if (screenshots.Count == 0)
+        {
+            return;
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("#### Screenshots");
+        builder.AppendLine();
+
+        foreach (var screenshot in screenshots)
+        {
+            builder.AppendLine($"**{screenshot.Label}**");
+            builder.AppendLine();
+            builder.AppendLine($"![{EscapeImageAltText(screenshot.AltText)}]({EscapeLinkDestination(screenshot.ReportPath)})");
+            builder.AppendLine();
+        }
+    }
+
+    private static IReadOnlyList<StepScreenshot> LoadStepScreenshots(
+        string outputDirectory,
+        AvaStepResult step)
+    {
+        var manifestPath = ResolvePath(outputDirectory, step.Evidence.ManifestPath);
+        if (!File.Exists(manifestPath))
+        {
+            return [];
+        }
+
+        AvaEvidenceManifest? manifest;
+        try
+        {
+            manifest = JsonSerializer.Deserialize<AvaEvidenceManifest>(
+                File.ReadAllText(manifestPath, Encoding.UTF8),
+                JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+
+        if (manifest is null)
+        {
+            return [];
+        }
+
+        var manifestDirectory = Path.GetDirectoryName(manifestPath);
+        if (string.IsNullOrWhiteSpace(manifestDirectory))
+        {
+            return [];
+        }
+
+        var allScreenshots = new List<StepScreenshot>();
+        var dedicatedScreenshots = new List<StepScreenshot>();
+        foreach (var entry in manifest.Entries)
+        {
+            var screenshot = TryLoadStepScreenshot(outputDirectory, manifestDirectory, step, entry);
+            if (screenshot is null)
+            {
+                continue;
+            }
+
+            allScreenshots.Add(screenshot);
+            if (string.Equals(entry.ToolName, "capture_window_screenshot", StringComparison.Ordinal))
+            {
+                dedicatedScreenshots.Add(screenshot);
+            }
+        }
+
+        return dedicatedScreenshots.Count > 0 ? dedicatedScreenshots : allScreenshots;
+    }
+
+    private static StepScreenshot? TryLoadStepScreenshot(
+        string outputDirectory,
+        string manifestDirectory,
+        AvaStepResult step,
+        AvaEvidenceManifestEntry entry)
+    {
+        if (!string.Equals(entry.Status, AvaEvidenceStatus.Captured, StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(entry.RawOutputPath))
+        {
+            return null;
+        }
+
+        var rawOutputPath = ResolvePath(manifestDirectory, entry.RawOutputPath);
+        if (!File.Exists(rawOutputPath))
+        {
+            return null;
+        }
+
+        var imagePath = TryExtractScreenshotImagePath(File.ReadAllText(rawOutputPath, Encoding.UTF8));
+        if (string.IsNullOrWhiteSpace(imagePath))
+        {
+            return null;
+        }
+
+        var sourceImagePath = ResolvePath(manifestDirectory, imagePath);
+        if (!File.Exists(sourceImagePath))
+        {
+            return null;
+        }
+
+        var screenshotDirectory = Path.Combine(manifestDirectory, "screenshots");
+        var extension = Path.GetExtension(sourceImagePath);
+        if (string.IsNullOrWhiteSpace(extension))
+        {
+            extension = ".png";
+        }
+
+        var targetPath = Path.Combine(
+            screenshotDirectory,
+            $"{entry.Sequence:000}-{SanitizeFileNameSegment(entry.ToolName)}{extension.ToLowerInvariant()}");
+
+        try
+        {
+            Directory.CreateDirectory(screenshotDirectory);
+            if (!string.Equals(
+                    Path.GetFullPath(sourceImagePath),
+                    Path.GetFullPath(targetPath),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                File.Copy(sourceImagePath, targetPath, overwrite: true);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            return null;
+        }
+
+        var checkpointLabel = FormatCheckpointTiming(step.Checkpoints.LastOrDefault()?.Timing);
+        var toolLabel = HumanizeIdentifier(entry.ToolName);
+        return new StepScreenshot(
+            $"{checkpointLabel} - {toolLabel}",
+            ToRelativeReportPath(outputDirectory, targetPath),
+            $"{step.StepId} {checkpointLabel} {toolLabel}");
+    }
+
+    private static string? TryExtractScreenshotImagePath(string rawOutput)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(rawOutput);
+            var root = document.RootElement;
+            if (TryGetStringProperty(root, "imagePath", out var imagePath) ||
+                TryGetStringProperty(root, "screenshotPath", out imagePath))
+            {
+                return imagePath;
+            }
+
+            if (TryGetProperty(root, "screenshot", out var screenshot) &&
+                (TryGetStringProperty(screenshot, "filePath", out imagePath) ||
+                 TryGetStringProperty(screenshot, "imagePath", out imagePath) ||
+                 TryGetStringProperty(screenshot, "path", out imagePath)))
+            {
+                return imagePath;
+            }
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        return null;
+    }
+
+    private static bool TryGetStringProperty(JsonElement element, string propertyName, out string? value)
+    {
+        value = null;
+        if (!TryGetProperty(element, propertyName, out var property) ||
+            property.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        value = property.GetString();
+        return !string.IsNullOrWhiteSpace(value);
+    }
+
+    private static bool TryGetProperty(JsonElement element, string propertyName, out JsonElement value)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = property.Value;
+                    return true;
+                }
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
+    private static string FormatCheckpointTiming(string? timing)
+        => timing switch
+        {
+            "before" => "Before checkpoint",
+            "during" => "During checkpoint",
+            "after" or null or "" => "After checkpoint",
+            _ => $"{HumanizeIdentifier(timing)} checkpoint"
+        };
+
+    private static string HumanizeIdentifier(string value)
+        => string.Join(
+            " ",
+            value.Split(['_', '-'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(static token => token.Length == 0
+                    ? token
+                    : string.Concat(char.ToUpperInvariant(token[0]), token[1..].ToLowerInvariant())));
+
+    private static string ToRelativeReportPath(string outputDirectory, string path)
+        => Path.GetRelativePath(outputDirectory, path).Replace('\\', '/');
+
+    private static string ResolvePath(string baseDirectory, string path)
+    {
+        var normalizedPath = path.Replace('/', Path.DirectorySeparatorChar);
+        return Path.IsPathRooted(normalizedPath)
+            ? normalizedPath
+            : Path.GetFullPath(normalizedPath, baseDirectory);
+    }
+
+    private static string SanitizeFileNameSegment(string value)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var builder = new StringBuilder(value.Length);
+        foreach (var ch in value)
+        {
+            builder.Append(invalid.Contains(ch) ? '-' : ch);
+        }
+
+        return builder.ToString();
+    }
+
+    private sealed record StepScreenshot(
+        string Label,
+        string ReportPath,
+        string AltText);
+
     private static void AppendFindingsTable(
         StringBuilder builder,
         IReadOnlyList<AvaAccessibilityFinding> findings)
@@ -434,35 +689,180 @@ internal static class AvaReportWriter
             return;
         }
 
-        builder.AppendLine("| Finding | Status | Checkpoint | Summary | Triage | Rule | Evidence | Tool | Node | Trace | Export ID |");
-        builder.AppendLine("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |");
+        var automatedFailures = findings
+            .Where(static finding => string.Equals(
+                finding.TriageCategory,
+                AvaTriageCategory.AutomatedFailure,
+                StringComparison.Ordinal))
+            .ToArray();
+        var humanReviewNeeded = findings
+            .Where(static finding => string.Equals(
+                finding.TriageCategory,
+                AvaTriageCategory.NeedsHumanReview,
+                StringComparison.Ordinal))
+            .ToArray();
+        var evidenceGaps = findings
+            .Where(static finding => string.Equals(
+                finding.TriageCategory,
+                AvaTriageCategory.EvidenceGap,
+                StringComparison.Ordinal))
+            .ToArray();
+        var notTestedFindings = findings
+            .Where(static finding => string.Equals(
+                finding.TriageCategory,
+                AvaTriageCategory.NotTested,
+                StringComparison.Ordinal))
+            .ToArray();
+        var otherFindings = findings
+            .Where(static finding =>
+                !string.Equals(finding.TriageCategory, AvaTriageCategory.AutomatedFailure, StringComparison.Ordinal) &&
+                !string.Equals(finding.TriageCategory, AvaTriageCategory.NeedsHumanReview, StringComparison.Ordinal) &&
+                !string.Equals(finding.TriageCategory, AvaTriageCategory.EvidenceGap, StringComparison.Ordinal) &&
+                !string.Equals(finding.TriageCategory, AvaTriageCategory.NotTested, StringComparison.Ordinal))
+            .ToArray();
+
+        AppendFindingCategoryTable(
+            builder,
+            "Automated Failures",
+            automatedFailures,
+            "_No automated failures._");
+        AppendFindingCategoryTable(
+            builder,
+            "Human Review Needed",
+            humanReviewNeeded,
+            "_No human review findings._");
+        if (evidenceGaps.Length > 0)
+        {
+            AppendFindingCategoryTable(
+                builder,
+                "Evidence Gaps",
+                evidenceGaps,
+                "_No evidence gaps._");
+        }
+
+        if (notTestedFindings.Length > 0)
+        {
+            AppendFindingCategoryTable(
+                builder,
+                "Not Tested",
+                notTestedFindings,
+                "_No not-tested findings._");
+        }
+
+        if (otherFindings.Length > 0)
+        {
+            AppendFindingCategoryTable(
+                builder,
+                "Other Findings",
+                otherFindings,
+                "_No other findings._");
+        }
+    }
+
+    private static void AppendFindingCategoryTable(
+        StringBuilder builder,
+        string heading,
+        IReadOnlyList<AvaAccessibilityFinding> findings,
+        string emptyMessage)
+    {
+        builder.AppendLine($"##### {heading} ({findings.Count})");
+        builder.AppendLine();
+        if (findings.Count == 0)
+        {
+            builder.AppendLine(emptyMessage);
+            builder.AppendLine();
+            return;
+        }
+
+        builder.AppendLine("| Finding | Source | Checkpoint | Summary | Rule | Evidence | Trace | Export ID |");
+        builder.AppendLine("| --- | --- | --- | --- | --- | --- | --- | --- |");
 
         foreach (var finding in findings)
         {
             builder.Append("| ");
-            builder.Append(CodeCell(finding.Id));
+            builder.Append(CodeCell(FindingDisplayId(finding.Id)));
             builder.Append(" | ");
-            builder.Append(CodeCell(finding.Status));
+            builder.Append(CodeCell(FindingSource(finding)));
             builder.Append(" | ");
             builder.Append(CodeCell(finding.Checkpoint));
             builder.Append(" | ");
             builder.Append(TextCell(finding.Summary));
             builder.Append(" | ");
-            builder.Append(CodeCell(finding.TriageCategory));
-            builder.Append(" | ");
             builder.Append(RuleCell(finding));
             builder.Append(" | ");
-            builder.Append(CodeCell(finding.EvidenceReference));
-            builder.Append(" | ");
-            builder.Append(CodeCell(finding.ToolName));
-            builder.Append(" | ");
-            builder.Append(CodeCell(finding.NodeReference));
+            builder.Append(EvidenceLinkCell(finding.EvidenceReference));
             builder.Append(" | ");
             builder.Append(CodeCell(finding.NodeTrace));
             builder.Append(" | ");
             builder.Append(CodeCell(finding.ExportId));
             builder.AppendLine(" |");
         }
+
+        builder.AppendLine();
+    }
+
+    private static string FindingDisplayId(string findingId)
+    {
+        var tokens = findingId.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var stepTokenIndex = Array.FindIndex(tokens, IsOrdinalToken);
+        if (stepTokenIndex <= 0)
+        {
+            return findingId;
+        }
+
+        return string.Join('-', tokens.Take(stepTokenIndex));
+    }
+
+    private static string? FindingSource(AvaAccessibilityFinding finding)
+        => string.IsNullOrWhiteSpace(finding.ToolName)
+            ? SourceFromFindingId(finding.Id)
+            : NormalizeSourceToken(finding.ToolName);
+
+    private static string? SourceFromFindingId(string findingId)
+    {
+        var tokens = findingId.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var stepTokenIndex = Array.FindIndex(tokens, IsOrdinalToken);
+        if (stepTokenIndex < 0 || stepTokenIndex == tokens.Length - 1)
+        {
+            return null;
+        }
+
+        var sourceTokens = tokens
+            .Skip(stepTokenIndex + 1)
+            .ToArray();
+        if (sourceTokens.Length > 0 && IsOrdinalToken(sourceTokens[^1]))
+        {
+            sourceTokens = sourceTokens[..^1];
+        }
+
+        return sourceTokens.Length == 0 ? null : string.Join('-', sourceTokens);
+    }
+
+    private static bool IsOrdinalToken(string token)
+        => token.Length == 3 && token.All(char.IsDigit);
+
+    private static string NormalizeSourceToken(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+        var previousWasSeparator = false;
+
+        foreach (var character in value.Trim())
+        {
+            if (char.IsLetterOrDigit(character))
+            {
+                builder.Append(char.ToUpperInvariant(character));
+                previousWasSeparator = false;
+                continue;
+            }
+
+            if (!previousWasSeparator)
+            {
+                builder.Append('-');
+                previousWasSeparator = true;
+            }
+        }
+
+        return builder.ToString().Trim('-');
     }
 
     private static string RuleCell(AvaAccessibilityFinding finding)
@@ -495,6 +895,44 @@ internal static class AvaReportWriter
         => string.IsNullOrWhiteSpace(value)
             ? string.Empty
             : EscapeTableCell(value);
+
+    private static string EvidenceLinkCell(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var destination = value.Trim().Replace('\\', '/');
+        var label = Path.GetFileName(destination);
+        if (string.IsNullOrWhiteSpace(label))
+        {
+            label = destination;
+        }
+
+        return $"[{EscapeLinkText(label)}]({EscapeLinkDestination(destination)})";
+    }
+
+    private static string EscapeLinkText(string value)
+        => EscapeTableCell(value)
+            .Replace("[", "\\[", StringComparison.Ordinal)
+            .Replace("]", "\\]", StringComparison.Ordinal);
+
+    private static string EscapeImageAltText(string value)
+        => value
+            .Replace("\r\n", " ", StringComparison.Ordinal)
+            .Replace('\r', ' ')
+            .Replace('\n', ' ')
+            .Replace("[", "\\[", StringComparison.Ordinal)
+            .Replace("]", "\\]", StringComparison.Ordinal)
+            .Trim();
+
+    private static string EscapeLinkDestination(string value)
+        => value
+            .Replace(" ", "%20", StringComparison.Ordinal)
+            .Replace("(", "%28", StringComparison.Ordinal)
+            .Replace(")", "%29", StringComparison.Ordinal)
+            .Replace("|", "%7C", StringComparison.Ordinal);
 
     private static string EscapeTableCell(string value)
         => value
