@@ -18,10 +18,12 @@ This file has two jobs:
 |--------|----------|------|-----------|
 | `next` | `P0` | Cut scripted Netflix smoke runtime below one minute. | Use the 2026-05-03 `tars` / `OpenAiCodex` pass (`246.797 s`) as the current post-refactor baseline, then rerun OpenAI API `gpt-5.5` and `gpt-5.4-mini` after the API quota/billing blocker is cleared. |
 | `next` | `P0` | Make scripted scenario pass/fail stricter for incomplete final outcomes. | `gpt-5.4` API and `gpt-5.3-codex-spark` CLI runs passed current checks even though Turn 5 said playback was not confirmed; update assertions/evaluator so incomplete final replies cannot pass just because required title text appears. |
+| `next` | `P0` | Review the AVA findings table under each scenario step. | Inspect generated Markdown from `AvaReportWriter.ToMarkdown`; confirm the per-step `#### Findings` table has the right columns, order, and readability for reviewers, then update report tests and docs before expanding validators. |
 | `next` | `P1` | Decide whether to add separate scripted coverage for app-first launch. | The current Netflix smoke is now explicitly website-navigation-based; add another smoke if we want deterministic coverage for the app-first fallback-confirmation path. |
 | `next` | `P1` | Finish the compact-tree rollout in `cognition`. | Add the opt-in screenshot-vs-compact evaluation harness, then run the documented parity checks, benchmarks, and manual evaluation passes in [Cognition Compact Tree Migration](./designs/cognition-compact-tree-migration.md). |
 | `next` | `P1` | Split more assistant-specific runner policy out of the shared library. | Move scenario-only runner/context code toward `tars` and interactive-only voice/text policy toward `cursor` as the next cleanup pass. |
 | `next` | `P1` | Broaden the prompt and skill intent vocabulary. | Add a small set of generic intents and cover them with activation tests. |
+| `done` | `P0` | Introduce the AVA accessibility validation assistant MVP. | Completed 2026-05-16: added the AVA design plan, assistant host/tests, validation runner with command execution and evidence collection, role-specific LLM configuration, Markdown/JSON reports, and report regeneration. |
 | `done` | `P0` | Support Codex Spark. | Completed 2026-05-16: implemented the CLI-first path from [Codex Spark Support Plan](./designs/codex-spark-support-plan.md), including Spark alias normalization, model-profile handling, Spark-safe image omission, config/docs updates, trace-report coverage, and focused tests. |
 | `done` | `P2` | Broaden automated tests for built-in process tools. | Completed 2026-05-10: added process-list parsing/formatting coverage, start/stop argument validation coverage, and safe start/list/stop integration tests for test-owned processes. |
 
@@ -73,11 +75,28 @@ part of committed repo history.
     - rerun reached the `Boyfriend on Demand` title surface and attempted
       playback, but final playback was not confirmed; the final Codex CLI call
       exited `1` with a ChatGPT plugin-sync `403` warning in stderr.
+- End-of-day 2026-05-16 wrap-up:
+  - before this documentation wrap-up, `git status --short --branch` was clean
+    on `main...origin/main` at commit `24853f5`.
+  - committed AVA work today introduced the accessibility validation assistant
+    plan, assistant host/tests, active validation runner, evidence collection,
+    role-specific LLM configuration, report regeneration, and setup docs.
+  - added the active P0 follow-up to review the AVA findings table rendered
+    under each scenario step before expanding report consumers or validators.
+  - verification during this wrap-up:
+    - `dotnet test src\assistants\ava.tests\HeronWin.Ava.Tests.csproj`
+      passed with 49 tests.
+  - full-solution tests were not rerun during this wrap-up pass.
 
 ## Daily Repo History
 
 Source shape: `git log --date=short --pretty=format:"%ad %h %s"`
 
+- `2026-05-16` (7 commits): added the AVA accessibility validation assistant
+  plan, introduced the runnable AVA host and tests, implemented the AVA-owned
+  validation runner with command execution and evidence collection, added
+  role-specific LLM configuration, added report regeneration, and fixed README
+  project capitalization.
 - `2026-05-10` (3 commits): swept stale validation artifacts and old-name
   references, moved daily summaries under `devdocs/daily/2026/`, added the
   daily-summary index, and completed the P2 built-in process-tools coverage

@@ -1,7 +1,26 @@
 # AVA Accessibility Validation Assistant Plan
 
 Last updated: 2026-05-16
-Status: revised draft for AVA-owned execution review
+Status: active implementation; AVA host, active runner, report output, and
+report regeneration are committed, with report review and validator expansion
+still in progress.
+
+## Current Implementation Status
+
+As of the 2026-05-16 wrap-up, the first AVA vertical slice is committed:
+
+- Phase 0 through Phase 3 have initial implementation coverage in the AVA host,
+  runner, evidence collection path, report writer, and focused AVA tests.
+- Role-specific driver/evaluator/reporter model configuration is implemented;
+  the driver role is active now, while evaluator and reporter passes remain
+  future work.
+- Report regeneration can rebuild Markdown/JSON from saved AVA run artifacts.
+- P0 next: review the generated per-step `#### Findings` table in Markdown
+  reports for reviewer readability, column order, and future ACR/export needs
+  before expanding report consumers or validators.
+- Verification recorded during wrap-up:
+  `dotnet test src\assistants\ava.tests\HeronWin.Ava.Tests.csproj` passed with
+  49 tests. Full-solution tests were not rerun in that pass.
 
 ## Summary
 
