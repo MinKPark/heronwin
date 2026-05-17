@@ -13,6 +13,7 @@ public sealed class AvaCliTests
         Assert.True(options.ShowHelp);
         Assert.False(options.IsValidationRun);
         Assert.False(options.IsTraceReport);
+        Assert.False(options.IsReportRegeneration);
     }
 
     [Fact]
@@ -33,6 +34,7 @@ public sealed class AvaCliTests
         Assert.Equal(Path.GetFullPath(validationConfigPath), options.ValidationConfigPath);
         Assert.Null(options.RunBundlePath);
         Assert.Null(options.TraceReportPath);
+        Assert.Null(options.RegenerateReportPath);
     }
 
     [Fact]
@@ -46,6 +48,7 @@ public sealed class AvaCliTests
         Assert.Equal(Path.GetFullPath(bundlePath), options.RunBundlePath);
         Assert.Null(options.UxScenarioPath);
         Assert.Null(options.ValidationConfigPath);
+        Assert.Null(options.RegenerateReportPath);
     }
 
     [Fact]
@@ -57,7 +60,30 @@ public sealed class AvaCliTests
 
         Assert.True(options.IsTraceReport);
         Assert.False(options.IsValidationRun);
+        Assert.False(options.IsReportRegeneration);
         Assert.Equal(Path.GetFullPath(tracePath), options.TraceReportPath);
+    }
+
+    [Fact]
+    public void ParseAva_ReturnsReportRegenerationArgument()
+    {
+        var runPath = Path.Combine(Path.GetTempPath(), "ava-run");
+
+        var options = BrainConsoleMode.ParseAva(["--regenerate-report", runPath]);
+
+        Assert.True(options.IsReportRegeneration);
+        Assert.False(options.IsTraceReport);
+        Assert.False(options.IsValidationRun);
+        Assert.Equal(Path.GetFullPath(runPath), options.RegenerateReportPath);
+    }
+
+    [Fact]
+    public void ParseAva_ReturnsLatestReportRegenerationArgument()
+    {
+        var options = BrainConsoleMode.ParseAva(["--regenerate-report", "latest"]);
+
+        Assert.True(options.IsReportRegeneration);
+        Assert.Equal("latest", options.RegenerateReportPath);
     }
 
     [Theory]
@@ -100,7 +126,21 @@ public sealed class AvaCliTests
                 "validation.yml"
             ]));
 
-        Assert.Contains("either --trace-report", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("only one AVA mode", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ParseAva_RejectsReportRegenerationMixedWithValidation()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => BrainConsoleMode.ParseAva([
+                "--regenerate-report",
+                "latest",
+                "--run",
+                "bundle.yml"
+            ]));
+
+        Assert.Contains("only one AVA mode", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

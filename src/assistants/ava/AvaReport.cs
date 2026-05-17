@@ -256,6 +256,7 @@ internal static class AvaReportWriter
     {
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
@@ -276,6 +277,20 @@ internal static class AvaReportWriter
     public static string ToJson(AvaValidationReport report)
         => JsonSerializer.Serialize(report, JsonOptions) + Environment.NewLine;
 
+    public static AvaValidationReport ReadJson(string jsonPath)
+    {
+        var fullPath = Path.GetFullPath(jsonPath);
+        if (!File.Exists(fullPath))
+        {
+            throw new FileNotFoundException($"AVA report JSON was not found: {fullPath}", fullPath);
+        }
+
+        return JsonSerializer.Deserialize<AvaValidationReport>(
+                   File.ReadAllText(fullPath, Encoding.UTF8),
+                   JsonOptions)
+               ?? throw new InvalidOperationException($"AVA report JSON was empty or invalid: {fullPath}");
+    }
+
     public static string ToMarkdown(AvaValidationReport report)
     {
         var builder = new StringBuilder();
@@ -291,10 +306,7 @@ internal static class AvaReportWriter
         builder.AppendLine();
         builder.AppendLine("## Summary");
         builder.AppendLine();
-        builder.AppendLine($"- Steps: `{report.Steps.Count}`");
-        builder.AppendLine($"- Findings: `{report.Steps.Sum(static step => step.Findings.Count)}`");
-        builder.AppendLine($"- Checkpoint status counts: `{FormatStatusCounts(report.CheckpointStatusCounts)}`");
-        builder.AppendLine($"- Finding status counts: `{FormatStatusCounts(report.FindingStatusCounts)}`");
+        AppendSummaryTables(builder, report);
         builder.AppendLine();
         builder.AppendLine("## Steps");
 
@@ -319,6 +331,94 @@ internal static class AvaReportWriter
 
         return builder.ToString();
     }
+
+    private static void AppendSummaryTables(StringBuilder builder, AvaValidationReport report)
+    {
+        var stepStatusCounts = CountStepStatuses(report);
+
+        builder.AppendLine("### Steps");
+        builder.AppendLine();
+        builder.AppendLine("| Total | Pass | Fail | Needs Review | Not Tested |");
+        builder.AppendLine("| --- | --- | --- | --- | --- |");
+        builder.Append("| ");
+        builder.Append(report.Steps.Count);
+        builder.Append(" | ");
+        builder.Append(GetStatusCount(stepStatusCounts, AvaFindingStatus.Pass));
+        builder.Append(" | ");
+        builder.Append(GetStatusCount(stepStatusCounts, AvaFindingStatus.Fail));
+        builder.Append(" | ");
+        builder.Append(GetStatusCount(stepStatusCounts, AvaFindingStatus.NeedsReview));
+        builder.Append(" | ");
+        builder.Append(GetStatusCount(stepStatusCounts, AvaFindingStatus.NotTested));
+        builder.AppendLine(" |");
+        builder.AppendLine();
+
+        AppendFindingsSummaryTable(builder, report);
+    }
+
+    private static void AppendFindingsSummaryTable(StringBuilder builder, AvaValidationReport report)
+    {
+        builder.AppendLine("### Findings");
+        builder.AppendLine();
+        builder.AppendLine("| Step | Total | Fail | Needs Review | Not Tested |");
+        builder.AppendLine("| --- | --- | --- | --- | --- |");
+
+        foreach (var step in report.Steps)
+        {
+            AppendFindingSummaryRow(builder, CodeCell(step.StepId), CountFindingStatuses(step.Findings), step.Findings.Count);
+        }
+
+        AppendFindingSummaryRow(
+            builder,
+            "**Total**",
+            report.FindingStatusCounts,
+            report.Steps.Sum(static step => step.Findings.Count));
+    }
+
+    private static void AppendFindingSummaryRow(
+        StringBuilder builder,
+        string label,
+        IReadOnlyDictionary<string, int> statusCounts,
+        int total)
+    {
+        builder.Append("| ");
+        builder.Append(label);
+        builder.Append(" | ");
+        builder.Append(total);
+        builder.Append(" | ");
+        builder.Append(GetStatusCount(statusCounts, AvaFindingStatus.Fail));
+        builder.Append(" | ");
+        builder.Append(GetStatusCount(statusCounts, AvaFindingStatus.NeedsReview));
+        builder.Append(" | ");
+        builder.Append(GetStatusCount(statusCounts, AvaFindingStatus.NotTested));
+        builder.AppendLine(" |");
+    }
+
+    private static IReadOnlyDictionary<string, int> CountFindingStatuses(IReadOnlyList<AvaAccessibilityFinding> findings)
+    {
+        var counts = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        foreach (var finding in findings)
+        {
+            counts[finding.Status] = counts.TryGetValue(finding.Status, out var count) ? count + 1 : 1;
+        }
+
+        return counts;
+    }
+
+    private static IReadOnlyDictionary<string, int> CountStepStatuses(AvaValidationReport report)
+    {
+        var counts = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        foreach (var step in report.Steps)
+        {
+            var status = AvaFindingStatus.Aggregate(step.Checkpoints.Select(static checkpoint => checkpoint.Status));
+            counts[status] = counts.TryGetValue(status, out var count) ? count + 1 : 1;
+        }
+
+        return counts;
+    }
+
+    private static int GetStatusCount(IReadOnlyDictionary<string, int> counts, string status)
+        => counts.TryGetValue(status, out var count) ? count : 0;
 
     private static void AppendFindingsTable(
         StringBuilder builder,
@@ -404,10 +504,6 @@ internal static class AvaReportWriter
             .Replace("|", "\\|", StringComparison.Ordinal)
             .Replace("\n", "<br>", StringComparison.Ordinal);
 
-    private static string FormatStatusCounts(IReadOnlyDictionary<string, int> counts)
-        => counts.Count == 0
-            ? "none"
-            : string.Join(", ", counts.Select(static pair => $"{pair.Key}: {pair.Value}"));
 }
 
 internal sealed record AvaReportWriteResult(

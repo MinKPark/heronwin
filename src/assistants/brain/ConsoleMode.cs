@@ -21,7 +21,8 @@ internal sealed record AvaConsoleOptions(
     string? UxScenarioPath,
     string? ValidationConfigPath,
     string? RunBundlePath,
-    string? TraceReportPath)
+    string? TraceReportPath,
+    string? RegenerateReportPath)
 {
     public bool IsValidationRun =>
         !ShowHelp &&
@@ -31,6 +32,10 @@ internal sealed record AvaConsoleOptions(
     public bool IsTraceReport =>
         !ShowHelp &&
         !string.IsNullOrWhiteSpace(TraceReportPath);
+
+    public bool IsReportRegeneration =>
+        !ShowHelp &&
+        !string.IsNullOrWhiteSpace(RegenerateReportPath);
 }
 
 internal static class BrainConsoleMode
@@ -48,7 +53,7 @@ internal static class BrainConsoleMode
     {
         if (args.Length == 0)
         {
-            return new AvaConsoleOptions(false, null, null, null, null);
+            return new AvaConsoleOptions(false, null, null, null, null, null);
         }
 
         var showHelp = false;
@@ -56,6 +61,7 @@ internal static class BrainConsoleMode
         string? validationConfigPath = null;
         string? runBundlePath = null;
         string? traceReportPath = null;
+        string? regenerateReportPath = null;
 
         for (var index = 0; index < args.Length; index += 1)
         {
@@ -103,6 +109,18 @@ internal static class BrainConsoleMode
                     traceReportPath = Path.GetFullPath(RequireValue(args, ref index, arg));
                     break;
 
+                case "--regenerate-report":
+                    if (!string.IsNullOrWhiteSpace(regenerateReportPath))
+                    {
+                        throw new InvalidOperationException("Only one --regenerate-report path can be provided.");
+                    }
+
+                    var reportPath = RequireValue(args, ref index, arg);
+                    regenerateReportPath = string.Equals(reportPath, "latest", StringComparison.OrdinalIgnoreCase)
+                        ? "latest"
+                        : Path.GetFullPath(reportPath);
+                    break;
+
                 default:
                     throw new InvalidOperationException(
                         $"Unknown argument \"{arg}\". Use --help to see supported options.");
@@ -115,11 +133,14 @@ internal static class BrainConsoleMode
             var hasValidationConfig = !string.IsNullOrWhiteSpace(validationConfigPath);
             var hasRunBundle = !string.IsNullOrWhiteSpace(runBundlePath);
             var hasTraceReport = !string.IsNullOrWhiteSpace(traceReportPath);
+            var hasRegenerateReport = !string.IsNullOrWhiteSpace(regenerateReportPath);
 
-            if (hasTraceReport && (hasUxScenario || hasValidationConfig || hasRunBundle))
+            if ((hasTraceReport ? 1 : 0) +
+                (hasRegenerateReport ? 1 : 0) +
+                (hasRunBundle || hasUxScenario || hasValidationConfig ? 1 : 0) > 1)
             {
                 throw new InvalidOperationException(
-                    "Use either --trace-report or validation run flags, not both together.");
+                    "Use only one AVA mode: --trace-report, --regenerate-report, or validation run flags.");
             }
 
             if (hasRunBundle && (hasUxScenario || hasValidationConfig))
@@ -135,7 +156,13 @@ internal static class BrainConsoleMode
             }
         }
 
-        return new AvaConsoleOptions(showHelp, uxScenarioPath, validationConfigPath, runBundlePath, traceReportPath);
+        return new AvaConsoleOptions(
+            showHelp,
+            uxScenarioPath,
+            validationConfigPath,
+            runBundlePath,
+            traceReportPath,
+            regenerateReportPath);
     }
 
     private static BrainConsoleOptions Parse(string[] args, bool allowScenario)
@@ -248,6 +275,10 @@ internal static class BrainConsoleMode
         Console.WriteLine("                                           Run a validation bundle with relative scenario/config paths");
         Console.WriteLine("  ava.exe --trace-report .\\ava.debug.jsonl");
         Console.WriteLine("                                           Print a markdown latency report for a saved JSONL trace");
+        Console.WriteLine("  ava.exe --regenerate-report latest");
+        Console.WriteLine("                                           Rebuild report.md/report.json for the newest AVA run");
+        Console.WriteLine("  ava.exe --regenerate-report .\\artifacts\\ava\\run-id");
+        Console.WriteLine("                                           Rebuild report.md/report.json from saved run data");
         Console.WriteLine();
         Console.WriteLine("Accessibility validation notes:");
         Console.WriteLine("  Direct validation requires both --ux-scenario and --validation-config.");

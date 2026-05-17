@@ -15,7 +15,10 @@ catch (Exception ex) when (ex is InvalidOperationException or FileNotFoundExcept
     return;
 }
 
-if (consoleOptions.ShowHelp || !consoleOptions.IsValidationRun && !consoleOptions.IsTraceReport)
+if (consoleOptions.ShowHelp ||
+    !consoleOptions.IsValidationRun &&
+    !consoleOptions.IsTraceReport &&
+    !consoleOptions.IsReportRegeneration)
 {
     BrainConsoleMode.PrintAvaHelp();
     Environment.ExitCode = consoleOptions.ShowHelp ? 0 : 1;
@@ -27,6 +30,26 @@ if (consoleOptions.IsTraceReport)
     try
     {
         Console.WriteLine(BrainTraceReporter.GenerateMarkdown(consoleOptions.TraceReportPath!));
+    }
+    catch (Exception ex) when (ex is InvalidOperationException or FileNotFoundException)
+    {
+        Console.Error.WriteLine($"x  {ex.Message}");
+        Environment.ExitCode = 1;
+    }
+
+    return;
+}
+
+if (consoleOptions.IsReportRegeneration)
+{
+    try
+    {
+        var writeResult = AvaReportRegenerator.Regenerate(
+            consoleOptions.RegenerateReportPath!,
+            Directory.GetCurrentDirectory());
+
+        Console.WriteLine($"AVA report regenerated: {writeResult.MarkdownPath}");
+        Console.WriteLine($"AVA report JSON regenerated: {writeResult.JsonPath}");
     }
     catch (Exception ex) when (ex is InvalidOperationException or FileNotFoundException)
     {

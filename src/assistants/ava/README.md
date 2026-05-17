@@ -22,6 +22,13 @@ Run with a bundle:
 dotnet run --project src/assistants/ava -- --run .\bundle.yml
 ```
 
+Regenerate Markdown/JSON from a saved run without driving the UI again:
+
+```powershell
+dotnet run --project src/assistants/ava -- --regenerate-report latest
+dotnet run --project src/assistants/ava -- --regenerate-report .\artifacts\ava\<run-id>
+```
+
 AVA uses role-specific LLM settings for its logical conversations. The driver
 role is active now; evaluator and reporter settings are reserved for future
 LLM-based accessibility review and triage passes:

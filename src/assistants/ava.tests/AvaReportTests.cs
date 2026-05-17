@@ -102,6 +102,15 @@ public sealed class AvaReportTests
         Assert.Contains("\"triageCategory\": \"not-tested\"", json, StringComparison.Ordinal);
         Assert.Contains("# AVA Validation Report: Active window smoke", markdown, StringComparison.Ordinal);
         Assert.Contains("`not-tested`", markdown, StringComparison.Ordinal);
+        Assert.Contains("### Steps", markdown, StringComparison.Ordinal);
+        Assert.Contains("| Total | Pass | Fail | Needs Review | Not Tested |", markdown, StringComparison.Ordinal);
+        Assert.Contains("| 1 | 0 | 0 | 0 | 1 |", markdown, StringComparison.Ordinal);
+        Assert.Contains("### Findings", markdown, StringComparison.Ordinal);
+        Assert.Contains("| Step | Total | Fail | Needs Review | Not Tested |", markdown, StringComparison.Ordinal);
+        Assert.Contains("| `step-001` | 1 | 0 | 0 | 1 |", markdown, StringComparison.Ordinal);
+        Assert.Contains("| **Total** | 1 | 0 | 0 | 1 |", markdown, StringComparison.Ordinal);
+        Assert.DoesNotContain("Checkpoint status counts", markdown, StringComparison.Ordinal);
+        Assert.DoesNotContain("Finding status counts", markdown, StringComparison.Ordinal);
         Assert.Contains("| Finding | Status | Checkpoint | Summary | Triage | Rule | Evidence | Tool | Node | Trace | Export ID |", markdown, StringComparison.Ordinal);
         Assert.Contains("`AVA-NOT-TESTED-001` | `not-tested` | `after`", markdown, StringComparison.Ordinal);
         Assert.Contains("`federal-web-min`<br>`WEB-UIA-EVIDENCE-MISSING`", markdown, StringComparison.Ordinal);
@@ -201,6 +210,96 @@ public sealed class AvaReportTests
 
         Assert.Contains("\"nodeTrace\":", json, StringComparison.Ordinal);
         Assert.Contains("Window \\u0022Calculator\\u0022 [uiPath=root] / Button \\u0022Submit\\u0022 [uiPath=0]", json, StringComparison.Ordinal);
+        Assert.Contains("`actionable-001` | `Window \"Calculator\" [uiPath=root] / Button \"Submit\" [uiPath=0]`", markdown, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReportRegenerator_RerunsValidatorsFromSavedEvidence()
+    {
+        var outputDirectory = CreateTemporaryDirectory();
+        var evidenceReference = new AvaEvidenceBundleWriter().WriteStepEvidence(new AvaEvidenceBundleWriteRequest(
+            "run-001",
+            outputDirectory,
+            "step-001",
+            1,
+            "Step 1",
+            "0x00010001",
+            [
+                new AvaEvidenceRecord(
+                    "describe_window",
+                    AvaEvidenceStatus.Captured,
+                    101,
+                    """
+                    {
+                      "compactTree": {
+                        "name": "Calculator",
+                        "controlType": "Window",
+                        "uiPath": "root",
+                        "children": [
+                          {
+                            "name": "Submit",
+                            "controlType": "Button",
+                            "uiPath": "0"
+                          }
+                        ]
+                      }
+                    }
+                    """,
+                    "fixture",
+                    null),
+                new AvaEvidenceRecord(
+                    "describe_window_focus",
+                    AvaEvidenceStatus.Captured,
+                    102,
+                    """
+                    {
+                      "compactTree": {
+                        "name": "Submit",
+                        "controlType": "Button",
+                        "uiPath": "0"
+                      }
+                    }
+                    """,
+                    "fixture",
+                    null)
+            ]));
+        var sourceReport = new AvaValidationReport(
+            "run-001",
+            "Active window smoke",
+            "Federal Windows UIA minimum",
+            AvaProfileIds.FederalWindowsUiaMin,
+            "continue-and-report",
+            ["after"],
+            "scenario.yml",
+            "validation.yml",
+            [
+                new AvaStepResult(
+                    1,
+                    "step-001",
+                    "Step 1",
+                    "Press submit.",
+                    "continue-and-report",
+                    evidenceReference,
+                    [
+                        new AvaCheckpointResult(
+                            "after",
+                            AvaFindingStatus.Pass,
+                            "Fixture source report predates regeneration.")
+                    ],
+                    [])
+            ]);
+        AvaReportWriter.Write(sourceReport, outputDirectory);
+
+        var writeResult = AvaReportRegenerator.Regenerate(outputDirectory, outputDirectory);
+        var regeneratedReport = AvaReportWriter.ReadJson(writeResult.JsonPath);
+        var markdown = File.ReadAllText(writeResult.MarkdownPath);
+
+        var actionFinding = Assert.Single(
+            regeneratedReport.Steps.Single().Findings,
+            finding => finding.Id.StartsWith("AVA-ACTION-MISSING", StringComparison.Ordinal) &&
+                finding.ToolName == "describe_window");
+        Assert.Equal("Window \"Calculator\" [uiPath=root] / Button \"Submit\" [uiPath=0]", actionFinding.NodeTrace);
+        Assert.Contains("| Finding | Status | Checkpoint | Summary | Triage | Rule | Evidence | Tool | Node | Trace | Export ID |", markdown, StringComparison.Ordinal);
         Assert.Contains("`actionable-001` | `Window \"Calculator\" [uiPath=root] / Button \"Submit\" [uiPath=0]`", markdown, StringComparison.Ordinal);
     }
 
