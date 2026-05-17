@@ -20,7 +20,7 @@ internal interface ILlmProvider
     string DisplayName { get; }
     LlmProviderCapabilities Capabilities { get; }
     void ValidateConfiguration(AppConfig config);
-    ILlmClient CreateClient(AppConfig config, HttpClient httpClient);
+    ILlmClient CreateClient(AppConfig config, HttpClient httpClient, LlmRole role = LlmRole.Default);
     IAudioTranscriber? CreateAudioTranscriber(AppConfig config, HttpClient httpClient);
     ISpeechSynthesizer? CreateSpeechSynthesizer(AppConfig config, HttpClient httpClient);
 }
@@ -68,12 +68,18 @@ internal sealed class OpenAiApiProvider : ILlmProvider
         }
     }
 
-    public ILlmClient CreateClient(AppConfig config, HttpClient httpClient)
-        => new OpenAiApiClient(
+    public ILlmClient CreateClient(AppConfig config, HttpClient httpClient, LlmRole role = LlmRole.Default)
+    {
+        var roleConfig = config.GetLlmRoleConfig(role);
+        var model = roleConfig.ModelOverride ?? config.OpenAiModel;
+        return new OpenAiApiClient(
             httpClient,
             config.OpenAiApiKey,
-            config.OpenAiModel,
-            config.LlmTemperature);
+            model,
+            config.LlmTemperature,
+            roleConfig.ReasoningEffort,
+            role);
+    }
 
     public IAudioTranscriber? CreateAudioTranscriber(AppConfig config, HttpClient httpClient)
         => string.IsNullOrWhiteSpace(config.OpenAiApiKey)
@@ -127,10 +133,18 @@ internal sealed class OpenAiCodexProvider : ILlmProvider
         }
     }
 
-    public ILlmClient CreateClient(AppConfig config, HttpClient httpClient)
-        => new OpenAiCodexCliClient(
+    public ILlmClient CreateClient(AppConfig config, HttpClient httpClient, LlmRole role = LlmRole.Default)
+    {
+        var roleConfig = config.GetLlmRoleConfig(role);
+        var model = string.IsNullOrWhiteSpace(roleConfig.ModelOverride)
+            ? config.OpenAiCodexModel
+            : OpenAiCodexModels.NormalizeConfiguredModel(roleConfig.ModelOverride);
+        return new OpenAiCodexCliClient(
             config.OpenAiCodexCommand,
-            config.OpenAiCodexModel);
+            model,
+            roleConfig.ReasoningEffort,
+            role);
+    }
 
     public IAudioTranscriber? CreateAudioTranscriber(AppConfig config, HttpClient httpClient) => null;
 
@@ -164,12 +178,18 @@ internal sealed class ClaudeApiProvider : ILlmProvider
         }
     }
 
-    public ILlmClient CreateClient(AppConfig config, HttpClient httpClient)
-        => new ClaudeApiClient(
+    public ILlmClient CreateClient(AppConfig config, HttpClient httpClient, LlmRole role = LlmRole.Default)
+    {
+        var roleConfig = config.GetLlmRoleConfig(role);
+        var model = roleConfig.ModelOverride ?? config.AnthropicModel;
+        return new ClaudeApiClient(
             httpClient,
             config.AnthropicApiKey,
-            config.AnthropicModel,
-            config.LlmTemperature);
+            model,
+            config.LlmTemperature,
+            roleConfig.ReasoningEffort,
+            role);
+    }
 
     public IAudioTranscriber? CreateAudioTranscriber(AppConfig config, HttpClient httpClient)
         => string.IsNullOrWhiteSpace(config.OpenAiApiKey)

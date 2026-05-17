@@ -102,6 +102,51 @@ public sealed class AvaDeterministicValidatorTests
     }
 
     [Fact]
+    public async Task Runner_NodeFindingsIncludeReadableElementTrace()
+    {
+        var report = await RunWithEvidenceAsync([
+            Captured(
+                "describe_window",
+                """
+                {
+                  "compactTree": {
+                    "name": "Calculator",
+                    "controlType": "Window",
+                    "uiPath": "root",
+                    "children": [
+                      {
+                        "name": "Main pane",
+                        "controlType": "Pane",
+                        "uiPath": "0",
+                        "children": [
+                          {
+                            "name": "Submit",
+                            "controlType": "Button",
+                            "automationId": "submitButton",
+                            "uiPath": "0/2"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+                """),
+            Captured("describe_window_focus", ValidButtonTree)
+        ]);
+
+        var finding = Assert.Single(report.Steps.Single().Findings, finding =>
+            finding.Id.StartsWith("AVA-ACTION-MISSING", StringComparison.Ordinal));
+
+        Assert.Equal("actionable-001", finding.NodeReference);
+        Assert.Equal(
+            "Window \"Calculator\" [uiPath=root] / Pane \"Main pane\" [uiPath=0] / Button \"Submit\" #submitButton [uiPath=0/2]",
+            finding.NodeTrace);
+        Assert.Contains("trace: Window \"Calculator\" [uiPath=root] / Pane \"Main pane\" [uiPath=0] / Button \"Submit\" #submitButton [uiPath=0/2]",
+            finding.EvidenceSummary,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Runner_MissingFocusEvidenceWithWindowEvidence_ProducesNeedsReview()
     {
         var report = await RunWithEvidenceAsync([

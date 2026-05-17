@@ -12,11 +12,14 @@ internal static class LlmFactory
     public static ILlmProvider ResolveProvider(AppConfig config)
         => LlmProviderCatalog.Resolve(config);
 
-    public static ILlmClient CreateLlmClient(AppConfig config, HttpClient httpClient)
+    public static ILlmClient CreateLlmClient(
+        AppConfig config,
+        HttpClient httpClient,
+        LlmRole role = LlmRole.Default)
     {
         var provider = ResolveProvider(config);
         provider.ValidateConfiguration(config);
-        return provider.CreateClient(config, httpClient);
+        return provider.CreateClient(config, httpClient, role);
     }
 
     public static IAudioTranscriber? CreateAudioTranscriber(AppConfig config, HttpClient httpClient)
@@ -36,10 +39,14 @@ internal sealed class OpenAiApiClient(
     HttpClient httpClient,
     string apiKey,
     string model,
-    double temperature) : ILlmClient
+    double temperature,
+    string? reasoningEffort = null,
+    LlmRole role = LlmRole.Default) : ILlmClient
 {
     public LlmProviderId ProviderId => LlmProviderId.OpenAiApi;
-    public string DisplayName => $"OpenAI API ({model})";
+    public string DisplayName => string.IsNullOrWhiteSpace(reasoningEffort)
+        ? $"OpenAI API ({model})"
+        : $"OpenAI API ({model}, reasoning={reasoningEffort})";
     public LlmModelProfile ModelProfile { get; } = LlmModelProfiles.Create(LlmProviderId.OpenAiApi, model);
 
     public async Task<ChatResult> ChatAsync(
@@ -48,21 +55,24 @@ internal sealed class OpenAiApiClient(
         string? systemPrompt,
         CancellationToken cancellationToken)
     {
-        var payload = new JsonObject
+        var payload = CreateChatPayload(
+            messages,
+            tools,
+            systemPrompt,
+            model,
+            temperature,
+            reasoningEffort);
+        if (!string.IsNullOrWhiteSpace(reasoningEffort) && !SupportsReasoningEffort(model))
         {
-            ["model"] = model,
-            ["messages"] = ToOpenAiMessages(messages, systemPrompt)
-        };
-
-        if (SupportsTemperatureControl(model))
-        {
-            payload["temperature"] = temperature;
-        }
-
-        if (tools.Count > 0)
-        {
-            payload["tools"] = ToOpenAiTools(tools);
-            payload["tool_choice"] = "auto";
+            DebugTrace.WriteStructuredEvent(
+                "llm.reasoning_effort.unsupported",
+                new Dictionary<string, object?>
+                {
+                    ["provider"] = "OpenAI",
+                    ["role"] = role.ToString(),
+                    ["model"] = model,
+                    ["reasoningEffort"] = reasoningEffort,
+                });
         }
 
         var payloadJson = payload.ToJsonString();
@@ -71,7 +81,7 @@ internal sealed class OpenAiApiClient(
         {
             DebugTrace.WriteEvent(
                 "llm.http.start",
-                $"provider=OpenAI, model={model}, messages={messages.Count}, tools={tools.Count}, retryAttempt={retryAttempt}");
+                $"provider=OpenAI, role={role}, model={model}, reasoning={reasoningEffort ?? "(default)"}, messages={messages.Count}, tools={tools.Count}, retryAttempt={retryAttempt}");
 
             using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/chat/completions");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
@@ -133,6 +143,39 @@ internal sealed class OpenAiApiClient(
 
             return new ChatResult(text, toolCalls);
         }
+    }
+
+    internal static JsonObject CreateChatPayload(
+        IReadOnlyList<AgentMessage> messages,
+        IReadOnlyList<ToolDefinition> tools,
+        string? systemPrompt,
+        string model,
+        double temperature,
+        string? reasoningEffort)
+    {
+        var payload = new JsonObject
+        {
+            ["model"] = model,
+            ["messages"] = ToOpenAiMessages(messages, systemPrompt)
+        };
+
+        if (SupportsTemperatureControl(model))
+        {
+            payload["temperature"] = temperature;
+        }
+
+        if (!string.IsNullOrWhiteSpace(reasoningEffort) && SupportsReasoningEffort(model))
+        {
+            payload["reasoning_effort"] = reasoningEffort;
+        }
+
+        if (tools.Count > 0)
+        {
+            payload["tools"] = ToOpenAiTools(tools);
+            payload["tool_choice"] = "auto";
+        }
+
+        return payload;
     }
 
     internal static JsonArray ToOpenAiMessages(IReadOnlyList<AgentMessage> messages, string? systemPrompt)
@@ -265,6 +308,15 @@ internal sealed class OpenAiApiClient(
 
     private static bool SupportsTemperatureControl(string model)
         => !model.StartsWith("gpt-5", StringComparison.OrdinalIgnoreCase);
+
+    private static bool SupportsReasoningEffort(string model)
+    {
+        var normalized = model.Trim().ToLowerInvariant();
+        return normalized.StartsWith("gpt-5", StringComparison.Ordinal) ||
+            normalized.StartsWith("o1", StringComparison.Ordinal) ||
+            normalized.StartsWith("o3", StringComparison.Ordinal) ||
+            normalized.StartsWith("o4", StringComparison.Ordinal);
+    }
 }
 
 internal sealed class OpenAiWhisperTranscriber(
@@ -371,7 +423,9 @@ internal sealed class ClaudeApiClient(
     HttpClient httpClient,
     string apiKey,
     string model,
-    double temperature) : ILlmClient
+    double temperature,
+    string? reasoningEffort = null,
+    LlmRole role = LlmRole.Default) : ILlmClient
 {
     public LlmProviderId ProviderId => LlmProviderId.ClaudeApi;
     public string DisplayName => $"Claude API ({model})";
@@ -383,6 +437,19 @@ internal sealed class ClaudeApiClient(
         string? systemPrompt,
         CancellationToken cancellationToken)
     {
+        if (!string.IsNullOrWhiteSpace(reasoningEffort))
+        {
+            DebugTrace.WriteStructuredEvent(
+                "llm.reasoning_effort.unsupported",
+                new Dictionary<string, object?>
+                {
+                    ["provider"] = "Claude",
+                    ["role"] = role.ToString(),
+                    ["model"] = model,
+                    ["reasoningEffort"] = reasoningEffort,
+                });
+        }
+
         var payload = new JsonObject
         {
             ["model"] = model,
@@ -407,7 +474,7 @@ internal sealed class ClaudeApiClient(
         {
             DebugTrace.WriteEvent(
                 "llm.http.start",
-                $"provider=Claude, model={model}, messages={messages.Count}, tools={tools.Count}, retryAttempt={retryAttempt}");
+                $"provider=Claude, role={role}, model={model}, reasoning={reasoningEffort ?? "(default/unsupported)"}, messages={messages.Count}, tools={tools.Count}, retryAttempt={retryAttempt}");
 
             using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.anthropic.com/v1/messages");
             request.Headers.Add("x-api-key", apiKey);

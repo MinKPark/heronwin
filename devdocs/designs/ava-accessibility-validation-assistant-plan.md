@@ -163,6 +163,10 @@ consume the same UX scenario shape.
   inspect the UI in one evidence timeline, choosing actions based on the current
   accessibility surface and recording how discoverable, focusable, invokable,
   stable, and understandable the UI was during execution.
+- AVA should use separate logical LLM roles for driver, evaluator, and reporter
+  conversations. The driver conversation persists across UX steps; evaluator
+  and reporter conversations should receive structured evidence/finding inputs
+  rather than inheriting the driver history.
 - Shared pieces may include YAML scenario parsing, provider setup, MCP server
   connection management, debug trace writing, report helpers, and a narrow
   assistant-neutral single-turn primitive if it exposes full tool traces.

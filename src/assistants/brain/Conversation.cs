@@ -3575,7 +3575,11 @@ internal static class AgentRunner
         var skippedEntry = Regex.IsMatch(
             combinedLowerText,
             @"\bdid(?: not|n['’]t)\s+(?:type|enter)\s+(?:the\s+)?(?:[a-z-]+\s+){0,2}(?:pin|passcode|code)\b",
-            RegexOptions.CultureInvariant);
+            RegexOptions.CultureInvariant)
+                           || Regex.IsMatch(
+                               combinedLowerText,
+                               @"\b(?:pin|passcode|code)\s+entry\s+step\b.{0,48}\bsuccessful\s+no-op\b",
+                               RegexOptions.CultureInvariant | RegexOptions.Singleline);
         var missingPrompt = Regex.IsMatch(
                                 combinedLowerText,
                                 @"\b(?:no|not present|not visible)\b.{0,80}\b(?:pin|passcode|code|lock)\b.{0,40}\b(?:prompt|screen|gate)?\b",
@@ -3584,11 +3588,19 @@ internal static class AgentRunner
                                 combinedLowerText,
                                 @"\b(?:pin|passcode|code|lock)\b.{0,40}\b(?:prompt|screen|gate)\b.{0,24}\b(?:is\s+)?not\s+present\b",
                                 RegexOptions.CultureInvariant | RegexOptions.Singleline)
+                            || Regex.IsMatch(
+                                combinedLowerText,
+                                @"\bdid\s+not\s+see(?:\s+a)?\b.{0,80}\b(?:pin|passcode|code|lock)\b.{0,40}\b(?:prompt|screen|gate)?\b",
+                                RegexOptions.CultureInvariant | RegexOptions.Singleline)
                             || combinedLowerText.Contains("pin prompt is not visible", StringComparison.Ordinal)
                             || combinedLowerText.Contains("passcode prompt is not visible", StringComparison.Ordinal)
                             || combinedLowerText.Contains("lock prompt is not visible", StringComparison.Ordinal);
         var positiveEvidence = combinedLowerText.Contains("home is visible", StringComparison.Ordinal)
                                || combinedLowerText.Contains("browse is visible", StringComparison.Ordinal)
+                               || Regex.IsMatch(
+                                   combinedLowerText,
+                                   @"\b(?:home|browse)(?:\s+[a-z-]+){0,3}\s+is\s+visible\b",
+                                   RegexOptions.CultureInvariant)
                                || combinedLowerText.Contains("lock is gone", StringComparison.Ordinal)
                                || combinedLowerText.Contains("positive evidence", StringComparison.Ordinal)
                                || combinedLowerText.Contains("confirmed from the active edge ui snapshot", StringComparison.Ordinal);

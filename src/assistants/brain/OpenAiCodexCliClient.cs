@@ -8,14 +8,25 @@ namespace HeronWin.Brain;
 
 internal sealed class OpenAiCodexCliClient(
     string cliCommand,
-    string model) : ILlmClient
+    string model,
+    string? reasoningEffort = null,
+    LlmRole role = LlmRole.Default) : ILlmClient
 {
     private readonly OpenAiCodexModelInfo _modelInfo = OpenAiCodexModels.Resolve(model);
 
     public LlmProviderId ProviderId => LlmProviderId.OpenAiCodex;
-    public string DisplayName => _modelInfo.UsesDefaultModel
-        ? "ChatGPT / Codex sign-in"
-        : $"ChatGPT / Codex sign-in ({_modelInfo.EffectiveModel})";
+    public string DisplayName
+    {
+        get
+        {
+            var modelText = _modelInfo.UsesDefaultModel
+                ? "ChatGPT / Codex sign-in"
+                : $"ChatGPT / Codex sign-in ({_modelInfo.EffectiveModel})";
+            return string.IsNullOrWhiteSpace(reasoningEffort)
+                ? modelText
+                : $"{modelText}, reasoning={reasoningEffort}";
+        }
+    }
     public LlmModelProfile ModelProfile { get; } =
         LlmModelProfiles.Create(LlmProviderId.OpenAiCodex, OpenAiCodexModels.Resolve(model).EffectiveModel);
 
@@ -116,14 +127,17 @@ internal sealed class OpenAiCodexCliClient(
             new Dictionary<string, object?>
             {
                 ["provider"] = "openai-codex",
+                ["role"] = role.ToString(),
                 ["command"] = cliCommand,
                 ["model"] = _modelInfo.TraceModel,
+                ["reasoningEffort"] = reasoningEffort,
                 ["images"] = imagePaths.Count,
                 ["imagesOmitted"] = omittedImageCount,
             });
 
         var codexArgs = OpenAiCodexCliSupport.BuildExecArguments(
             _modelInfo,
+            reasoningEffort,
             schemaPath,
             outputPath,
             imagePaths);
@@ -170,8 +184,10 @@ internal sealed class OpenAiCodexCliClient(
             new Dictionary<string, object?>
             {
                 ["provider"] = "openai-codex",
+                ["role"] = role.ToString(),
                 ["command"] = cliCommand,
                 ["model"] = _modelInfo.TraceModel,
+                ["reasoningEffort"] = reasoningEffort,
                 ["exitCode"] = process.ExitCode,
                 ["outputPreview"] = DebugTrace.Preview(processOutput, 1200),
             });
@@ -303,6 +319,7 @@ internal static class OpenAiCodexCliSupport
 
     public static IReadOnlyList<string> BuildExecArguments(
         OpenAiCodexModelInfo modelInfo,
+        string? reasoningEffort,
         string schemaPath,
         string outputPath,
         IReadOnlyList<string> imagePaths)
@@ -324,6 +341,12 @@ internal static class OpenAiCodexCliSupport
         {
             args.Add("--model");
             args.Add(modelInfo.EffectiveModel);
+        }
+
+        if (!string.IsNullOrWhiteSpace(reasoningEffort))
+        {
+            args.Add("--config");
+            args.Add($"model_reasoning_effort=\"{reasoningEffort}\"");
         }
 
         if (modelInfo.SupportsImageInputs)

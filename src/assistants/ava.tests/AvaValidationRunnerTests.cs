@@ -96,6 +96,55 @@ public sealed class AvaValidationRunnerTests
         Assert.Equal(AvaFindingStatus.NeedsReview, Assert.Single(step.Checkpoints).Status);
     }
 
+    [Fact]
+    public void BrainCommandDriver_TryExtractWindowHandle_UsesSelectedWindowHandle()
+    {
+        var handle = AvaBrainCommandDriver.TryExtractWindowHandle(
+            """
+            {
+              "SelectedWindowHandle": "0x00180398",
+              "Windows": [
+                {
+                  "Handle": "0x00180398",
+                  "Title": "Netflix - Microsoft Edge",
+                  "IsSelected": true
+                }
+              ]
+            }
+            """);
+
+        Assert.Equal("0x00180398", handle);
+    }
+
+    [Fact]
+    public void BrainCommandDriver_TryExtractWindowHandle_UsesWindowToolOutput()
+    {
+        var handle = AvaBrainCommandDriver.TryExtractWindowHandle(
+            """
+            {
+              "Window": {
+                "Handle": "0x000F00D1",
+                "Title": "Netflix - Microsoft Edge"
+              }
+            }
+            """);
+
+        Assert.Equal("0x000F00D1", handle);
+    }
+
+    [Fact]
+    public void SensitiveValueRedactor_RedactsSensitiveEnvironmentValuesOnly()
+    {
+        var redacted = AvaSensitiveValueRedactor.Redact(
+            "Enter profile PIN 3579, then open room 2468.",
+            [
+                new KeyValuePair<string, string?>("NETFLIX_PROFILE_PIN", "3579"),
+                new KeyValuePair<string, string?>("ROOM_NUMBER", "2468"),
+            ]);
+
+        Assert.Equal("Enter profile PIN [redacted], then open room 2468.", redacted);
+    }
+
     private static AvaValidationRunRequest CreateRequest()
     {
         var suite = BrainScenarioLoader.Parse(

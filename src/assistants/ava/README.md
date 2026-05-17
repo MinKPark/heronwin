@@ -22,4 +22,22 @@ Run with a bundle:
 dotnet run --project src/assistants/ava -- --run .\bundle.yml
 ```
 
+AVA uses role-specific LLM settings for its logical conversations. The driver
+role is active now; evaluator and reporter settings are reserved for future
+LLM-based accessibility review and triage passes:
+
+```dotenv
+DRIVER_MODEL=
+DRIVER_REASONING_EFFORT=medium
+EVALUATOR_MODEL=
+EVALUATOR_REASONING_EFFORT=high
+REPORTER_MODEL=
+REPORTER_REASONING_EFFORT=medium
+```
+
+Leave role model values empty to use the selected provider's normal model
+setting. Reasoning effort is best-effort and depends on provider/model support.
+Report commands and assistant execution text redact sensitive environment values
+from keys such as `PIN`, `KEY`, `TOKEN`, `SECRET`, and `PASSWORD`.
+
 Local config normally lives in `src/assistants/ava/.env`. Start from `.env.example`; relative MCP paths in that file are resolved from the `ava` folder.

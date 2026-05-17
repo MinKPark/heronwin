@@ -268,6 +268,8 @@ public sealed class TurnProcessorSkillGenerationTests
             OpenAiCodexCommand: "codex",
             OpenAiCodexModel: string.Empty,
             LlmTemperature: 0,
+            LlmReasoningEffort: null,
+            LlmRoleConfigs: [],
             TtsModel: "tts",
             TtsVoice: "voice",
             TtsInstructions: string.Empty,

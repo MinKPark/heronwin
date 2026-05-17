@@ -102,8 +102,10 @@ public sealed class AvaReportTests
         Assert.Contains("\"triageCategory\": \"not-tested\"", json, StringComparison.Ordinal);
         Assert.Contains("# AVA Validation Report: Active window smoke", markdown, StringComparison.Ordinal);
         Assert.Contains("`not-tested`", markdown, StringComparison.Ordinal);
-        Assert.Contains("Export ID: `ava-114dab35d9fdad7f96fdafa9` Triage: `not-tested`", markdown, StringComparison.Ordinal);
-        Assert.Contains("Profile: `federal-web-min` Rule: `WEB-UIA-EVIDENCE-MISSING`", markdown, StringComparison.Ordinal);
+        Assert.Contains("| Finding | Status | Checkpoint | Summary | Triage | Rule | Evidence | Tool | Node | Trace | Export ID |", markdown, StringComparison.Ordinal);
+        Assert.Contains("`AVA-NOT-TESTED-001` | `not-tested` | `after`", markdown, StringComparison.Ordinal);
+        Assert.Contains("`federal-web-min`<br>`WEB-UIA-EVIDENCE-MISSING`", markdown, StringComparison.Ordinal);
+        Assert.Contains("`ava-114dab35d9fdad7f96fdafa9`", markdown, StringComparison.Ordinal);
         Assert.Contains("Evidence: `evidence/step-001/manifest.json` (`missing`, 1 entries)", markdown, StringComparison.Ordinal);
         Assert.Equal(json, AvaReportWriter.ToJson(report));
         Assert.Equal(markdown, AvaReportWriter.ToMarkdown(report));
@@ -145,6 +147,61 @@ public sealed class AvaReportTests
         Assert.Equal(
             "manifest: evidence/step-001/manifest.json; tool: describe_window; node: actionable-001",
             finding.EvidenceSummary);
+    }
+
+    [Fact]
+    public void ReportWriter_RendersNodeTraceInMarkdownAndJson()
+    {
+        var report = new AvaValidationReport(
+            "run-001",
+            "Active window smoke",
+            "Federal Windows UIA minimum",
+            AvaProfileIds.FederalWindowsUiaMin,
+            "continue-and-report",
+            ["after"],
+            "scenario.yml",
+            "validation.yml",
+            [
+                new AvaStepResult(
+                    1,
+                    "step-001",
+                    "Step 1",
+                    "Describe active window.",
+                    "continue-and-report",
+                    new AvaStepEvidenceReference(
+                        "step-001",
+                        "evidence/step-001/manifest.json",
+                        "captured",
+                        1),
+                    [
+                        new AvaCheckpointResult(
+                            "after",
+                            "fail",
+                            "Fixture failure.")
+                    ],
+                    [
+                        new AvaAccessibilityFinding(
+                            "AVA-ACTION-MISSING-001-DESCRIBE-WINDOW-001",
+                            AvaFindingStatus.Fail,
+                            "after",
+                            "Actionable UI node has no exposed control patterns or explicit actions.",
+                            AvaProfileIds.FederalWindowsUiaMin,
+                            "UIA-CONTROL-PATTERN",
+                            "UI Automation control patterns",
+                            "evidence/step-001/manifest.json",
+                            "step-001",
+                            "describe_window",
+                            "actionable-001",
+                            "Window \"Calculator\" [uiPath=root] / Button \"Submit\" [uiPath=0]")
+                    ])
+            ]);
+
+        var json = AvaReportWriter.ToJson(report);
+        var markdown = AvaReportWriter.ToMarkdown(report);
+
+        Assert.Contains("\"nodeTrace\":", json, StringComparison.Ordinal);
+        Assert.Contains("Window \\u0022Calculator\\u0022 [uiPath=root] / Button \\u0022Submit\\u0022 [uiPath=0]", json, StringComparison.Ordinal);
+        Assert.Contains("`actionable-001` | `Window \"Calculator\" [uiPath=root] / Button \"Submit\" [uiPath=0]`", markdown, StringComparison.Ordinal);
     }
 
     [Theory]

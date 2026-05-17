@@ -76,6 +76,7 @@ internal sealed record AvaAccessibilityFinding
         string? stepId = null,
         string? toolName = null,
         string? nodeReference = null,
+        string? nodeTrace = null,
         string? exportId = null,
         string? triageCategory = null,
         string? evidenceSummary = null)
@@ -91,6 +92,7 @@ internal sealed record AvaAccessibilityFinding
         StepId = stepId;
         ToolName = toolName;
         NodeReference = nodeReference;
+        NodeTrace = string.IsNullOrWhiteSpace(nodeTrace) ? null : nodeTrace;
         exportIdOverride = string.IsNullOrWhiteSpace(exportId) ? null : exportId;
         triageCategoryOverride = string.IsNullOrWhiteSpace(triageCategory) ? null : triageCategory;
         evidenceSummaryOverride = string.IsNullOrWhiteSpace(evidenceSummary) ? null : evidenceSummary;
@@ -123,6 +125,8 @@ internal sealed record AvaAccessibilityFinding
     public string? ToolName { get; init; }
 
     public string? NodeReference { get; init; }
+
+    public string? NodeTrace { get; init; }
 }
 
 internal static class AvaTriageCategory
@@ -192,6 +196,11 @@ internal static class AvaFindingExport
         if (!string.IsNullOrWhiteSpace(finding.NodeReference))
         {
             parts.Add($"node: {finding.NodeReference}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(finding.NodeTrace))
+        {
+            parts.Add($"trace: {finding.NodeTrace}");
         }
 
         return parts.Count == 0 ? null : string.Join("; ", parts);
@@ -305,52 +314,95 @@ internal static class AvaReportWriter
             builder.AppendLine($"- Checkpoints: `{string.Join(", ", step.Checkpoints.Select(static checkpoint => checkpoint.Timing))}`");
             builder.AppendLine($"- Evidence: `{step.Evidence.ManifestPath}` (`{step.Evidence.Status}`, {step.Evidence.EntryCount} entries)");
 
-            foreach (var finding in step.Findings)
-            {
-                builder.Append($"- Finding `{finding.Id}`: `{finding.Status}` at `{finding.Checkpoint}` - {finding.Summary}");
-                builder.Append($" Export ID: `{finding.ExportId}`");
-                builder.Append($" Triage: `{finding.TriageCategory}`");
-                if (!string.IsNullOrWhiteSpace(finding.ProfileId))
-                {
-                    builder.Append($" Profile: `{finding.ProfileId}`");
-                }
-
-                if (!string.IsNullOrWhiteSpace(finding.RuleId))
-                {
-                    builder.Append($" Rule: `{finding.RuleId}`");
-                }
-
-                if (!string.IsNullOrWhiteSpace(finding.SourceStandard))
-                {
-                    builder.Append($" Source: `{finding.SourceStandard}`");
-                }
-
-                if (!string.IsNullOrWhiteSpace(finding.EvidenceReference))
-                {
-                    builder.Append($" Evidence: `{finding.EvidenceReference}`");
-                }
-
-                if (!string.IsNullOrWhiteSpace(finding.EvidenceSummary))
-                {
-                    builder.Append($" Evidence summary: `{finding.EvidenceSummary}`");
-                }
-
-                if (!string.IsNullOrWhiteSpace(finding.ToolName))
-                {
-                    builder.Append($" Tool: `{finding.ToolName}`");
-                }
-
-                if (!string.IsNullOrWhiteSpace(finding.NodeReference))
-                {
-                    builder.Append($" Node: `{finding.NodeReference}`");
-                }
-
-                builder.AppendLine();
-            }
+            AppendFindingsTable(builder, step.Findings);
         }
 
         return builder.ToString();
     }
+
+    private static void AppendFindingsTable(
+        StringBuilder builder,
+        IReadOnlyList<AvaAccessibilityFinding> findings)
+    {
+        builder.AppendLine();
+        builder.AppendLine("#### Findings");
+        builder.AppendLine();
+
+        if (findings.Count == 0)
+        {
+            builder.AppendLine("_No findings._");
+            return;
+        }
+
+        builder.AppendLine("| Finding | Status | Checkpoint | Summary | Triage | Rule | Evidence | Tool | Node | Trace | Export ID |");
+        builder.AppendLine("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |");
+
+        foreach (var finding in findings)
+        {
+            builder.Append("| ");
+            builder.Append(CodeCell(finding.Id));
+            builder.Append(" | ");
+            builder.Append(CodeCell(finding.Status));
+            builder.Append(" | ");
+            builder.Append(CodeCell(finding.Checkpoint));
+            builder.Append(" | ");
+            builder.Append(TextCell(finding.Summary));
+            builder.Append(" | ");
+            builder.Append(CodeCell(finding.TriageCategory));
+            builder.Append(" | ");
+            builder.Append(RuleCell(finding));
+            builder.Append(" | ");
+            builder.Append(CodeCell(finding.EvidenceReference));
+            builder.Append(" | ");
+            builder.Append(CodeCell(finding.ToolName));
+            builder.Append(" | ");
+            builder.Append(CodeCell(finding.NodeReference));
+            builder.Append(" | ");
+            builder.Append(CodeCell(finding.NodeTrace));
+            builder.Append(" | ");
+            builder.Append(CodeCell(finding.ExportId));
+            builder.AppendLine(" |");
+        }
+    }
+
+    private static string RuleCell(AvaAccessibilityFinding finding)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(finding.ProfileId))
+        {
+            parts.Add(CodeCell(finding.ProfileId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(finding.RuleId))
+        {
+            parts.Add(CodeCell(finding.RuleId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(finding.SourceStandard))
+        {
+            parts.Add(TextCell(finding.SourceStandard));
+        }
+
+        return string.Join("<br>", parts);
+    }
+
+    private static string CodeCell(string? value)
+        => string.IsNullOrWhiteSpace(value)
+            ? string.Empty
+            : $"`{EscapeTableCell(value).Replace('`', '\'')}`";
+
+    private static string TextCell(string? value)
+        => string.IsNullOrWhiteSpace(value)
+            ? string.Empty
+            : EscapeTableCell(value);
+
+    private static string EscapeTableCell(string value)
+        => value
+            .Trim()
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Replace("|", "\\|", StringComparison.Ordinal)
+            .Replace("\n", "<br>", StringComparison.Ordinal);
 
     private static string FormatStatusCounts(IReadOnlyDictionary<string, int> counts)
         => counts.Count == 0

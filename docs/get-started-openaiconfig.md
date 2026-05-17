@@ -15,6 +15,7 @@ OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-5.4-mini
 OPENAI_CODEX_COMMAND=codex
 OPENAI_CODEX_MODEL=
+LLM_REASONING_EFFORT=
 ```
 
 For the Codex route:
@@ -34,5 +35,26 @@ OPENAI_CODEX_MODEL=gpt-5.3-codex-spark
 
 HeronWin treats Codex Spark as text-only and omits screenshot attachments for
 that model so `codex exec` does not receive unsupported `--image` inputs.
+
+Reasoning effort is optional and provider/model dependent. Use the shared
+fallback when you want one setting for the active assistant:
+
+```dotenv
+LLM_REASONING_EFFORT=medium
+```
+
+AVA also supports assistant-local role overrides:
+
+```dotenv
+DRIVER_MODEL=
+DRIVER_REASONING_EFFORT=medium
+EVALUATOR_MODEL=
+EVALUATOR_REASONING_EFFORT=high
+REPORTER_MODEL=
+REPORTER_REASONING_EFFORT=medium
+```
+
+These role variables are intentionally prefixless because they live in
+`src/assistants/ava/.env`.
 
 Voice transcription uses OpenAI Whisper, so set `OPENAI_API_KEY` for `cursor` voice mode even when the active chat provider is `claude-api`.

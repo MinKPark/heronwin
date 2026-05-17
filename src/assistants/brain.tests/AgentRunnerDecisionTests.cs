@@ -126,6 +126,15 @@ public sealed class AgentRunnerDecisionTests
     }
 
     [Fact]
+    public void HasExplicitlyUnresolvedOutcome_ReturnsFalse_ForPinEntrySuccessfulNoOpWhenHomeSurfaceVisible()
+    {
+        var actual = AgentRunner.HasExplicitlyUnresolvedOutcome(
+            "Fresh window evidence shows the selected Edge tab is Home - Netflix. The Netflix home surface is visible with navigation links, Search, Notifications, and the account control labeled Min - Account & Settings. I did not see a profile lock or PIN prompt, so the conditional PIN entry step was a successful no-op.");
+
+        Assert.False(actual);
+    }
+
+    [Fact]
     public void HasExplicitlyUnresolvedOutcome_ReturnsFalse_ForAlreadyActiveProfileNoOp()
     {
         var actual = AgentRunner.HasExplicitlyUnresolvedOutcome(
@@ -158,6 +167,19 @@ public sealed class AgentRunnerDecisionTests
         var reply = new AgentReply(
             LogText: "Using the post-action UI snapshot first, the profile picker is gone and Netflix shows the Min profile lock flow: \"Profile Lock is currently on.\" with PIN Entry Input 1 focused and a \"Forgot PIN?\" link. The second-pass snapshot after the extra wait confirms the same state and adds \"Enter your PIN to access this profile.\" plus four PIN entry boxes. Netflix home has not opened yet, but the requested condition is satisfied because Min's profile PIN prompt is visible. Uncertainty is low from the UI Automation evidence; no conflicting current evidence is present.",
             SpokenText: "Min was selected, and it's waiting on the PIN screen now. We can enter the PIN, use Forgot PIN, or go back and choose another profile.",
+            RawText: "{}");
+
+        var actual = AgentRunner.GetReplyOutcomeContradictionRule(reply);
+
+        Assert.Null(actual);
+    }
+
+    [Fact]
+    public void GetReplyOutcomeContradictionRule_ReturnsNull_ForPinEntrySuccessfulNoOpWhenHomeSurfaceVisible()
+    {
+        var reply = new AgentReply(
+            LogText: "Fresh window evidence shows the selected Edge tab is Home - Netflix. The Netflix home surface is visible with navigation links, Search, Notifications, and the account control labeled Min - Account & Settings. I did not see a profile lock or PIN prompt, so the conditional PIN entry step was a successful no-op.",
+            SpokenText: "Fresh window evidence shows the selected Edge tab is Home - Netflix.",
             RawText: "{}");
 
         var actual = AgentRunner.GetReplyOutcomeContradictionRule(reply);

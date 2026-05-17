@@ -31,6 +31,23 @@ internal static class AvaDeterministicValidators
         "localizedControlType"
     ];
 
+    private static readonly string[] UiPathPropertyNames =
+    [
+        "uiPath",
+        "path"
+    ];
+
+    private static readonly string[] AutomationIdPropertyNames =
+    [
+        "automationId",
+        "id"
+    ];
+
+    private const int MaxNodeTraceSegments = 8;
+    private const int LeadingNodeTraceSegments = 2;
+    private const int TrailingNodeTraceSegments = 5;
+    private const int MaxNodeTraceValueLength = 80;
+
     private static readonly string[] KeyboardFocusablePropertyNames =
     [
         "isKeyboardFocusable",
@@ -250,7 +267,8 @@ internal static class AvaDeterministicValidators
         string status,
         string summary,
         string? toolName = null,
-        string? nodeReference = null)
+        string? nodeReference = null,
+        string? nodeTrace = null)
     {
         var rule = AvaProfileCatalog.ResolveRule(context.ProfileId, id);
         return new AvaAccessibilityFinding(
@@ -264,7 +282,8 @@ internal static class AvaDeterministicValidators
             context.EvidenceReference.ManifestPath,
             context.StepId,
             toolName,
-            nodeReference);
+            nodeReference,
+            nodeTrace);
     }
 
     private static string ToolToken(string toolName)
@@ -348,7 +367,8 @@ internal static class AvaDeterministicValidators
                 return;
             }
 
-            InspectElement(treeRoot);
+            var nodeTrace = new List<string>();
+            InspectElement(treeRoot, nodeTrace);
         }
 
         private void InspectStringTreeRoot(string? treeText)
@@ -368,36 +388,49 @@ internal static class AvaDeterministicValidators
             using var nestedDocument = TryParseJson(trimmed, out _);
             if (nestedDocument is not null)
             {
-                InspectElement(nestedDocument.RootElement);
+                var nodeTrace = new List<string>();
+                InspectElement(nestedDocument.RootElement, nodeTrace);
             }
         }
 
-        private void InspectElement(JsonElement element)
+        private void InspectElement(JsonElement element, List<string> nodeTrace)
         {
             switch (element.ValueKind)
             {
                 case JsonValueKind.Object:
-                    InspectNodeIfActionable(element);
+                    var addedTraceSegment = false;
+                    if (TryBuildNodeTraceSegment(element, out var traceSegment))
+                    {
+                        nodeTrace.Add(traceSegment);
+                        addedTraceSegment = true;
+                    }
+
+                    InspectNodeIfActionable(element, FormatNodeTrace(nodeTrace));
                     foreach (var property in element.EnumerateObject())
                     {
                         if (property.Value.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
                         {
-                            InspectElement(property.Value);
+                            InspectElement(property.Value, nodeTrace);
                         }
+                    }
+
+                    if (addedTraceSegment)
+                    {
+                        nodeTrace.RemoveAt(nodeTrace.Count - 1);
                     }
 
                     break;
                 case JsonValueKind.Array:
                     foreach (var item in element.EnumerateArray())
                     {
-                        InspectElement(item);
+                        InspectElement(item, nodeTrace);
                     }
 
                     break;
             }
         }
 
-        private void InspectNodeIfActionable(JsonElement node)
+        private void InspectNodeIfActionable(JsonElement node, string? nodeTrace)
         {
             var hasActions = HasNonEmptyCollectionLikeProperty(node, "actions");
             var hasPatterns = HasNonEmptyCollectionLikeProperty(node, "patterns");
@@ -422,7 +455,8 @@ internal static class AvaDeterministicValidators
                     AvaFindingStatus.Fail,
                     "Actionable UI node is missing an accessible name.",
                     record.ToolName,
-                    nodeReference));
+                    nodeReference,
+                    nodeTrace));
             }
 
             if (!hasRole)
@@ -433,7 +467,8 @@ internal static class AvaDeterministicValidators
                     AvaFindingStatus.Fail,
                     "Actionable UI node is missing a role or control type.",
                     record.ToolName,
-                    nodeReference));
+                    nodeReference,
+                    nodeTrace));
             }
 
             if (hasActions || hasPatterns)
@@ -453,7 +488,96 @@ internal static class AvaDeterministicValidators
                 status,
                 "Actionable UI node has no exposed control patterns or explicit actions.",
                 record.ToolName,
-                nodeReference));
+                nodeReference,
+                nodeTrace));
+        }
+
+        private static bool TryBuildNodeTraceSegment(JsonElement node, out string traceSegment)
+        {
+            var hasRole = TryGetFirstString(node, RolePropertyNames, out var role);
+            var hasName = TryGetFirstString(node, NamePropertyNames, out var name);
+            var hasAutomationId = TryGetFirstString(node, AutomationIdPropertyNames, out var automationId);
+            var hasPath = TryGetTracePath(node, out var pathName, out var path);
+
+            if (!hasRole && !hasName && !hasAutomationId && !hasPath)
+            {
+                traceSegment = string.Empty;
+                return false;
+            }
+
+            var parts = new List<string>
+            {
+                hasRole ? CleanTraceValue(role) : "node"
+            };
+
+            if (hasName)
+            {
+                parts.Add($"\"{CleanTraceValue(name)}\"");
+            }
+
+            if (hasAutomationId)
+            {
+                parts.Add($"#{CleanTraceValue(automationId)}");
+            }
+
+            if (hasPath)
+            {
+                parts.Add($"[{pathName}={CleanTraceValue(path)}]");
+            }
+
+            traceSegment = string.Join(" ", parts);
+            return true;
+        }
+
+        private static bool TryGetTracePath(JsonElement node, out string pathName, out string path)
+        {
+            foreach (var propertyName in UiPathPropertyNames)
+            {
+                if (TryGetProperty(node, propertyName, out var property) &&
+                    property.ValueKind == JsonValueKind.String)
+                {
+                    path = property.GetString()?.Trim() ?? string.Empty;
+                    if (path.Length > 0)
+                    {
+                        pathName = propertyName;
+                        return true;
+                    }
+                }
+            }
+
+            pathName = string.Empty;
+            path = string.Empty;
+            return false;
+        }
+
+        private static string? FormatNodeTrace(IReadOnlyList<string> nodeTrace)
+        {
+            if (nodeTrace.Count == 0)
+            {
+                return null;
+            }
+
+            if (nodeTrace.Count <= MaxNodeTraceSegments)
+            {
+                return string.Join(" / ", nodeTrace);
+            }
+
+            var shortened = nodeTrace
+                .Take(LeadingNodeTraceSegments)
+                .Concat(["..."])
+                .Concat(nodeTrace.Skip(nodeTrace.Count - TrailingNodeTraceSegments));
+            return string.Join(" / ", shortened);
+        }
+
+        private static string CleanTraceValue(string value)
+        {
+            var normalized = string.Join(
+                " ",
+                value.Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries));
+            normalized = normalized.Replace('`', '\'');
+            return normalized.Length <= MaxNodeTraceValueLength
+                ? normalized
+                : normalized[..(MaxNodeTraceValueLength - 3)] + "...";
         }
 
         private static bool HasNonEmptyCollectionLikeProperty(JsonElement node, string propertyName)

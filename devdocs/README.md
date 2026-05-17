@@ -19,6 +19,7 @@ These docs cover project design, development guardrails, bugs, performance notes
 
 - [App-Agnostic Runtime And Skills Plan](./designs/app-agnostic-runtime-and-skills-plan.md)
 - [AVA Accessibility Validation Assistant Plan](./designs/ava-accessibility-validation-assistant-plan.md)
+- [AVA Role-Specific LLM Config Plan](./designs/ava-role-specific-llm-config-plan.md)
 - [Brain Debuggability And Rewrite Guardrails](./designs/brain-debuggability-and-rewrite-guardrails.md)
 - [Brain OpenAI ChatGPT Subscription](./designs/brain-openai-chatgpt-subscription.md)
 - [Built-In Process Tools Test Plan](./designs/built-in-process-tools-test-plan.md)

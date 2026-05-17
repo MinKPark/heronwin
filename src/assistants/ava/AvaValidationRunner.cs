@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HeronWin.Brain;
 
 namespace HeronWin.Ava;
@@ -166,11 +167,13 @@ internal sealed class AvaBrainCommandDriver(
             }
 
             var assessment = AssessFunctionalResult(turnId, request.Assertions, processedTurn.Reply);
+            var windowHandle = await ResolveCurrentWindowHandleAsync(cancellationToken);
             var result = assessment.Passed
                 ? AvaCommandExecutionResult.Passed(
                     "AVA command completed functional checks.",
                     processedTurn.Reply.LogText,
                     processedTurn.Reply.SpokenText,
+                    windowHandle,
                     toolCallCount: assessment.ToolCallCount,
                     toolErrorCount: assessment.ToolErrorCount,
                     observations: BuildExecutionObservations(assessment))
@@ -179,6 +182,7 @@ internal sealed class AvaBrainCommandDriver(
                     assessment.Failures,
                     processedTurn.Reply.LogText,
                     processedTurn.Reply.SpokenText,
+                    windowHandle,
                     toolCallCount: assessment.ToolCallCount,
                     toolErrorCount: assessment.ToolErrorCount,
                     observations: BuildExecutionObservations(assessment));
@@ -194,6 +198,7 @@ internal sealed class AvaBrainCommandDriver(
                     ["toolCallCount"] = result.ToolCallCount,
                     ["toolErrorCount"] = result.ToolErrorCount,
                     ["failureCount"] = result.Failures.Count,
+                    ["windowHandle"] = result.WindowHandle,
                 });
 
             return result;
@@ -248,6 +253,162 @@ internal sealed class AvaBrainCommandDriver(
             reply.SpokenText,
             reply.LogText,
             failures);
+    }
+
+    private async Task<string?> ResolveCurrentWindowHandleAsync(CancellationToken cancellationToken)
+    {
+        var windowHandle = FirstNonEmpty(
+            desktopSession.CurrentWindowHandle,
+            TryExtractWindowHandle(desktopSession.RecentWindowContext),
+            TryExtractWindowHandle(desktopSession.RecentUiTreeContext),
+            TryExtractWindowHandle(desktopSession.RecentFocusContext),
+            TryExtractWindowHandle(desktopSession.RecentListWindowsOutput));
+        if (!string.IsNullOrWhiteSpace(windowHandle))
+        {
+            desktopSession.CurrentWindowHandle = windowHandle;
+            return windowHandle;
+        }
+
+        try
+        {
+            var toolResult = await mcpManager.CallToolAsync(
+                "list_windows",
+                new Dictionary<string, object?>(),
+                cancellationToken);
+            if (!toolResult.IsError &&
+                !string.IsNullOrWhiteSpace(toolResult.Text) &&
+                TryExtractWindowHandle(toolResult.Text) is { Length: > 0 } resolvedHandle)
+            {
+                desktopSession.CurrentWindowHandle = resolvedHandle;
+                desktopSession.RecentListWindowsOutput = toolResult.Text;
+                return resolvedHandle;
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            DebugTrace.WriteStructuredEvent(
+                "ava.command.window_handle_unavailable",
+                new Dictionary<string, object?>
+                {
+                    ["error"] = DebugTrace.Preview(ex.Message, 400),
+                });
+        }
+
+        return null;
+    }
+
+    internal static string? TryExtractWindowHandle(string? toolOutputText)
+    {
+        if (string.IsNullOrWhiteSpace(toolOutputText))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(toolOutputText);
+            var root = document.RootElement;
+
+            if (TryGetJsonStringProperty(root, "selectedWindowHandle") is { Length: > 0 } selectedWindowHandle)
+            {
+                return selectedWindowHandle;
+            }
+
+            foreach (var propertyName in new[] { "selectedWindow", "window" })
+            {
+                if (TryGetJsonProperty(root, propertyName, out var window) &&
+                    window.ValueKind == JsonValueKind.Object &&
+                    TryGetJsonStringProperty(window, "handle") is { Length: > 0 } handle)
+                {
+                    return handle;
+                }
+            }
+
+            if (!TryGetJsonProperty(root, "windows", out var windowsElement) ||
+                windowsElement.ValueKind != JsonValueKind.Array)
+            {
+                return null;
+            }
+
+            var handles = new List<string>();
+            foreach (var window in windowsElement.EnumerateArray())
+            {
+                if (window.ValueKind != JsonValueKind.Object ||
+                    TryGetJsonStringProperty(window, "handle") is not { Length: > 0 } handle)
+                {
+                    continue;
+                }
+
+                handles.Add(handle);
+                if (TryGetJsonBooleanProperty(window, "isSelected") == true)
+                {
+                    return handle;
+                }
+            }
+
+            return handles.Count == 1 ? handles[0] : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string? FirstNonEmpty(params string?[] values)
+        => values.FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value));
+
+    private static string? TryGetJsonStringProperty(JsonElement element, string propertyName)
+    {
+        if (!TryGetJsonProperty(element, propertyName, out var property) ||
+            property.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        var value = property.GetString()?.Trim();
+        return string.IsNullOrWhiteSpace(value) ? null : value;
+    }
+
+    private static bool? TryGetJsonBooleanProperty(JsonElement element, string propertyName)
+    {
+        if (!TryGetJsonProperty(element, propertyName, out var property))
+        {
+            return null;
+        }
+
+        return property.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => null
+        };
+    }
+
+    private static bool TryGetJsonProperty(JsonElement element, string propertyName, out JsonElement property)
+    {
+        property = default;
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        if (element.TryGetProperty(propertyName, out property))
+        {
+            return true;
+        }
+
+        foreach (var candidate in element.EnumerateObject())
+        {
+            if (!string.Equals(candidate.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            property = candidate.Value.Clone();
+            return true;
+        }
+
+        return false;
     }
 
     private static IReadOnlyList<AvaExecutionAccessibilityObservation> BuildExecutionObservations(
@@ -367,6 +528,8 @@ internal static class AvaValidationRunner
                 command,
                 effectiveConfig),
             cancellationToken);
+        var reportCommand = AvaSensitiveValueRedactor.Redact(command) ?? command;
+        var reportExecutionResult = RedactExecutionResult(executionResult);
         var evidenceWindowHandle = string.IsNullOrWhiteSpace(executionResult.WindowHandle)
             ? effectiveConfig.WindowHandle
             : executionResult.WindowHandle;
@@ -376,7 +539,7 @@ internal static class AvaValidationRunner
             stepId,
             stepNumber,
             stepName,
-            command,
+            reportCommand,
             evidenceWindowHandle,
             evidenceCollector,
             cancellationToken);
@@ -405,7 +568,7 @@ internal static class AvaValidationRunner
                 request.ValidationConfig.Profile,
                 validationCheckpoint,
                 evidenceReference,
-                executionResult))
+                reportExecutionResult))
             .ToArray();
         var checkpoints = effectiveConfig.Checkpoints
             .Select(checkpoint =>
@@ -438,13 +601,30 @@ internal static class AvaValidationRunner
             stepNumber,
             stepId,
             stepName,
-            command,
+            reportCommand,
             effectiveConfig.ContinuationPolicy,
             evidenceReference,
             checkpoints,
             findings,
-            executionResult);
+            reportExecutionResult);
     }
+
+    private static AvaCommandExecutionResult RedactExecutionResult(AvaCommandExecutionResult executionResult)
+        => executionResult with
+        {
+            Summary = AvaSensitiveValueRedactor.Redact(executionResult.Summary) ?? executionResult.Summary,
+            AssistantLogText = AvaSensitiveValueRedactor.Redact(executionResult.AssistantLogText),
+            AssistantSpokenText = AvaSensitiveValueRedactor.Redact(executionResult.AssistantSpokenText),
+            Failures = executionResult.Failures
+                .Select(static failure => AvaSensitiveValueRedactor.Redact(failure) ?? failure)
+                .ToArray(),
+            Observations = executionResult.Observations
+                .Select(static observation => observation with
+                {
+                    Summary = AvaSensitiveValueRedactor.Redact(observation.Summary) ?? observation.Summary,
+                })
+                .ToArray(),
+        };
 
     private static async Task<IReadOnlyList<AvaEvidenceRecord>> CollectEvidenceAsync(
         string runId,

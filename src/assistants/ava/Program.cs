@@ -52,6 +52,7 @@ try
     var runId = CreateRunId();
     var outputDirectory = Path.Combine(Directory.GetCurrentDirectory(), "artifacts", "ava", runId);
     var appConfig = AppConfig.Load("ava");
+    var driverRoleConfig = appConfig.GetLlmRoleConfig(LlmRole.AvaDriver);
     var provider = LlmProviderCatalog.Resolve(appConfig);
     if (!provider.Capabilities.SupportsScriptedMode)
     {
@@ -88,6 +89,8 @@ try
             ["openAiModel"] = appConfig.OpenAiModel,
             ["openAiCodexModel"] = appConfig.OpenAiCodexModel,
             ["anthropicModel"] = appConfig.AnthropicModel,
+            ["driverModelOverride"] = driverRoleConfig.ModelOverride,
+            ["driverReasoningEffort"] = driverRoleConfig.ReasoningEffort,
             ["maxContextTokens"] = appConfig.MaxContextTokens,
             ["postActionUiSettleDelayMs"] = appConfig.PostActionUiSettleDelayMs,
             ["logsDirectory"] = DebugTrace.BuildLogsDirectory(AppContext.BaseDirectory),
@@ -128,7 +131,8 @@ try
         Display.Warn("AVA evidence tools are not available; validation findings will report evidence gaps.");
     }
 
-    var llmClient = provider.CreateClient(appConfig, httpClient);
+    var llmClient = provider.CreateClient(appConfig, httpClient, LlmRole.AvaDriver);
+    Display.Info($"Driver LLM: {llmClient.DisplayName}");
     var commandDriver = new AvaBrainCommandDriver(
         appConfig,
         llmClient,

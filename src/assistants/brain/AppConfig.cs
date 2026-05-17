@@ -29,6 +29,8 @@ internal sealed record AppConfig(
     string OpenAiCodexCommand,
     string OpenAiCodexModel,
     double LlmTemperature,
+    string? LlmReasoningEffort,
+    IReadOnlyList<LlmRoleConfig> LlmRoleConfigs,
     string TtsModel,
     string TtsVoice,
     string TtsInstructions,
@@ -71,6 +73,8 @@ internal sealed record AppConfig(
             Environment.GetEnvironmentVariable("OPENAI_CODEX_COMMAND") ?? "codex",
             OpenAiCodexModels.NormalizeConfiguredModel(Environment.GetEnvironmentVariable("OPENAI_CODEX_MODEL")),
             ParseDouble(Environment.GetEnvironmentVariable("LLM_TEMPERATURE"), 0),
+            LlmReasoningEfforts.Normalize(Environment.GetEnvironmentVariable("LLM_REASONING_EFFORT")),
+            LoadLlmRoleConfigs(Environment.GetEnvironmentVariable),
             Environment.GetEnvironmentVariable("TTS_MODEL") ?? "gpt-4o-mini-tts",
             Environment.GetEnvironmentVariable("TTS_VOICE") ?? "marin",
             Environment.GetEnvironmentVariable("TTS_INSTRUCTIONS")
@@ -87,6 +91,33 @@ internal sealed record AppConfig(
             LoadMcpServers(Environment.GetEnvironmentVariable("MCP_SERVERS"))
         );
     }
+
+    public LlmRoleConfig GetLlmRoleConfig(LlmRole role)
+    {
+        var roleConfig = LlmRoleConfigs.FirstOrDefault(config => config.Role == role)
+                         ?? new LlmRoleConfig(role, null, null);
+        return roleConfig with
+        {
+            ReasoningEffort = roleConfig.ReasoningEffort ?? LlmReasoningEffort
+        };
+    }
+
+    internal static IReadOnlyList<LlmRoleConfig> LoadLlmRoleConfigs(Func<string, string?> getEnvironmentVariable)
+        =>
+        [
+            LoadLlmRoleConfig(LlmRole.AvaDriver, "DRIVER", getEnvironmentVariable),
+            LoadLlmRoleConfig(LlmRole.AvaEvaluator, "EVALUATOR", getEnvironmentVariable),
+            LoadLlmRoleConfig(LlmRole.AvaReporter, "REPORTER", getEnvironmentVariable)
+        ];
+
+    private static LlmRoleConfig LoadLlmRoleConfig(
+        LlmRole role,
+        string environmentPrefix,
+        Func<string, string?> getEnvironmentVariable)
+        => new(
+            role,
+            NormalizeOptionalString(getEnvironmentVariable($"{environmentPrefix}_MODEL")),
+            LlmReasoningEfforts.Normalize(getEnvironmentVariable($"{environmentPrefix}_REASONING_EFFORT")));
 
     private static IReadOnlyList<McpServerConfig> LoadMcpServers(string? raw)
     {
@@ -161,6 +192,9 @@ internal sealed record AppConfig(
 
     private static double ParseDouble(string? value, double fallback)
         => double.TryParse(value, out var parsed) ? parsed : fallback;
+
+    private static string? NormalizeOptionalString(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static string ResolveMaybeRelativePath(string value, string baseDir)
     {

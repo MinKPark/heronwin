@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json.Nodes;
 using Xunit;
 
 namespace HeronWin.Brain.Tests;
@@ -62,6 +63,7 @@ public sealed class LlmSupportTests
     {
         var args = OpenAiCodexCliSupport.BuildExecArguments(
             OpenAiCodexModels.Resolve("spark"),
+            reasoningEffort: null,
             "schema.json",
             "output.json",
             ["screen.png"]);
@@ -77,6 +79,7 @@ public sealed class LlmSupportTests
     {
         var args = OpenAiCodexCliSupport.BuildExecArguments(
             OpenAiCodexModels.Resolve("gpt-5.5"),
+            reasoningEffort: null,
             "schema.json",
             "output.json",
             ["screen.png"]);
@@ -85,6 +88,50 @@ public sealed class LlmSupportTests
         Assert.Contains("gpt-5.5", args);
         Assert.Contains("--image", args);
         Assert.Contains("screen.png", args);
+    }
+
+    [Fact]
+    public void BuildExecArguments_PassesReasoningEffortThroughCodexConfig()
+    {
+        var args = OpenAiCodexCliSupport.BuildExecArguments(
+            OpenAiCodexModels.Resolve("gpt-5.5"),
+            "xhigh",
+            "schema.json",
+            "output.json",
+            []);
+
+        Assert.Contains("--config", args);
+        Assert.Contains("model_reasoning_effort=\"xhigh\"", args);
+    }
+
+    [Fact]
+    public void OpenAiApiPayload_IncludesReasoningEffort_ForReasoningModel()
+    {
+        var payload = OpenAiApiClient.CreateChatPayload(
+            [new AgentMessage.User("hello")],
+            [],
+            null,
+            "gpt-5.4-mini",
+            temperature: 0,
+            reasoningEffort: "medium");
+
+        Assert.Equal("medium", payload["reasoning_effort"]?.GetValue<string>());
+        Assert.Null(payload["temperature"]);
+    }
+
+    [Fact]
+    public void OpenAiApiPayload_OmitsReasoningEffort_ForUnsupportedModel()
+    {
+        var payload = OpenAiApiClient.CreateChatPayload(
+            [new AgentMessage.User("hello")],
+            [],
+            null,
+            "gpt-4.1",
+            temperature: 0,
+            reasoningEffort: "medium");
+
+        Assert.Null(payload["reasoning_effort"]);
+        Assert.Equal(0, payload["temperature"]?.GetValue<double>());
     }
 
     [Fact]
