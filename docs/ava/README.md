@@ -2,5 +2,6 @@
 
 AVA is the accessibility validation assistant. These docs describe report output and the rule catalog used by generated findings.
 
+- [Get Started](./getstarted.md)
 - [Rule Catalog](./rules/README.md)
 - [Browser And Web Validation Plan](./browser-and-web-validation-plan.md)

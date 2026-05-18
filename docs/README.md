@@ -4,9 +4,12 @@ These docs cover how to configure and run HeronWin.
 
 - [Get Started](./GET_STARTED.md)
 - [Scenario Mode](./get-started-script-mode.md)
+- [tars Get Started](./tars/getstarted.md)
 - [Voice And Text Mode](./get-started-voice-mode.md)
+- [cursor Get Started](./cursor/getstarted.md)
 - [OpenAI Configuration](./get-started-openaiconfig.md)
 - [Create App Skills](./APP_SKILLS.md)
+- [AVA Get Started](./ava/getstarted.md)
 - [AVA Rule Catalog](./ava/rules/README.md)
 
 Developer-facing design notes, bug writeups, performance baselines, and project history live in [devdocs](../devdocs/README.md).
