@@ -7,7 +7,7 @@ These docs cover how to configure and run HeronWin.
 - [tars Get Started](./tars/getstarted.md)
 - [Voice And Text Mode](./get-started-voice-mode.md)
 - [cursor Get Started](./cursor/getstarted.md)
-- [OpenAI Configuration](./get-started-openaiconfig.md)
+- [Environment Configuration](./ENV_CONFIGURATION.md)
 - [Create App Skills](./APP_SKILLS.md)
 - [AVA Documentation](./ava/README.md)
 - [AVA Get Started](./ava/getstarted.md)

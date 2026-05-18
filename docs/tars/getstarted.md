@@ -20,28 +20,7 @@ Create local configuration from the example file:
 Copy-Item src\assistants\tars\.env.example src\assistants\tars\.env
 ```
 
-Edit `src\assistants\tars\.env` and set `LLM_PROVIDER` plus the matching provider credentials. The supported routes are `openai-api`, `openai-codex`, and `claude-api`.
-
-Provider routes:
-
-| `LLM_PROVIDER` | Model setting | Authentication |
-| --- | --- | --- |
-| `openai-api` | `OPENAI_MODEL` | `OPENAI_API_KEY` |
-| `openai-codex` | `OPENAI_CODEX_MODEL` | `codex login` |
-| `claude-api` | `ANTHROPIC_MODEL` | `ANTHROPIC_API_KEY` |
-
-OpenAI API example:
-
-```dotenv
-LLM_PROVIDER=openai-api
-OPENAI_API_KEY=<your-openai-api-key>
-OPENAI_MODEL=gpt-5.4-mini
-OPENAI_CODEX_COMMAND=codex
-OPENAI_CODEX_MODEL=
-LLM_REASONING_EFFORT=
-```
-
-For the Codex route, run `codex login`. Leave `OPENAI_CODEX_MODEL` empty to use the Codex CLI default model, or set `OPENAI_CODEX_MODEL=gpt-5.3-codex-spark` for Codex Spark. HeronWin treats Codex Spark as text-only and omits screenshot attachments for that model.
+Edit `src\assistants\tars\.env` and set `LLM_PROVIDER` plus the matching provider credentials. See [Environment Configuration](../ENV_CONFIGURATION.md) for provider routes, MCP server wiring, tracing, and scenario placeholders.
 
 Run the included smoke scenario:
 

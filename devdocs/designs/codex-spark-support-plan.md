@@ -357,7 +357,7 @@ Update:
 
 - `src/assistants/cursor/.env.example`
 - `src/assistants/tars/.env.example`
-- `docs/get-started-openaiconfig.md`
+- `docs/ENV_CONFIGURATION.md`
 - `devdocs/HISTORY_AND_TODOS.md`
 
 Docs should show both forms:

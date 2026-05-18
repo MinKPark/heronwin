@@ -18,7 +18,7 @@ Process listing, start, and stop tools live inside the shared assistant library 
 
 1. Create a new subdirectory such as `src/tools/my-server/`.
 2. Implement a stdio-based MCP server using the C# MCP SDK.
-3. Register the server in an assistant `.env` file by adding it to `MCP_SERVERS`. Start from `src/assistants/cursor/.env.example` or `src/assistants/tars/.env.example` if you do not have one yet.
+3. Register the server in an assistant `.env` file by adding it to `MCP_SERVERS`. Start from the relevant assistant `.env.example` file, or see [Environment Configuration](../../docs/ENV_CONFIGURATION.md).
 
 ## Prerequisites
 

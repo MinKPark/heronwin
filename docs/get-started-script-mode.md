@@ -31,4 +31,4 @@ Render a Markdown report from a saved trace:
 dotnet run --project src\assistants\tars -- --trace-report .\logs\<trace>.jsonl
 ```
 
-Local config normally lives in `src\assistants\tars\.env`; start from `src\assistants\tars\.env.example`.
+Local config normally lives in `src\assistants\tars\.env`; start from `src\assistants\tars\.env.example`. See [Environment Configuration](./ENV_CONFIGURATION.md) for provider routes, MCP server wiring, tracing, and scenario placeholders.

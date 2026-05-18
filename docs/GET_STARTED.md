@@ -26,13 +26,6 @@ Copy-Item src\assistants\tars\.env.example src\assistants\tars\.env
 Copy-Item src\assistants\ava\.env.example src\assistants\ava\.env
 ```
 
-Fill in provider settings:
+Configure the `.env` files:
 
-- `LLM_PROVIDER`: `openai-api`, `openai-codex`, or `claude-api`
-- `OPENAI_API_KEY`: required for `openai-api` and Whisper voice transcription
-- `ANTHROPIC_API_KEY`: required for `claude-api`
-- For `openai-codex`, run `codex login` first
-
-See [OpenAI Configuration](./get-started-openaiconfig.md) for route-specific model settings, Codex Spark notes, and AVA role overrides.
-
-`src/assistants/.env` is also supported as a shared convenience file. Relative MCP paths in that file must be relative to `src/assistants`.
+See [Environment Configuration](./ENV_CONFIGURATION.md) for file locations, provider routes, MCP server wiring, tracing, voice settings, scenario placeholders, and AVA role overrides.

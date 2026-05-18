@@ -568,7 +568,7 @@ Must update:
 - `docs/GET_STARTED.md`
 - `docs/get-started-script-mode.md`
 - `docs/get-started-voice-mode.md`
-- `docs/get-started-openaiconfig.md`
+- `docs/ENV_CONFIGURATION.md`
 - `devdocs/GOAL_AND_DESIGN.md`
 - `docs/README.md`
 - `devdocs/HISTORY_AND_TODOS.md` current-todos section

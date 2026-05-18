@@ -14,13 +14,7 @@ Or use the launcher:
 .\buildandrun.ps1 -CursorOnly
 ```
 
-Provider defaults:
-
-| `LLM_PROVIDER` | Default mode | Notes |
-| --- | --- | --- |
-| `openai-api` | voice | Needs `OPENAI_API_KEY` |
-| `openai-codex` | text | Run `codex login` first |
-| `claude-api` | voice | Needs `ANTHROPIC_API_KEY`; voice transcription also needs `OPENAI_API_KEY` |
+Provider defaults, voice settings, and transcription requirements are covered in [Environment Configuration](./ENV_CONFIGURATION.md).
 
 Text commands:
 

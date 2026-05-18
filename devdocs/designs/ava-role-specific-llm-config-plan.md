@@ -294,7 +294,7 @@ Update:
 
 - `src/assistants/ava/.env.example`
 - `src/assistants/ava/README.md`
-- `docs/get-started-openaiconfig.md`
+- `docs/ENV_CONFIGURATION.md`
 - `docs/README.md` if a new verification command is added
 - `README.md` if quick-start examples mention AVA role config
 - `devdocs/designs/ava-accessibility-validation-assistant-plan.md`

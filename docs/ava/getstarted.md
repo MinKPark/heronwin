@@ -20,41 +20,7 @@ Create local configuration from the example file:
 Copy-Item src\assistants\ava\.env.example src\assistants\ava\.env
 ```
 
-Edit `src\assistants\ava\.env` and set `LLM_PROVIDER` plus the matching provider credentials. The supported routes are `openai-api`, `openai-codex`, and `claude-api`.
-
-Provider routes:
-
-| `LLM_PROVIDER` | Model setting | Authentication |
-| --- | --- | --- |
-| `openai-api` | `OPENAI_MODEL` | `OPENAI_API_KEY` |
-| `openai-codex` | `OPENAI_CODEX_MODEL` | `codex login` |
-| `claude-api` | `ANTHROPIC_MODEL` | `ANTHROPIC_API_KEY` |
-
-OpenAI API example:
-
-```dotenv
-LLM_PROVIDER=openai-api
-OPENAI_API_KEY=<your-openai-api-key>
-OPENAI_MODEL=gpt-5.4-mini
-OPENAI_CODEX_COMMAND=codex
-OPENAI_CODEX_MODEL=
-LLM_REASONING_EFFORT=
-```
-
-For the Codex route, run `codex login`. Leave `OPENAI_CODEX_MODEL` empty to use the Codex CLI default model, or set `OPENAI_CODEX_MODEL=gpt-5.3-codex-spark` for Codex Spark. HeronWin treats Codex Spark as text-only and omits screenshot attachments for that model.
-
-AVA also supports assistant-local role overrides:
-
-```dotenv
-DRIVER_MODEL=
-DRIVER_REASONING_EFFORT=medium
-EVALUATOR_MODEL=
-EVALUATOR_REASONING_EFFORT=high
-REPORTER_MODEL=
-REPORTER_REASONING_EFFORT=medium
-```
-
-These role variables are intentionally prefixless because they live in `src\assistants\ava\.env`.
+Edit `src\assistants\ava\.env` and set `LLM_PROVIDER` plus the matching provider credentials. See [Environment Configuration](../ENV_CONFIGURATION.md) for provider routes, MCP server wiring, tracing, AVA role overrides, and CDP web-evidence settings.
 
 Show the available AVA commands:
 

@@ -58,7 +58,7 @@ Copy-Item src\assistants\tars\.env.example src\assistants\tars\.env
 Copy-Item src\assistants\ava\.env.example src\assistants\ava\.env
 ```
 
-Then edit the `.env` file for the assistant you plan to run. The examples include the default local MCP server registrations for `cognition` and `execution`.
+Then edit the `.env` file for the assistant you plan to run. The examples include the default local MCP server registrations for `cognition` and `execution`; see [Environment Configuration](./docs/ENV_CONFIGURATION.md) for provider routes and assistant-specific settings.
 
 ## Run The Assistants
 
@@ -132,7 +132,7 @@ User docs:
 - [Get Started](./docs/GET_STARTED.md)
 - [Scenario Mode](./docs/get-started-script-mode.md)
 - [Voice And Text Mode](./docs/get-started-voice-mode.md)
-- [OpenAI Configuration](./docs/get-started-openaiconfig.md)
+- [Environment Configuration](./docs/ENV_CONFIGURATION.md)
 - [Create App Skills](./docs/APP_SKILLS.md)
 - [AVA Rule Catalog](./docs/ava/rules/README.md)
 - [Docs Index](./docs/README.md)
