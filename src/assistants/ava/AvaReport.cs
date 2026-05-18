@@ -1,3 +1,6 @@
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -58,6 +61,12 @@ internal sealed record AvaCheckpointResult(
     string Status,
     string Summary);
 
+internal sealed record AvaElementBounds(
+    double Left,
+    double Top,
+    double Width,
+    double Height);
+
 internal sealed record AvaAccessibilityFinding
 {
     private readonly string? exportIdOverride;
@@ -79,6 +88,7 @@ internal sealed record AvaAccessibilityFinding
         string? nodeTrace = null,
         string? automationId = null,
         string? ariaProperties = null,
+        AvaElementBounds? elementBounds = null,
         string? exportId = null,
         string? triageCategory = null,
         string? evidenceSummary = null)
@@ -97,6 +107,7 @@ internal sealed record AvaAccessibilityFinding
         NodeTrace = string.IsNullOrWhiteSpace(nodeTrace) ? null : nodeTrace;
         AutomationId = string.IsNullOrWhiteSpace(automationId) ? null : automationId;
         AriaProperties = string.IsNullOrWhiteSpace(ariaProperties) ? null : ariaProperties;
+        ElementBounds = elementBounds;
         exportIdOverride = string.IsNullOrWhiteSpace(exportId) ? null : exportId;
         triageCategoryOverride = string.IsNullOrWhiteSpace(triageCategory) ? null : triageCategory;
         evidenceSummaryOverride = string.IsNullOrWhiteSpace(evidenceSummary) ? null : evidenceSummary;
@@ -135,6 +146,8 @@ internal sealed record AvaAccessibilityFinding
     public string? AutomationId { get; init; }
 
     public string? AriaProperties { get; init; }
+
+    public AvaElementBounds? ElementBounds { get; init; }
 }
 
 internal static class AvaTriageCategory
@@ -282,18 +295,19 @@ internal static class AvaReportWriter
     {
         var fullOutputDirectory = Path.GetFullPath(outputDirectory);
         Directory.CreateDirectory(fullOutputDirectory);
+        var reportForOutput = DeduplicateFindings(report);
 
         var jsonPath = Path.Combine(fullOutputDirectory, "report.json");
         var markdownPath = Path.Combine(fullOutputDirectory, "report.md");
 
-        File.WriteAllText(jsonPath, ToJson(report), Encoding.UTF8);
-        File.WriteAllText(markdownPath, ToMarkdown(report, fullOutputDirectory), Encoding.UTF8);
+        File.WriteAllText(jsonPath, ToJson(reportForOutput), Encoding.UTF8);
+        File.WriteAllText(markdownPath, ToMarkdown(reportForOutput, fullOutputDirectory), Encoding.UTF8);
 
         return new AvaReportWriteResult(markdownPath, jsonPath);
     }
 
     public static string ToJson(AvaValidationReport report)
-        => JsonSerializer.Serialize(report, JsonOptions) + Environment.NewLine;
+        => JsonSerializer.Serialize(DeduplicateFindings(report), JsonOptions) + Environment.NewLine;
 
     public static AvaValidationReport ReadJson(string jsonPath)
     {
@@ -314,6 +328,8 @@ internal static class AvaReportWriter
 
     private static string ToMarkdown(AvaValidationReport report, string? outputDirectory)
     {
+        report = DeduplicateFindings(report);
+        ClearHighlightDirectories(outputDirectory, report);
         var builder = new StringBuilder();
         builder.AppendLine($"# AVA Validation Report: {report.ScenarioName}");
         builder.AppendLine();
@@ -348,7 +364,7 @@ internal static class AvaReportWriter
             builder.AppendLine($"- Evidence: `{step.Evidence.ManifestPath}` (`{step.Evidence.Status}`, {step.Evidence.EntryCount} entries)");
 
             AppendStepScreenshots(builder, step, outputDirectory);
-            AppendFindingsTable(builder, step.Findings, outputDirectory);
+            AppendFindingsTable(builder, step, outputDirectory);
         }
 
         return builder.ToString();
@@ -438,6 +454,173 @@ internal static class AvaReportWriter
 
         return counts;
     }
+
+    private static AvaValidationReport DeduplicateFindings(AvaValidationReport report)
+    {
+        var seen = new List<AvaAccessibilityFinding>();
+        var steps = report.Steps
+            .Select(step =>
+            {
+                var uniqueFindings = new List<AvaAccessibilityFinding>();
+                foreach (var finding in step.Findings)
+                {
+                    if (seen.Any(seenFinding => AreDuplicateFindings(seenFinding, finding)))
+                    {
+                        continue;
+                    }
+
+                    seen.Add(finding);
+                    uniqueFindings.Add(finding);
+                }
+
+                return step with
+                {
+                    Findings = uniqueFindings,
+                    Checkpoints = RecalculateCheckpointsForUniqueFindings(step.Checkpoints, uniqueFindings),
+                };
+            })
+            .ToArray();
+
+        return report with { Steps = steps };
+    }
+
+    private static IReadOnlyList<AvaCheckpointResult> RecalculateCheckpointsForUniqueFindings(
+        IReadOnlyList<AvaCheckpointResult> checkpoints,
+        IReadOnlyList<AvaAccessibilityFinding> findings)
+        => checkpoints
+            .Select(checkpoint =>
+            {
+                var checkpointFindings = findings
+                    .Where(finding => string.Equals(finding.Checkpoint, checkpoint.Timing, StringComparison.Ordinal))
+                    .ToArray();
+                if (checkpointFindings.Length == 0)
+                {
+                    if (string.Equals(checkpoint.Status, AvaFindingStatus.Pass, StringComparison.Ordinal) ||
+                        string.Equals(checkpoint.Status, AvaFindingStatus.NotTested, StringComparison.Ordinal))
+                    {
+                        return checkpoint;
+                    }
+
+                    return new AvaCheckpointResult(
+                        checkpoint.Timing,
+                        AvaFindingStatus.Pass,
+                        "No unique accessibility findings remain for this checkpoint after duplicate suppression.");
+                }
+
+                var status = AvaFindingStatus.Aggregate(checkpointFindings.Select(static finding => finding.Status));
+                var summary = status == AvaFindingStatus.Pass
+                    ? "Deterministic accessibility validators completed without unique findings for this checkpoint."
+                    : $"Deterministic accessibility validators produced {checkpointFindings.Length} unique finding(s) for this checkpoint.";
+
+                return new AvaCheckpointResult(checkpoint.Timing, status, summary);
+            })
+            .ToArray();
+
+    private static bool AreDuplicateFindings(AvaAccessibilityFinding first, AvaAccessibilityFinding second)
+    {
+        if (!string.Equals(NormalizeSignaturePart(first.Status), NormalizeSignaturePart(second.Status), StringComparison.Ordinal) ||
+            !string.Equals(NormalizeSignaturePart(first.ProfileId), NormalizeSignaturePart(second.ProfileId), StringComparison.Ordinal) ||
+            !string.Equals(NormalizeSignaturePart(first.RuleId), NormalizeSignaturePart(second.RuleId), StringComparison.Ordinal) ||
+            !string.Equals(NormalizeSignaturePart(FindingDisplayId(first.Id)), NormalizeSignaturePart(FindingDisplayId(second.Id)), StringComparison.Ordinal) ||
+            !string.Equals(NormalizeSignaturePart(first.Summary), NormalizeSignaturePart(second.Summary), StringComparison.Ordinal) ||
+            !string.Equals(NormalizeSignaturePart(first.AriaProperties), NormalizeSignaturePart(second.AriaProperties), StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var firstAutomationId = NormalizeSignaturePart(first.AutomationId);
+        var secondAutomationId = NormalizeSignaturePart(second.AutomationId);
+        if ((firstAutomationId.Length > 0 || secondAutomationId.Length > 0) &&
+            !string.Equals(firstAutomationId, secondAutomationId, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var sameBounds = AreEquivalentBounds(first.ElementBounds, second.ElementBounds);
+        var samePath = HaveRelatedElementPaths(first.NodeTrace, second.NodeTrace);
+        if (sameBounds && samePath)
+        {
+            return true;
+        }
+
+        if (firstAutomationId.Length > 0 && sameBounds)
+        {
+            return true;
+        }
+
+        return samePath && (first.ElementBounds is null || second.ElementBounds is null);
+    }
+
+    private static bool AreEquivalentBounds(AvaElementBounds? first, AvaElementBounds? second)
+        => first is not null &&
+            second is not null &&
+            string.Equals(NormalizeBounds(first), NormalizeBounds(second), StringComparison.Ordinal);
+
+    private static bool HaveRelatedElementPaths(string? first, string? second)
+    {
+        var firstSegments = NormalizeElementPathSegments(first);
+        var secondSegments = NormalizeElementPathSegments(second);
+        if (firstSegments.Count == 0 || secondSegments.Count == 0)
+        {
+            return false;
+        }
+
+        return HasTrailingSegmentMatch(firstSegments, secondSegments, 3) ||
+            HasTrailingSegmentMatch(firstSegments, secondSegments, 2);
+    }
+
+    private static IReadOnlyList<string> NormalizeElementPathSegments(string? value)
+        => string.IsNullOrWhiteSpace(value)
+            ? []
+            : value
+                .Split(" / ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(static segment => !string.Equals(segment, "...", StringComparison.Ordinal))
+                .Select(NormalizeSignaturePart)
+                .Where(static segment => segment.Length > 0)
+                .ToArray();
+
+    private static bool HasTrailingSegmentMatch(
+        IReadOnlyList<string> firstSegments,
+        IReadOnlyList<string> secondSegments,
+        int segmentCount)
+    {
+        if (firstSegments.Count < segmentCount || secondSegments.Count < segmentCount)
+        {
+            return false;
+        }
+
+        for (var index = 1; index <= segmentCount; index++)
+        {
+            if (!string.Equals(
+                    firstSegments[^index],
+                    secondSegments[^index],
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static string NormalizeSignaturePart(string? value)
+        => string.IsNullOrWhiteSpace(value)
+            ? string.Empty
+            : string.Join(
+                " ",
+                value.Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+                .Trim()
+                .ToLowerInvariant();
+
+    private static string NormalizeBounds(AvaElementBounds? bounds)
+        => bounds is null
+            ? string.Empty
+            : string.Join(
+                ":",
+                Math.Round(bounds.Left).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                Math.Round(bounds.Top).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                Math.Round(bounds.Width).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                Math.Round(bounds.Height).ToString(System.Globalization.CultureInfo.InvariantCulture));
 
     private static int GetStatusCount(IReadOnlyDictionary<string, int> counts, string status)
         => counts.TryGetValue(status, out var count) ? count : 0;
@@ -542,13 +725,13 @@ internal static class AvaReportWriter
             return null;
         }
 
-        var imagePath = TryExtractScreenshotImagePath(File.ReadAllText(rawOutputPath, Encoding.UTF8));
-        if (string.IsNullOrWhiteSpace(imagePath))
+        var screenshotInfo = TryExtractScreenshotInfo(File.ReadAllText(rawOutputPath, Encoding.UTF8));
+        if (screenshotInfo is null || string.IsNullOrWhiteSpace(screenshotInfo.ImagePath))
         {
             return null;
         }
 
-        var sourceImagePath = ResolvePath(manifestDirectory, imagePath);
+        var sourceImagePath = ResolvePath(manifestDirectory, screenshotInfo.ImagePath);
         if (!File.Exists(sourceImagePath))
         {
             return null;
@@ -586,35 +769,130 @@ internal static class AvaReportWriter
         return new StepScreenshot(
             $"{checkpointLabel} - {toolLabel}",
             ToRelativeReportPath(outputDirectory, targetPath),
-            $"{step.StepId} {checkpointLabel} {toolLabel}");
+            $"{step.StepId} {checkpointLabel} {toolLabel}",
+            targetPath,
+            screenshotInfo.WindowBounds,
+            screenshotInfo.ImageSize);
     }
 
-    private static string? TryExtractScreenshotImagePath(string rawOutput)
+    private static ScreenshotInfo? TryExtractScreenshotInfo(string rawOutput)
     {
         try
         {
             using var document = JsonDocument.Parse(rawOutput);
             var root = document.RootElement;
-            if (TryGetStringProperty(root, "imagePath", out var imagePath) ||
-                TryGetStringProperty(root, "screenshotPath", out imagePath))
+            string? imagePath = null;
+            _ = TryGetStringProperty(root, "imagePath", out imagePath) ||
+                TryGetStringProperty(root, "screenshotPath", out imagePath);
+
+            if (TryGetProperty(root, "screenshot", out var screenshot))
             {
-                return imagePath;
+                _ = TryGetStringProperty(screenshot, "filePath", out imagePath) ||
+                    TryGetStringProperty(screenshot, "imagePath", out imagePath) ||
+                    TryGetStringProperty(screenshot, "path", out imagePath);
             }
 
-            if (TryGetProperty(root, "screenshot", out var screenshot) &&
-                (TryGetStringProperty(screenshot, "filePath", out imagePath) ||
-                 TryGetStringProperty(screenshot, "imagePath", out imagePath) ||
-                 TryGetStringProperty(screenshot, "path", out imagePath)))
+            if (string.IsNullOrWhiteSpace(imagePath))
             {
-                return imagePath;
+                return null;
             }
+
+            var windowBounds = TryExtractWindowBounds(root);
+            var imageSize = TryExtractImageSize(root);
+            return new ScreenshotInfo(imagePath, windowBounds, imageSize);
         }
         catch (JsonException)
         {
             return null;
         }
+    }
+
+    private static AvaElementBounds? TryExtractWindowBounds(JsonElement root)
+    {
+        if (TryGetProperty(root, "window", out var window) &&
+            TryGetProperty(window, "bounds", out var bounds) &&
+            TryGetBounds(bounds, out var parsedBounds))
+        {
+            return parsedBounds;
+        }
+
+        return TryGetProperty(root, "bounds", out bounds) &&
+               TryGetBounds(bounds, out parsedBounds)
+            ? parsedBounds
+            : null;
+    }
+
+    private static ScreenshotImageSize? TryExtractImageSize(JsonElement root)
+    {
+        if (TryGetProperty(root, "imageSize", out var imageSize) &&
+            TryGetImageSize(imageSize, out var parsedSize))
+        {
+            return parsedSize;
+        }
+
+        if (TryGetProperty(root, "screenshot", out var screenshot) &&
+            TryGetProperty(screenshot, "imageSize", out imageSize) &&
+            TryGetImageSize(imageSize, out parsedSize))
+        {
+            return parsedSize;
+        }
 
         return null;
+    }
+
+    private static bool TryGetBounds(JsonElement element, out AvaElementBounds bounds)
+    {
+        bounds = null!;
+        if (element.ValueKind != JsonValueKind.Object ||
+            !TryGetDoubleProperty(element, "left", out var left) ||
+            !TryGetDoubleProperty(element, "top", out var top) ||
+            !TryGetDoubleProperty(element, "width", out var width) ||
+            !TryGetDoubleProperty(element, "height", out var height) ||
+            width <= 0 ||
+            height <= 0)
+        {
+            return false;
+        }
+
+        bounds = new AvaElementBounds(left, top, width, height);
+        return true;
+    }
+
+    private static bool TryGetImageSize(JsonElement element, out ScreenshotImageSize imageSize)
+    {
+        imageSize = null!;
+        if (element.ValueKind != JsonValueKind.Object ||
+            !TryGetDoubleProperty(element, "width", out var width) ||
+            !TryGetDoubleProperty(element, "height", out var height) ||
+            width <= 0 ||
+            height <= 0)
+        {
+            return false;
+        }
+
+        imageSize = new ScreenshotImageSize(width, height);
+        return true;
+    }
+
+    private static bool TryGetDoubleProperty(JsonElement element, string propertyName, out double value)
+    {
+        value = 0;
+        if (!TryGetProperty(element, propertyName, out var property))
+        {
+            return false;
+        }
+
+        if (property.ValueKind == JsonValueKind.Number)
+        {
+            return property.TryGetDouble(out value);
+        }
+
+        return property.ValueKind == JsonValueKind.String &&
+               double.TryParse(
+                   property.GetString(),
+                   System.Globalization.NumberStyles.Float,
+                   System.Globalization.CultureInfo.InvariantCulture,
+                   out value);
     }
 
     private static bool TryGetStringProperty(JsonElement element, string propertyName, out string? value)
@@ -691,48 +969,60 @@ internal static class AvaReportWriter
     private sealed record StepScreenshot(
         string Label,
         string ReportPath,
-        string AltText);
+        string AltText,
+        string FullPath,
+        AvaElementBounds? WindowBounds,
+        ScreenshotImageSize? ImageSize);
+
+    private sealed record ScreenshotInfo(
+        string ImagePath,
+        AvaElementBounds? WindowBounds,
+        ScreenshotImageSize? ImageSize);
+
+    private sealed record ScreenshotImageSize(
+        double Width,
+        double Height);
 
     private static void AppendFindingsTable(
         StringBuilder builder,
-        IReadOnlyList<AvaAccessibilityFinding> findings,
+        AvaStepResult step,
         string? outputDirectory)
     {
         builder.AppendLine();
         builder.AppendLine("#### Findings");
         builder.AppendLine();
 
-        if (findings.Count == 0)
+        if (step.Findings.Count == 0)
         {
             builder.AppendLine("_No findings._");
             return;
         }
 
-        var automatedFailures = findings
+        var automatedFailures = step.Findings
             .Where(static finding => string.Equals(
                 finding.TriageCategory,
                 AvaTriageCategory.AutomatedFailure,
                 StringComparison.Ordinal))
             .ToArray();
-        var humanReviewNeeded = findings
+        var humanReviewNeeded = step.Findings
             .Where(static finding => string.Equals(
                 finding.TriageCategory,
                 AvaTriageCategory.NeedsHumanReview,
                 StringComparison.Ordinal))
             .ToArray();
-        var evidenceGaps = findings
+        var evidenceGaps = step.Findings
             .Where(static finding => string.Equals(
                 finding.TriageCategory,
                 AvaTriageCategory.EvidenceGap,
                 StringComparison.Ordinal))
             .ToArray();
-        var notTestedFindings = findings
+        var notTestedFindings = step.Findings
             .Where(static finding => string.Equals(
                 finding.TriageCategory,
                 AvaTriageCategory.NotTested,
                 StringComparison.Ordinal))
             .ToArray();
-        var otherFindings = findings
+        var otherFindings = step.Findings
             .Where(static finding =>
                 !string.Equals(finding.TriageCategory, AvaTriageCategory.AutomatedFailure, StringComparison.Ordinal) &&
                 !string.Equals(finding.TriageCategory, AvaTriageCategory.NeedsHumanReview, StringComparison.Ordinal) &&
@@ -745,12 +1035,14 @@ internal static class AvaReportWriter
             "Automated Failures",
             automatedFailures,
             "_No automated failures._",
+            step,
             outputDirectory);
         AppendFindingCategoryTable(
             builder,
             "Human Review Needed",
             humanReviewNeeded,
             "_No human review findings._",
+            step,
             outputDirectory);
         if (evidenceGaps.Length > 0)
         {
@@ -759,6 +1051,7 @@ internal static class AvaReportWriter
                 "Evidence Gaps",
                 evidenceGaps,
                 "_No evidence gaps._",
+                step,
                 outputDirectory);
         }
 
@@ -769,6 +1062,7 @@ internal static class AvaReportWriter
                 "Not Tested",
                 notTestedFindings,
                 "_No not-tested findings._",
+                step,
                 outputDirectory);
         }
 
@@ -779,6 +1073,7 @@ internal static class AvaReportWriter
                 "Other Findings",
                 otherFindings,
                 "_No other findings._",
+                step,
                 outputDirectory);
         }
     }
@@ -788,6 +1083,7 @@ internal static class AvaReportWriter
         string heading,
         IReadOnlyList<AvaAccessibilityFinding> findings,
         string emptyMessage,
+        AvaStepResult step,
         string? outputDirectory)
     {
         builder.AppendLine($"##### {heading} ({findings.Count})");
@@ -815,7 +1111,7 @@ internal static class AvaReportWriter
             builder.Append(" | ");
             builder.Append(RuleCell(finding, outputDirectory));
             builder.Append(" | ");
-            builder.Append(EvidenceLinkCell(finding.EvidenceReference));
+            builder.Append(EvidenceLinkCell(finding, step, outputDirectory));
             builder.Append(" | ");
             builder.Append(CodeCell(finding.NodeTrace));
             builder.Append(" | ");
@@ -963,7 +1259,63 @@ internal static class AvaReportWriter
             ? string.Empty
             : EscapeTableCell(value);
 
-    private static string EvidenceLinkCell(string? value)
+    private static string EvidenceLinkCell(
+        AvaAccessibilityFinding finding,
+        AvaStepResult step,
+        string? outputDirectory)
+    {
+        var links = new List<string>();
+        var manifestLink = EvidenceManifestLink(finding.EvidenceReference);
+        if (!string.IsNullOrWhiteSpace(manifestLink))
+        {
+            links.Add(manifestLink);
+        }
+
+        var highlightedScreenshotPath = TryCreateHighlightedScreenshot(outputDirectory, step, finding);
+        if (!string.IsNullOrWhiteSpace(highlightedScreenshotPath))
+        {
+            links.Add($"[picture]({EscapeLinkDestination(highlightedScreenshotPath)})");
+        }
+
+        return string.Join("<br>", links);
+    }
+
+    private static void ClearHighlightDirectories(string? outputDirectory, AvaValidationReport report)
+    {
+        if (string.IsNullOrWhiteSpace(outputDirectory))
+        {
+            return;
+        }
+
+        foreach (var step in report.Steps)
+        {
+            var manifestPath = ResolvePath(outputDirectory, step.Evidence.ManifestPath);
+            var manifestDirectory = Path.GetDirectoryName(manifestPath);
+            if (string.IsNullOrWhiteSpace(manifestDirectory))
+            {
+                continue;
+            }
+
+            var highlightDirectory = Path.Combine(manifestDirectory, "highlights");
+            if (!Directory.Exists(highlightDirectory))
+            {
+                continue;
+            }
+
+            try
+            {
+                foreach (var file in Directory.EnumerateFiles(highlightDirectory, "*.png"))
+                {
+                    File.Delete(file);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+            }
+        }
+    }
+
+    private static string EvidenceManifestLink(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
@@ -978,6 +1330,111 @@ internal static class AvaReportWriter
         }
 
         return $"[{EscapeLinkText(label)}]({EscapeLinkDestination(destination)})";
+    }
+
+    private static string? TryCreateHighlightedScreenshot(
+        string? outputDirectory,
+        AvaStepResult step,
+        AvaAccessibilityFinding finding)
+    {
+        if (string.IsNullOrWhiteSpace(outputDirectory) || finding.ElementBounds is null)
+        {
+            return null;
+        }
+
+        var screenshot = LoadStepScreenshots(outputDirectory, step).FirstOrDefault();
+        if (screenshot is null || screenshot.WindowBounds is null || !File.Exists(screenshot.FullPath))
+        {
+            return null;
+        }
+
+        var manifestPath = ResolvePath(outputDirectory, step.Evidence.ManifestPath);
+        var manifestDirectory = Path.GetDirectoryName(manifestPath);
+        if (string.IsNullOrWhiteSpace(manifestDirectory))
+        {
+            return null;
+        }
+
+        var highlightDirectory = Path.Combine(manifestDirectory, "highlights");
+        var targetPath = Path.Combine(highlightDirectory, $"{finding.ExportId}.png");
+
+        try
+        {
+            Directory.CreateDirectory(highlightDirectory);
+            using var bitmap = new Bitmap(screenshot.FullPath);
+            if (!TryMapBoundsToImage(finding.ElementBounds, screenshot.WindowBounds, bitmap.Width, bitmap.Height, out var rectangle))
+            {
+                return null;
+            }
+
+            using var graphics = Graphics.FromImage(bitmap);
+            using var outerPen = new Pen(Color.Black, 8);
+            using var innerPen = new Pen(Color.FromArgb(255, 255, 0), 4);
+            graphics.DrawRectangle(outerPen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
+            graphics.DrawRectangle(innerPen, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height);
+            bitmap.Save(targetPath, ImageFormat.Png);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or ExternalException)
+        {
+            return null;
+        }
+
+        return ToRelativeReportPath(outputDirectory, targetPath);
+    }
+
+    private static bool TryMapBoundsToImage(
+        AvaElementBounds elementBounds,
+        AvaElementBounds windowBounds,
+        int imageWidth,
+        int imageHeight,
+        out RectangleF rectangle)
+    {
+        rectangle = RectangleF.Empty;
+        if (windowBounds.Width <= 0 ||
+            windowBounds.Height <= 0 ||
+            imageWidth <= 0 ||
+            imageHeight <= 0)
+        {
+            return false;
+        }
+
+        var scaleX = imageWidth / windowBounds.Width;
+        var scaleY = imageHeight / windowBounds.Height;
+        var x = (float)((elementBounds.Left - windowBounds.Left) * scaleX);
+        var y = (float)((elementBounds.Top - windowBounds.Top) * scaleY);
+        var width = (float)(elementBounds.Width * scaleX);
+        var height = (float)(elementBounds.Height * scaleY);
+
+        var imageRectangle = new RectangleF(0, 0, imageWidth - 1, imageHeight - 1);
+        var mapped = RectangleF.Intersect(new RectangleF(x, y, width, height), imageRectangle);
+        if (mapped.Width <= 0 || mapped.Height <= 0)
+        {
+            return false;
+        }
+
+        const float minimumVisibleSize = 12;
+        if (mapped.Width < minimumVisibleSize)
+        {
+            var center = mapped.Left + mapped.Width / 2;
+            mapped.X = center - minimumVisibleSize / 2;
+            mapped.Width = minimumVisibleSize;
+        }
+
+        if (mapped.Height < minimumVisibleSize)
+        {
+            var center = mapped.Top + mapped.Height / 2;
+            mapped.Y = center - minimumVisibleSize / 2;
+            mapped.Height = minimumVisibleSize;
+        }
+
+        mapped = RectangleF.Intersect(mapped, imageRectangle);
+        if (mapped.Width <= 0 || mapped.Height <= 0)
+        {
+            return false;
+        }
+
+        rectangle = mapped;
+        return true;
     }
 
     private static string EscapeLinkText(string value)

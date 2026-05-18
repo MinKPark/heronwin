@@ -143,7 +143,11 @@ public sealed class AvaDeterministicValidatorTests
                 {
                   "compactTree": {
                     "children": [
-                      { "name": "Submit", "role": "button" },
+                      {
+                        "name": "Submit",
+                        "role": "button",
+                        "bounds": { "left": 10, "top": 10, "width": 80, "height": 30 }
+                      },
                       { "name": "Canvas region", "role": "custom", "isKeyboardFocusable": true }
                     ]
                   }
@@ -215,6 +219,7 @@ public sealed class AvaDeterministicValidatorTests
                             "controlType": "Button",
                             "automationId": "submitButton",
                             "ariaProperties": "expanded=false; current=page",
+                            "isKeyboardFocusable": true,
                             "uiPath": "0/2"
                           }
                         ]
@@ -240,6 +245,144 @@ public sealed class AvaDeterministicValidatorTests
             StringComparison.Ordinal);
         Assert.Contains("automationId: submitButton", finding.EvidenceSummary, StringComparison.Ordinal);
         Assert.Contains("aria: aria-current: page; aria-expanded: false", finding.EvidenceSummary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Runner_UsesDescendantBoundsWhenActionableNodeOmitsOwnBounds()
+    {
+        var report = await RunWithEvidenceAsync([
+            Captured(
+                "describe_window",
+                """
+                {
+                  "compactTree": {
+                    "controlType": "Window",
+                    "children": [
+                      {
+                        "controlType": "Group",
+                        "isKeyboardFocusable": true,
+                        "children": [
+                          {
+                            "name": "Visible child",
+                            "controlType": "Text",
+                            "bounds": { "left": 10, "top": 20, "width": 30, "height": 40 }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+                """),
+            Captured("describe_window_focus", ValidButtonTree)
+        ]);
+
+        var finding = Assert.Single(report.Steps.Single().Findings, finding =>
+            finding.Id.StartsWith("AVA-NAME-MISSING", StringComparison.Ordinal));
+
+        Assert.NotNull(finding.ElementBounds);
+        Assert.Equal(10, finding.ElementBounds.Left);
+        Assert.Equal(20, finding.ElementBounds.Top);
+        Assert.Equal(30, finding.ElementBounds.Width);
+        Assert.Equal(40, finding.ElementBounds.Height);
+    }
+
+    [Fact]
+    public async Task Runner_IgnoresNonFocusableActionNodesWithoutVisibleBounds()
+    {
+        var report = await RunWithEvidenceAsync([
+            Captured(
+                "describe_window",
+                """
+                {
+                  "compactTree": {
+                    "controlType": "Window",
+                    "children": [
+                      {
+                        "controlType": "Edit",
+                        "availableActions": ["set_value"]
+                      }
+                    ]
+                  }
+                }
+                """),
+            Captured("describe_window_focus", ValidButtonTree)
+        ]);
+
+        var step = Assert.Single(report.Steps);
+        Assert.Empty(step.Findings);
+        Assert.Equal(AvaFindingStatus.Pass, Assert.Single(step.Checkpoints).Status);
+    }
+
+    [Fact]
+    public async Task Runner_IgnoresGenericNonFocusableContainerGroupsWithOnlyInvoke()
+    {
+        var report = await RunWithEvidenceAsync([
+            Captured(
+                "describe_window",
+                """
+                {
+                  "compactTree": {
+                    "controlType": "Window",
+                    "children": [
+                      {
+                        "controlType": "Group",
+                        "availableActions": ["invoke", "scroll_into_view"],
+                        "bounds": { "left": 0, "top": 0, "width": 800, "height": 600 },
+                        "children": [
+                          {
+                            "name": "Visible child",
+                            "controlType": "Text",
+                            "bounds": { "left": 20, "top": 30, "width": 120, "height": 40 }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+                """),
+            Captured("describe_window_focus", ValidButtonTree)
+        ]);
+
+        var step = Assert.Single(report.Steps);
+        Assert.Empty(step.Findings);
+        Assert.Equal(AvaFindingStatus.Pass, Assert.Single(step.Checkpoints).Status);
+    }
+
+    [Fact]
+    public async Task Runner_ReportsFocusableContainerGroupsWithInvoke()
+    {
+        var report = await RunWithEvidenceAsync([
+            Captured(
+                "describe_window",
+                """
+                {
+                  "compactTree": {
+                    "controlType": "Window",
+                    "children": [
+                      {
+                        "controlType": "Group",
+                        "isKeyboardFocusable": true,
+                        "availableActions": ["invoke", "scroll_into_view"],
+                        "bounds": { "left": 0, "top": 0, "width": 200, "height": 80 },
+                        "children": [
+                          {
+                            "name": "Visible child",
+                            "controlType": "Text",
+                            "bounds": { "left": 20, "top": 20, "width": 120, "height": 40 }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+                """),
+            Captured("describe_window_focus", ValidButtonTree)
+        ]);
+
+        var finding = Assert.Single(report.Steps.Single().Findings, finding =>
+            finding.Id.StartsWith("AVA-NAME-MISSING", StringComparison.Ordinal));
+        Assert.Equal(AvaFindingStatus.Fail, finding.Status);
+        Assert.Equal("Window / Group", finding.NodeTrace);
     }
 
     [Fact]

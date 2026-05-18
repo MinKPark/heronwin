@@ -91,6 +91,11 @@ internal static class AvaDeterministicValidators
         "splitbutton"
     ];
 
+    private static readonly string[] GenericContainerRoleTerms =
+    [
+        "group"
+    ];
+
     public static IReadOnlyList<AvaAccessibilityFinding> Validate(AvaDeterministicValidationContext context)
     {
         var findings = new List<AvaAccessibilityFinding>();
@@ -338,7 +343,8 @@ internal static class AvaDeterministicValidators
         string? nodeReference = null,
         string? nodeTrace = null,
         string? automationId = null,
-        string? ariaProperties = null)
+        string? ariaProperties = null,
+        AvaElementBounds? elementBounds = null)
     {
         var rule = AvaProfileCatalog.ResolveRule(context.ProfileId, id);
         return new AvaAccessibilityFinding(
@@ -355,7 +361,8 @@ internal static class AvaDeterministicValidators
             nodeReference,
             nodeTrace,
             automationId,
-            ariaProperties);
+            ariaProperties,
+            elementBounds);
     }
 
     private static string ToolToken(string toolName)
@@ -516,6 +523,20 @@ internal static class AvaDeterministicValidators
                 return;
             }
 
+            var elementBounds = TryGetBestElementBounds(node, out var parsedBounds)
+                ? parsedBounds
+                : null;
+            if (elementBounds is null && !hasKeyboardFocusable)
+            {
+                return;
+            }
+
+            var hasName = TryGetFirstString(node, NamePropertyNames, out _);
+            if (IsIgnorableContainerInvokeNode(node, hasName, hasPatterns, hasKeyboardFocusable, hasRole ? role : null))
+            {
+                return;
+            }
+
             actionableNodeIndex++;
             var nodeReference = $"actionable-{actionableNodeIndex:000}";
             var automationId = TryGetFirstString(node, AutomationIdPropertyNames, out var foundAutomationId)
@@ -523,7 +544,7 @@ internal static class AvaDeterministicValidators
                 : null;
             var ariaProperties = FormatAriaProperties(node);
 
-            if (!TryGetFirstString(node, NamePropertyNames, out _))
+            if (!hasName)
             {
                 findings.Add(CreateFinding(
                     context,
@@ -534,7 +555,8 @@ internal static class AvaDeterministicValidators
                     nodeReference,
                     nodeTrace,
                     automationId,
-                    ariaProperties));
+                    ariaProperties,
+                    elementBounds));
             }
 
             if (!hasRole)
@@ -548,7 +570,8 @@ internal static class AvaDeterministicValidators
                     nodeReference,
                     nodeTrace,
                     automationId,
-                    ariaProperties));
+                    ariaProperties,
+                    elementBounds));
             }
 
             if (hasActions || hasPatterns)
@@ -571,7 +594,151 @@ internal static class AvaDeterministicValidators
                 nodeReference,
                 nodeTrace,
                 automationId,
-                ariaProperties));
+                ariaProperties,
+                elementBounds));
+        }
+
+        private static bool TryGetElementBounds(JsonElement node, out AvaElementBounds bounds)
+        {
+            bounds = null!;
+            if (!TryGetProperty(node, "bounds", out var boundsElement) ||
+                boundsElement.ValueKind != JsonValueKind.Object ||
+                !TryGetDoubleProperty(boundsElement, "left", out var left) ||
+                !TryGetDoubleProperty(boundsElement, "top", out var top) ||
+                !TryGetDoubleProperty(boundsElement, "width", out var width) ||
+                !TryGetDoubleProperty(boundsElement, "height", out var height) ||
+                width <= 0 ||
+                height <= 0)
+            {
+                return false;
+            }
+
+            bounds = new AvaElementBounds(left, top, width, height);
+            return true;
+        }
+
+        private static bool TryGetBestElementBounds(JsonElement node, out AvaElementBounds bounds)
+        {
+            if (TryGetElementBounds(node, out bounds))
+            {
+                return true;
+            }
+
+            return TryGetDescendantBounds(node, out bounds);
+        }
+
+        private static bool TryGetDescendantBounds(JsonElement element, out AvaElementBounds bounds)
+        {
+            AvaElementBounds? aggregate = null;
+            AddDescendantBounds(element, ref aggregate, includeCurrentElement: false);
+            if (aggregate is null)
+            {
+                bounds = null!;
+                return false;
+            }
+
+            bounds = aggregate;
+            return true;
+        }
+
+        private static void AddDescendantBounds(
+            JsonElement element,
+            ref AvaElementBounds? aggregate,
+            bool includeCurrentElement)
+        {
+            switch (element.ValueKind)
+            {
+                case JsonValueKind.Object:
+                    if (includeCurrentElement && TryGetElementBounds(element, out var bounds))
+                    {
+                        aggregate = aggregate is null ? bounds : UnionBounds(aggregate, bounds);
+                    }
+
+                    foreach (var property in element.EnumerateObject())
+                    {
+                        if (string.Equals(property.Name, "bounds", StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
+                        if (property.Value.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
+                        {
+                            AddDescendantBounds(property.Value, ref aggregate, includeCurrentElement: true);
+                        }
+                    }
+
+                    break;
+                case JsonValueKind.Array:
+                    foreach (var item in element.EnumerateArray())
+                    {
+                        AddDescendantBounds(item, ref aggregate, includeCurrentElement: true);
+                    }
+
+                    break;
+            }
+        }
+
+        private static AvaElementBounds UnionBounds(AvaElementBounds first, AvaElementBounds second)
+        {
+            var left = Math.Min(first.Left, second.Left);
+            var top = Math.Min(first.Top, second.Top);
+            var right = Math.Max(first.Left + first.Width, second.Left + second.Width);
+            var bottom = Math.Max(first.Top + first.Height, second.Top + second.Height);
+            return new AvaElementBounds(left, top, right - left, bottom - top);
+        }
+
+        private static bool IsIgnorableContainerInvokeNode(
+            JsonElement node,
+            bool hasName,
+            bool hasPatterns,
+            bool hasKeyboardFocusable,
+            string? role)
+        {
+            if (hasName || hasPatterns || hasKeyboardFocusable || string.IsNullOrWhiteSpace(role))
+            {
+                return false;
+            }
+
+            if (!ContainsAnyTerm(role, GenericContainerRoleTerms) ||
+                !HasChildElements(node) ||
+                !TryGetMeaningfulActionNames(node, out var actionNames))
+            {
+                return false;
+            }
+
+            return actionNames.Count == 1 &&
+                string.Equals(actionNames[0], "invoke", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool HasChildElements(JsonElement node)
+            => TryGetProperty(node, "children", out var children) &&
+                children.ValueKind == JsonValueKind.Array &&
+                children.GetArrayLength() > 0;
+
+        private static bool TryGetDoubleProperty(JsonElement element, string propertyName, out double value)
+        {
+            value = 0;
+            if (!TryGetProperty(element, propertyName, out var property))
+            {
+                return false;
+            }
+
+            if (property.ValueKind == JsonValueKind.Number)
+            {
+                return property.TryGetDouble(out value);
+            }
+
+            if (property.ValueKind == JsonValueKind.String &&
+                double.TryParse(
+                    property.GetString(),
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out value))
+            {
+                return true;
+            }
+
+            return false;
         }
 
         private static bool TryBuildNodeTraceSegment(JsonElement node, out string traceSegment)
@@ -855,6 +1022,56 @@ internal static class AvaDeterministicValidators
             => ActionPropertyNames.Any(propertyName =>
                 TryGetProperty(node, propertyName, out var property) &&
                 HasMeaningfulActionValue(property));
+
+        private static bool TryGetMeaningfulActionNames(JsonElement node, out IReadOnlyList<string> actionNames)
+        {
+            var names = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var propertyName in ActionPropertyNames)
+            {
+                if (TryGetProperty(node, propertyName, out var property))
+                {
+                    AddMeaningfulActionNames(property, names);
+                }
+            }
+
+            actionNames = names.ToArray();
+            return actionNames.Count > 0;
+        }
+
+        private static void AddMeaningfulActionNames(JsonElement element, ISet<string> names)
+        {
+            switch (element.ValueKind)
+            {
+                case JsonValueKind.String:
+                    var actionName = element.GetString()?.Trim();
+                    if (IsMeaningfulActionString(actionName))
+                    {
+                        names.Add(actionName!);
+                    }
+
+                    break;
+                case JsonValueKind.Object:
+                    foreach (var property in element.EnumerateObject())
+                    {
+                        if (HasMeaningfulActionValue(property.Value) &&
+                            IsMeaningfulActionString(property.Name))
+                        {
+                            names.Add(property.Name.Trim());
+                        }
+
+                        AddMeaningfulActionNames(property.Value, names);
+                    }
+
+                    break;
+                case JsonValueKind.Array:
+                    foreach (var item in element.EnumerateArray())
+                    {
+                        AddMeaningfulActionNames(item, names);
+                    }
+
+                    break;
+            }
+        }
 
         private static bool HasMeaningfulActionValue(JsonElement element)
             => element.ValueKind switch
