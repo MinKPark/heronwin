@@ -11,7 +11,7 @@ Example:
 
 ```dotenv
 LLM_PROVIDER=openai-api
-OPENAI_API_KEY=sk-...
+OPENAI_API_KEY=<your-openai-api-key>
 OPENAI_MODEL=gpt-5.4-mini
 OPENAI_CODEX_COMMAND=codex
 OPENAI_CODEX_MODEL=
