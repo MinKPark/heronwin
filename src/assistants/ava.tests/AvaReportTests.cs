@@ -275,10 +275,24 @@ public sealed class AvaReportTests
                     [
                         new AvaCheckpointResult(
                             "after",
-                            AvaFindingStatus.Pass,
-                            "Fixture pass.")
+                            AvaFindingStatus.Fail,
+                            "Fixture finding.")
                     ],
-                    [])
+                    [
+                        new AvaAccessibilityFinding(
+                            "AVA-NAME-MISSING-001-WEB-DOM-SNAPSHOT-001",
+                            AvaFindingStatus.Fail,
+                            "after",
+                            "Interactive web node is missing an accessible name.",
+                            AvaProfileIds.FederalWebMin,
+                            "WEB-WCAG-4.1.2-NAME",
+                            "WCAG 2.0 SC 4.1.2 Name, Role, Value",
+                            evidenceReference.ManifestPath,
+                            "step-001",
+                            "web_dom_snapshot",
+                            "7",
+                            "Web button (AX node 7)")
+                    ])
             ]);
 
         var writeResult = AvaReportWriter.Write(report, outputDirectory);
@@ -498,6 +512,91 @@ public sealed class AvaReportTests
         Assert.True(File.Exists(highlightPath));
         using var highlighted = new Bitmap(highlightPath);
         Assert.NotEqual(Color.White.ToArgb(), highlighted.GetPixel(20, 30).ToArgb());
+    }
+
+    [Fact]
+    public void ReportWriter_RendersWebHtmlEvidenceLink()
+    {
+        var outputDirectory = CreateTemporaryDirectory();
+        var evidenceReference = new AvaEvidenceBundleWriter().WriteStepEvidence(new AvaEvidenceBundleWriteRequest(
+            "run-001",
+            outputDirectory,
+            "step-001",
+            1,
+            "Step 1",
+            "0x00010001",
+            [
+                new AvaEvidenceRecord(
+                    "web_dom_snapshot",
+                    AvaEvidenceStatus.Captured,
+                    null,
+                    """{"target":{"title":"Example"}}""",
+                    "Captured CDP DOM, accessibility tree, and HTML for Example.",
+                    null)
+                {
+                    Artifacts =
+                    [
+                        new AvaEvidenceArtifact(
+                            "html",
+                            "text/html",
+                            "<!doctype html><html><body><button>Submit</button></body></html>",
+                            "html")
+                    ],
+                }
+            ]));
+        var report = new AvaValidationReport(
+            "run-001",
+            "Active window smoke",
+            "Federal Windows UIA minimum",
+            AvaProfileIds.FederalWindowsUiaMin,
+            "continue-and-report",
+            ["after"],
+            "scenario.yml",
+            "validation.yml",
+            [
+                new AvaStepResult(
+                    1,
+                    "step-001",
+                    "Step 1",
+                    "Describe active window.",
+                    "continue-and-report",
+                    evidenceReference,
+                    [
+                        new AvaCheckpointResult(
+                            "after",
+                            AvaFindingStatus.Fail,
+                            "Fixture finding.")
+                    ],
+                    [
+                        new AvaAccessibilityFinding(
+                            "AVA-NAME-MISSING-001-WEB-DOM-SNAPSHOT-001",
+                            AvaFindingStatus.Fail,
+                            "after",
+                            "Interactive web node is missing an accessible name.",
+                            AvaProfileIds.FederalWebMin,
+                            "WEB-WCAG-4.1.2-NAME",
+                            "WCAG 2.0 SC 4.1.2 Name, Role, Value",
+                            evidenceReference.ManifestPath,
+                            "step-001",
+                            "web_dom_snapshot",
+                            "7",
+                            "Web button (AX node 7)")
+                    ])
+            ]);
+
+        var writeResult = AvaReportWriter.Write(report, outputDirectory);
+        var markdown = File.ReadAllText(writeResult.MarkdownPath);
+        var htmlPath = Path.Combine(outputDirectory, "evidence", "step-001", "web", "001-page.html");
+        var manifestJson = File.ReadAllText(Path.Combine(outputDirectory, "evidence", "step-001", "manifest.json"));
+
+        Assert.True(File.Exists(htmlPath));
+        Assert.Contains("<button>Submit</button>", File.ReadAllText(htmlPath), StringComparison.Ordinal);
+        Assert.Contains("\"artifacts\"", manifestJson, StringComparison.Ordinal);
+        Assert.Contains("\"path\": \"web/001-page.html\"", manifestJson, StringComparison.Ordinal);
+        Assert.Contains("#### Web Evidence", markdown, StringComparison.Ordinal);
+        Assert.Contains("[html](evidence/step-001/web/001-page.html)", markdown, StringComparison.Ordinal);
+        Assert.Contains("[manifest.json](evidence/step-001/manifest.json)<br>", markdown, StringComparison.Ordinal);
+        Assert.Contains("<br>[html](evidence/step-001/web/001-page.html)", markdown, StringComparison.Ordinal);
     }
 
     [Fact]

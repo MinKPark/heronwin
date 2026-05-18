@@ -364,6 +364,7 @@ internal static class AvaReportWriter
             builder.AppendLine($"- Evidence: `{step.Evidence.ManifestPath}` (`{step.Evidence.Status}`, {step.Evidence.EntryCount} entries)");
 
             AppendStepScreenshots(builder, step, outputDirectory);
+            AppendStepWebEvidence(builder, step, outputDirectory);
             AppendFindingsTable(builder, step, outputDirectory);
         }
 
@@ -652,6 +653,120 @@ internal static class AvaReportWriter
             builder.AppendLine($"![{EscapeImageAltText(screenshot.AltText)}]({EscapeLinkDestination(screenshot.ReportPath)})");
             builder.AppendLine();
         }
+    }
+
+    private static void AppendStepWebEvidence(
+        StringBuilder builder,
+        AvaStepResult step,
+        string? outputDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(outputDirectory))
+        {
+            return;
+        }
+
+        var webEvidence = LoadStepWebEvidence(outputDirectory, step);
+        if (webEvidence.Count == 0)
+        {
+            return;
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("#### Web Evidence");
+        builder.AppendLine();
+
+        foreach (var evidence in webEvidence)
+        {
+            if (string.Equals(evidence.Status, AvaEvidenceStatus.Captured, StringComparison.Ordinal) &&
+                evidence.HtmlLinks.Count > 0)
+            {
+                var links = string.Join(
+                    ", ",
+                    evidence.HtmlLinks.Select(link => $"[{EscapeLinkText(link.Label)}]({EscapeLinkDestination(link.ReportPath)})"));
+                builder.AppendLine($"- {TextCell(evidence.Label)}: {links}");
+            }
+            else
+            {
+                builder.AppendLine($"- {TextCell(evidence.Label)}: {TextCell(evidence.Summary ?? evidence.Status)}");
+            }
+        }
+    }
+
+    private static IReadOnlyList<StepWebEvidence> LoadStepWebEvidence(
+        string outputDirectory,
+        AvaStepResult step)
+    {
+        var manifestPath = ResolvePath(outputDirectory, step.Evidence.ManifestPath);
+        if (!File.Exists(manifestPath))
+        {
+            return [];
+        }
+
+        AvaEvidenceManifest? manifest;
+        try
+        {
+            manifest = JsonSerializer.Deserialize<AvaEvidenceManifest>(
+                File.ReadAllText(manifestPath, Encoding.UTF8),
+                JsonOptions);
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+
+        if (manifest is null)
+        {
+            return [];
+        }
+
+        var manifestDirectory = Path.GetDirectoryName(manifestPath);
+        if (string.IsNullOrWhiteSpace(manifestDirectory))
+        {
+            return [];
+        }
+
+        return manifest.Entries
+            .Where(static entry => string.Equals(entry.ToolName, "web_dom_snapshot", StringComparison.Ordinal))
+            .Select(entry => LoadStepWebEvidenceEntry(outputDirectory, manifestDirectory, entry))
+            .Where(static entry => entry is not null)
+            .Select(static entry => entry!)
+            .ToArray();
+    }
+
+    private static StepWebEvidence? LoadStepWebEvidenceEntry(
+        string outputDirectory,
+        string manifestDirectory,
+        AvaEvidenceManifestEntry entry)
+    {
+        var htmlLinks = entry.Artifacts
+            .Where(static artifact => string.Equals(artifact.Kind, "html", StringComparison.OrdinalIgnoreCase))
+            .Select(artifact =>
+            {
+                var fullPath = ResolvePath(manifestDirectory, artifact.Path);
+                if (!File.Exists(fullPath))
+                {
+                    return null;
+                }
+
+                return new StepWebEvidenceLink(
+                    string.IsNullOrWhiteSpace(artifact.Label) ? "html" : artifact.Label!,
+                    ToRelativeReportPath(outputDirectory, fullPath));
+            })
+            .Where(static link => link is not null)
+            .Select(static link => link!)
+            .ToArray();
+
+        if (htmlLinks.Length == 0 &&
+            string.Equals(entry.Status, AvaEvidenceStatus.Captured, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return new StepWebEvidence(
+            HumanizeIdentifier(entry.ToolName),
+            entry.Status,
+            entry.Summary ?? entry.Error,
+            htmlLinks);
     }
 
     private static IReadOnlyList<StepScreenshot> LoadStepScreenshots(
@@ -983,6 +1098,16 @@ internal static class AvaReportWriter
         double Width,
         double Height);
 
+    private sealed record StepWebEvidence(
+        string Label,
+        string Status,
+        string? Summary,
+        IReadOnlyList<StepWebEvidenceLink> HtmlLinks);
+
+    private sealed record StepWebEvidenceLink(
+        string Label,
+        string ReportPath);
+
     private static void AppendFindingsTable(
         StringBuilder builder,
         AvaStepResult step,
@@ -1269,6 +1394,16 @@ internal static class AvaReportWriter
         if (!string.IsNullOrWhiteSpace(manifestLink))
         {
             links.Add(manifestLink);
+        }
+
+        if (string.Equals(finding.ToolName, "web_dom_snapshot", StringComparison.Ordinal) &&
+            !string.IsNullOrWhiteSpace(outputDirectory))
+        {
+            foreach (var htmlLink in LoadStepWebEvidence(outputDirectory, step)
+                         .SelectMany(static evidence => evidence.HtmlLinks))
+            {
+                links.Add($"[{EscapeLinkText(htmlLink.Label)}]({EscapeLinkDestination(htmlLink.ReportPath)})");
+            }
         }
 
         var highlightedScreenshotPath = TryCreateHighlightedScreenshot(outputDirectory, step, finding);

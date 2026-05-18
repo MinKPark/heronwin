@@ -36,13 +36,16 @@ internal static class AvaReportRegenerator
     {
         var records = LoadEvidenceRecords(outputDirectory, step);
         var validationCheckpoint = step.Checkpoints.LastOrDefault()?.Timing ?? AvaCheckpointTiming.After;
-        var deterministicFindings = AvaDeterministicValidators.Validate(new AvaDeterministicValidationContext(
+        var validationContext = new AvaDeterministicValidationContext(
             step.Index,
             step.StepId,
             sourceReport.Profile,
             validationCheckpoint,
             step.Evidence,
-            records));
+            records);
+        var deterministicFindings = AvaDeterministicValidators.Validate(validationContext)
+            .Concat(AvaWebDeterministicValidators.Validate(validationContext))
+            .ToArray();
         var preservedExecutionFindings = step.Findings
             .Where(static finding => finding.Id.StartsWith("AVA-EXECUTION-FAILED-", StringComparison.Ordinal))
             .ToArray();

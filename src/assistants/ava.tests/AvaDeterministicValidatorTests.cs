@@ -512,6 +512,45 @@ public sealed class AvaDeterministicValidatorTests
         Assert.Equal("WCAG 2.0 SC 2.1.1 Keyboard", actionFinding.SourceStandard);
     }
 
+    [Fact]
+    public async Task Runner_CdpWebEvidence_ProducesFederalWebFinding()
+    {
+        var report = await RunWithEvidenceAsync([
+            Captured("describe_window", ValidButtonTree),
+            Captured("describe_window_focus", ValidButtonTree),
+            Captured(
+                "web_dom_snapshot",
+                """
+                {
+                  "accessibilityTree": {
+                    "result": {
+                      "nodes": [
+                        {
+                          "nodeId": "7",
+                          "ignored": false,
+                          "role": { "value": "button" },
+                          "name": { "value": "" },
+                          "properties": [
+                            { "name": "focusable", "value": { "value": true } }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+                """)
+        ]);
+
+        var finding = Assert.Single(report.Steps.Single().Findings, finding =>
+            finding.ToolName == "web_dom_snapshot");
+
+        Assert.Equal(AvaFindingStatus.Fail, finding.Status);
+        Assert.Equal(AvaProfileIds.FederalWebMin, finding.ProfileId);
+        Assert.Equal("WEB-WCAG-4.1.2-NAME", finding.RuleId);
+        Assert.Equal("Web button (AX node 7)", finding.NodeTrace);
+        Assert.Equal("computed-role: button; focusable: true", finding.AriaProperties);
+    }
+
     private const string ValidButtonTree =
         """
         {

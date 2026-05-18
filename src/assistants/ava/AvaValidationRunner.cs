@@ -555,13 +555,15 @@ internal static class AvaValidationRunner
             evidenceWriter);
 
         var validationCheckpoint = effectiveConfig.Checkpoints.LastOrDefault() ?? AvaCheckpointTiming.After;
-        var findings = AvaDeterministicValidators.Validate(new AvaDeterministicValidationContext(
+        var validationContext = new AvaDeterministicValidationContext(
             stepNumber,
             stepId,
             request.ValidationConfig.Profile,
             validationCheckpoint,
             evidenceReference,
-            evidenceRecords))
+            evidenceRecords);
+        var findings = AvaDeterministicValidators.Validate(validationContext)
+            .Concat(AvaWebDeterministicValidators.Validate(validationContext))
             .Concat(CreateExecutionFindings(
                 stepNumber,
                 stepId,

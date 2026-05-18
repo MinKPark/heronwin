@@ -146,8 +146,10 @@ try
     }
 
     var tools = await ConnectMcpServersAsync(appConfig, mcpClientManager, cancellationSource.Token);
-    var evidenceCollector = HasEvidenceTools(tools)
-        ? new AvaMcpEvidenceCollector(mcpClientManager)
+    IAvaEvidenceCollector? evidenceCollector = HasEvidenceTools(tools)
+        ? new AvaCompositeEvidenceCollector(
+            new AvaMcpEvidenceCollector(mcpClientManager),
+            new AvaCdpEvidenceCollector())
         : null;
     if (evidenceCollector is null)
     {
