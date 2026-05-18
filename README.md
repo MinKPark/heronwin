@@ -4,6 +4,8 @@ HeronWin is a Windows-local AI assistant workspace for inspecting, controlling, 
 
 The project is designed around local, explicit, testable desktop automation: the assistant observes Windows UI state, chooses actions through local tools, records traces, and can replay or validate workflows from YAML.
 
+Note: This whole codebase was written with Codex in a vibe-coding workflow.
+
 ## What It Can Do
 
 - Run an interactive assistant with typed requests or voice mode through `cursor`.
