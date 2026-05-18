@@ -19,8 +19,8 @@ Provider defaults:
 | `LLM_PROVIDER` | Default mode | Notes |
 | --- | --- | --- |
 | `openai-api` | voice | Needs `OPENAI_API_KEY` |
-| `claude-api` | voice | Needs `ANTHROPIC_API_KEY` and Whisper key |
 | `openai-codex` | text | Run `codex login` first |
+| `claude-api` | voice | Needs `ANTHROPIC_API_KEY`; voice transcription also needs `OPENAI_API_KEY` |
 
 Text commands:
 

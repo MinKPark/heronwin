@@ -106,7 +106,7 @@ Example finding metadata:
 }
 ```
 
-In Markdown, keep the main finding table compact. Surface can be a column only if it proves useful; otherwise include it in JSON first and summarize counts by surface in the report summary. When CDP captures HTML, the step evidence section should include a link such as `[html](evidence/step-005/web/001-page.html)`.
+In Markdown, keep the main finding table compact. Surface can be a column only if it proves useful; otherwise include it in JSON first and summarize counts by surface in the report summary. When CDP captures HTML, the step evidence section should include a generated report link such as `html` pointing to `evidence/step-005/web/001-page.html`.
 
 ## Configuration
 

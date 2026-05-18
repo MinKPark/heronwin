@@ -9,8 +9,11 @@ These docs cover how to configure and run HeronWin.
 - [cursor Get Started](./cursor/getstarted.md)
 - [OpenAI Configuration](./get-started-openaiconfig.md)
 - [Create App Skills](./APP_SKILLS.md)
+- [AVA Documentation](./ava/README.md)
 - [AVA Get Started](./ava/getstarted.md)
+- [AVA Browser And Web Validation Plan](./ava/browser-and-web-validation-plan.md)
 - [AVA Rule Catalog](./ava/rules/README.md)
+- [AVA Samples](./ava/sample/README.md)
 
 Developer-facing design notes, bug writeups, performance baselines, and project history live in [devdocs](../devdocs/README.md).
 

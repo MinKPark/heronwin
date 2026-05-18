@@ -7,3 +7,5 @@ browser window titles, local paths, screenshots, and third-party page content.
 The sample report redacts profile names, passcodes, local absolute paths,
 browser profile labels, local debug endpoints, window handles, and direct links
 to omitted evidence assets.
+
+- [Redacted report](./report.redacted.md)
