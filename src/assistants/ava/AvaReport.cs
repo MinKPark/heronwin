@@ -687,7 +687,11 @@ internal static class AvaReportWriter
             }
             else
             {
-                builder.AppendLine($"- {TextCell(evidence.Label)}: {TextCell(evidence.Summary ?? evidence.Status)}");
+                var statusLabel = string.Equals(evidence.Status, AvaEvidenceStatus.Missing, StringComparison.Ordinal)
+                    ? "warning"
+                    : evidence.Status;
+                builder.AppendLine(
+                    $"- {TextCell(evidence.Label)} {TextCell(statusLabel)}: {TextCell(evidence.Summary ?? evidence.Status)}");
             }
         }
     }
@@ -726,12 +730,22 @@ internal static class AvaReportWriter
         }
 
         return manifest.Entries
-            .Where(static entry => string.Equals(entry.ToolName, "web_dom_snapshot", StringComparison.Ordinal))
+            .Where(IsWebEvidenceEntry)
             .Select(entry => LoadStepWebEvidenceEntry(outputDirectory, manifestDirectory, entry))
             .Where(static entry => entry is not null)
             .Select(static entry => entry!)
             .ToArray();
     }
+
+    private static bool IsWebEvidenceEntry(AvaEvidenceManifestEntry entry)
+        => string.Equals(entry.ToolName, "web_dom_snapshot", StringComparison.Ordinal) ||
+            ContainsWebValidationSkipMessage(entry.Summary) ||
+            ContainsWebValidationSkipMessage(entry.Error);
+
+    private static bool ContainsWebValidationSkipMessage(string? value)
+        => !string.IsNullOrWhiteSpace(value) &&
+            (value.Contains("web/W3C validation skipped", StringComparison.OrdinalIgnoreCase) ||
+             value.Contains("CDP endpoint", StringComparison.OrdinalIgnoreCase));
 
     private static StepWebEvidence? LoadStepWebEvidenceEntry(
         string outputDirectory,
@@ -762,8 +776,12 @@ internal static class AvaReportWriter
             return null;
         }
 
+        var label = string.Equals(entry.ToolName, "web_dom_snapshot", StringComparison.Ordinal)
+            ? HumanizeIdentifier(entry.ToolName)
+            : "Web Dom Snapshot";
+
         return new StepWebEvidence(
-            HumanizeIdentifier(entry.ToolName),
+            label,
             entry.Status,
             entry.Summary ?? entry.Error,
             htmlLinks);

@@ -386,6 +386,63 @@ public sealed class AvaDeterministicValidatorTests
     }
 
     [Fact]
+    public async Task Runner_IgnoresUnnamedFocusableWebContainerGroups()
+    {
+        var report = await RunWithEvidenceAsync([
+            Captured(
+                "describe_window",
+                """
+                {
+                  "compactTree": {
+                    "controlType": "Window",
+                    "children": [
+                      {
+                        "name": "Netflix",
+                        "controlType": "Document",
+                        "automationId": "RootWebArea",
+                        "children": [
+                          {
+                            "controlType": "Group",
+                            "className": "passive default-ltr-iqcdef-cache-fntwn3",
+                            "isKeyboardFocusable": true,
+                            "availableActions": ["focus", "invoke", "scroll_into_view"],
+                            "bounds": { "left": 0, "top": 0, "width": 800, "height": 600 }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+                """),
+            Captured(
+                "describe_window_focus",
+                """
+                {
+                  "compactTree": {
+                    "controlType": "Group",
+                    "className": "passive default-ltr-iqcdef-cache-fntwn3",
+                    "isKeyboardFocusable": true,
+                    "availableActions": ["focus", "invoke", "scroll_into_view"],
+                    "bounds": { "left": 0, "top": 0, "width": 800, "height": 600 },
+                    "children": [
+                      {
+                        "controlType": "Group",
+                        "isKeyboardFocusable": true,
+                        "availableActions": ["focus", "scroll_into_view"],
+                        "bounds": { "left": 0, "top": 0, "width": 800, "height": 600 }
+                      }
+                    ]
+                  }
+                }
+                """)
+        ]);
+
+        var step = Assert.Single(report.Steps);
+        Assert.Empty(step.Findings);
+        Assert.Equal(AvaFindingStatus.Pass, Assert.Single(step.Checkpoints).Status);
+    }
+
+    [Fact]
     public async Task Runner_IgnoresUnsupportedAriaPropertyPlaceholders()
     {
         var report = await RunWithEvidenceAsync([

@@ -600,6 +600,106 @@ public sealed class AvaReportTests
     }
 
     [Fact]
+    public void ReportWriter_RendersMissingWebEvidenceWarning()
+    {
+        var outputDirectory = CreateTemporaryDirectory();
+        var evidenceReference = new AvaEvidenceBundleWriter().WriteStepEvidence(new AvaEvidenceBundleWriteRequest(
+            "run-001",
+            outputDirectory,
+            "step-001",
+            1,
+            "Step 1",
+            "0x00010001",
+            [
+                AvaEvidenceRecord.Missing(
+                    "web_dom_snapshot",
+                    "CDP endpoint was not available at http://127.0.0.1:9222; web/W3C validation skipped.")
+            ]));
+        var report = new AvaValidationReport(
+            "run-001",
+            "Active window smoke",
+            "Federal Windows UIA minimum",
+            AvaProfileIds.FederalWindowsUiaMin,
+            "continue-and-report",
+            ["after"],
+            "scenario.yml",
+            "validation.yml",
+            [
+                new AvaStepResult(
+                    1,
+                    "step-001",
+                    "Step 1",
+                    "Describe active window.",
+                    "continue-and-report",
+                    evidenceReference,
+                    [
+                        new AvaCheckpointResult(
+                            "after",
+                            AvaFindingStatus.Pass,
+                            "Fixture pass.")
+                    ],
+                    [])
+            ]);
+
+        var writeResult = AvaReportWriter.Write(report, outputDirectory);
+        var markdown = File.ReadAllText(writeResult.MarkdownPath);
+
+        Assert.Contains("#### Web Evidence", markdown, StringComparison.Ordinal);
+        Assert.Contains(
+            "- Web Dom Snapshot warning: CDP endpoint was not available at http://127.0.0.1:9222; web/W3C validation skipped.",
+            markdown,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReportWriter_RendersLegacyMissingWebEvidenceWarning()
+    {
+        var outputDirectory = CreateTemporaryDirectory();
+        var evidenceReference = new AvaEvidenceBundleWriter().WriteStepEvidence(new AvaEvidenceBundleWriteRequest(
+            "run-001",
+            outputDirectory,
+            "step-001",
+            1,
+            "Step 1",
+            "0x00010001",
+            [
+                AvaEvidenceRecord.Missing(
+                    "CDP endpoint was not available at http://127.0.0.1:9222; web/W3C validation skipped.")
+            ]));
+        var report = new AvaValidationReport(
+            "run-001",
+            "Active window smoke",
+            "Federal Windows UIA minimum",
+            AvaProfileIds.FederalWindowsUiaMin,
+            "continue-and-report",
+            ["after"],
+            "scenario.yml",
+            "validation.yml",
+            [
+                new AvaStepResult(
+                    1,
+                    "step-001",
+                    "Step 1",
+                    "Describe active window.",
+                    "continue-and-report",
+                    evidenceReference,
+                    [
+                        new AvaCheckpointResult(
+                            "after",
+                            AvaFindingStatus.Pass,
+                            "Fixture pass.")
+                    ],
+                    [])
+            ]);
+
+        var writeResult = AvaReportWriter.Write(report, outputDirectory);
+        var markdown = File.ReadAllText(writeResult.MarkdownPath);
+
+        Assert.Contains("#### Web Evidence", markdown, StringComparison.Ordinal);
+        Assert.Contains("Web Dom Snapshot warning: CDP endpoint was not available", markdown, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ReportRegenerator_RerunsValidatorsFromSavedEvidence()
     {
         var outputDirectory = CreateTemporaryDirectory();

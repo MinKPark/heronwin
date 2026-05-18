@@ -2094,7 +2094,7 @@ public sealed class AgentRunnerDecisionTests
                           {
                             "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/1",
                             "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/1",
-                            "Name": "Esther",
+                            "Name": "Profile 2",
                             "ControlType": "ListItem",
                             "ClassName": "profile"
                           }
@@ -2202,7 +2202,7 @@ public sealed class AgentRunnerDecisionTests
                           {
                             "Path": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/1",
                             "UiPath": "1/0/0/1/1/0/0/0/0/0/0/0/0/2/1",
-                            "Name": "Esther",
+                            "Name": "Profile 2",
                             "ControlType": "ListItem",
                             "ClassName": "profile"
                           }

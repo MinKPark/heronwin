@@ -25,8 +25,11 @@ internal sealed record AvaEvidenceRecord(
     public IReadOnlyList<AvaEvidenceArtifact> Artifacts { get; init; } = [];
 
     public static AvaEvidenceRecord Missing(string summary)
+        => Missing("ava.evidence", summary);
+
+    public static AvaEvidenceRecord Missing(string toolName, string summary)
         => new(
-            "ava.evidence",
+            string.IsNullOrWhiteSpace(toolName) ? "ava.evidence" : toolName,
             AvaEvidenceStatus.Missing,
             null,
             null,
@@ -377,6 +380,7 @@ internal sealed class AvaCdpEvidenceCollector(HttpClient? httpClient = null)
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
         {
             return AvaEvidenceRecord.Missing(
+                "web_dom_snapshot",
                 $"CDP endpoint was not available at {endpoint}; web/W3C validation skipped.");
         }
 
@@ -384,6 +388,7 @@ internal sealed class AvaCdpEvidenceCollector(HttpClient? httpClient = null)
         if (target is null || string.IsNullOrWhiteSpace(target.WebSocketDebuggerUrl))
         {
             return AvaEvidenceRecord.Missing(
+                "web_dom_snapshot",
                 $"CDP endpoint was available at {endpoint}, but no matching page target was found; web/W3C validation skipped.");
         }
 

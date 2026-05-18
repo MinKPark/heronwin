@@ -143,6 +143,27 @@ public sealed class BoundedTreePromotionTests
         Assert.DoesNotContain("\"Bounds\": null", json);
     }
 
+    [Theory]
+    [InlineData(50000, "Button")]
+    [InlineData(50026, "Group")]
+    [InlineData(50030, "Document")]
+    [InlineData(50032, "Window")]
+    [InlineData(59999, "ControlType_59999")]
+    public void NativeUia_MapsControlTypeIdsToStableNames(int controlTypeId, string expectedName)
+    {
+        Assert.Equal(expectedName, NativeUia.ControlTypeNameFromId(controlTypeId));
+    }
+
+    [Theory]
+    [InlineData(null, "")]
+    [InlineData("", "")]
+    [InlineData("button", "button")]
+    [InlineData("System.ArgumentException: Unsupported Property.", "")]
+    public void NativeUia_NormalizesUnsupportedStringPropertyValues(object? value, string expected)
+    {
+        Assert.Equal(expected, NativeUia.NormalizeStringPropertyValue(value));
+    }
+
     [Fact]
     public void UiElementSnapshot_OmitsEmptyStringsAndEmptyArrays()
     {

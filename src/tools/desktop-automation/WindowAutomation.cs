@@ -338,8 +338,7 @@ internal static class WindowAutomation
     {
         var handle = ResolveInteractionWindowHandle(selectionState);
         var window = BuildWindowDescriptor(handle);
-        var windowElement = AutomationElement.FromHandle(handle);
-        var sourceTree = CaptureElementTree(windowElement, remainingLevels: null, "root", "root");
+        var sourceTree = NativeUia.CaptureWindowTree(handle);
         var response = CompactUiSnapshotBuilder.BuildWindowResponse(
             window,
             sourceTree,
@@ -673,20 +672,8 @@ internal static class WindowAutomation
     {
         var handle = ResolveInteractionWindowHandle(selectionState);
         var window = BuildWindowDescriptor(handle);
-        var windowElement = AutomationElement.FromHandle(handle);
-        var focusedElement = AutomationElement.FocusedElement
-            ?? throw new InvalidOperationException("No focused UI element is currently available.");
-
-        if (!IsSameOrDescendantOf(focusedElement, windowElement))
-        {
-            throw new InvalidOperationException(
-                "The currently focused UI element does not belong to the selected window.");
-        }
-
-        var focusedElementUiPath = TryFindElementPath(windowElement, focusedElement, "root")
-            ?? throw new InvalidOperationException(
-                "Could not resolve the focused UI element's path within the selected window.");
-        var sourceTree = CaptureElementTree(focusedElement, remainingLevels: null, "focused", focusedElementUiPath);
+        var focusTree = NativeUia.CaptureFocusedElementTree(handle);
+        var sourceTree = focusTree.FocusedElement;
         var response = CompactUiSnapshotBuilder.BuildFocusResponse(
             window,
             sourceTree,

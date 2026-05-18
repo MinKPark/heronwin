@@ -64,7 +64,7 @@
 
   <rect class="box-green" x="120" y="370" width="470" height="86"/>
   <text class="copy" x="355" y="402" text-anchor="middle">Brain reaches Netflix profile picker</text>
-  <text class="small" x="355" y="427" text-anchor="middle">"Who's watching?" with Min, Esther, Henry, Yoon.</text>
+  <text class="small" x="355" y="427" text-anchor="middle">"Who's watching?" with Min, Profile 2, Profile 3, Profile 4.</text>
 
   <rect class="box-amber" x="120" y="506" width="470" height="96"/>
   <text class="copy" x="355" y="538" text-anchor="middle">Assistant draft stops at confirmation</text>

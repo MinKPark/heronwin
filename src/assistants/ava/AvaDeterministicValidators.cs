@@ -38,6 +38,12 @@ internal static class AvaDeterministicValidators
         "id"
     ];
 
+    private static readonly string[] ClassNamePropertyNames =
+    [
+        "className",
+        "class"
+    ];
+
     private static readonly string[] ActionPropertyNames =
     [
         "actions",
@@ -447,7 +453,7 @@ internal static class AvaDeterministicValidators
             }
 
             var nodeTrace = new List<string>();
-            InspectElement(treeRoot, nodeTrace);
+            InspectElement(treeRoot, nodeTrace, webContainerContext: false);
         }
 
         private void InspectStringTreeRoot(string? treeText)
@@ -468,11 +474,14 @@ internal static class AvaDeterministicValidators
             if (nestedDocument is not null)
             {
                 var nodeTrace = new List<string>();
-                InspectElement(nestedDocument.RootElement, nodeTrace);
+                InspectElement(nestedDocument.RootElement, nodeTrace, webContainerContext: false);
             }
         }
 
-        private void InspectElement(JsonElement element, List<string> nodeTrace)
+        private void InspectElement(
+            JsonElement element,
+            List<string> nodeTrace,
+            bool webContainerContext)
         {
             switch (element.ValueKind)
             {
@@ -484,12 +493,13 @@ internal static class AvaDeterministicValidators
                         addedTraceSegment = true;
                     }
 
-                    InspectNodeIfActionable(element, FormatNodeTrace(nodeTrace));
+                    var currentWebContainerContext = webContainerContext || LooksLikeWebContainerContext(element);
+                    InspectNodeIfActionable(element, FormatNodeTrace(nodeTrace), currentWebContainerContext);
                     foreach (var property in element.EnumerateObject())
                     {
                         if (property.Value.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
                         {
-                            InspectElement(property.Value, nodeTrace);
+                            InspectElement(property.Value, nodeTrace, currentWebContainerContext);
                         }
                     }
 
@@ -502,14 +512,17 @@ internal static class AvaDeterministicValidators
                 case JsonValueKind.Array:
                     foreach (var item in element.EnumerateArray())
                     {
-                        InspectElement(item, nodeTrace);
+                        InspectElement(item, nodeTrace, webContainerContext);
                     }
 
                     break;
             }
         }
 
-        private void InspectNodeIfActionable(JsonElement node, string? nodeTrace)
+        private void InspectNodeIfActionable(
+            JsonElement node,
+            string? nodeTrace,
+            bool webContainerContext)
         {
             var hasActions = HasAnyMeaningfulActionProperty(node);
             var hasPatterns = HasAnyNonEmptyCollectionLikeProperty(node, PatternPropertyNames);
@@ -532,7 +545,8 @@ internal static class AvaDeterministicValidators
             }
 
             var hasName = TryGetFirstString(node, NamePropertyNames, out _);
-            if (IsIgnorableContainerInvokeNode(node, hasName, hasPatterns, hasKeyboardFocusable, hasRole ? role : null))
+            if (IsIgnorableContainerInvokeNode(node, hasName, hasPatterns, hasKeyboardFocusable, hasRole ? role : null) ||
+                IsIgnorableWebContainerGroupNode(node, hasName, hasPatterns, hasRole ? role : null, webContainerContext))
             {
                 return;
             }
@@ -708,6 +722,55 @@ internal static class AvaDeterministicValidators
 
             return actionNames.Count == 1 &&
                 string.Equals(actionNames[0], "invoke", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsIgnorableWebContainerGroupNode(
+            JsonElement node,
+            bool hasName,
+            bool hasPatterns,
+            string? role,
+            bool webContainerContext)
+        {
+            if (hasName ||
+                hasPatterns ||
+                string.IsNullOrWhiteSpace(role) ||
+                !webContainerContext ||
+                !ContainsAnyTerm(role, GenericContainerRoleTerms))
+            {
+                return false;
+            }
+
+            if (TryGetFirstString(node, AutomationIdPropertyNames, out var automationId) &&
+                !string.Equals(automationId, "appMountPoint", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (!TryGetMeaningfulActionNames(node, out var actionNames))
+            {
+                return true;
+            }
+
+            return actionNames.All(static actionName =>
+                string.Equals(actionName, "invoke", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool LooksLikeWebContainerContext(JsonElement node)
+        {
+            if (TryGetFirstString(node, RolePropertyNames, out var role) &&
+                string.Equals(role, "Document", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (!TryGetFirstString(node, ClassNamePropertyNames, out var className))
+            {
+                return false;
+            }
+
+            return className.Contains("default-ltr", StringComparison.OrdinalIgnoreCase) ||
+                className.Contains("default-rtl", StringComparison.OrdinalIgnoreCase) ||
+                className.Contains("passive", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool HasChildElements(JsonElement node)
