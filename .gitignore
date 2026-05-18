@@ -8,6 +8,11 @@
 *.log
 .validate-*.txt
 
+# Generated validation evidence
+docs/ava/sample/*/evidence/
+docs/ava/sample/*/report.json
+docs/ava/sample/*/report.md
+
 # OS
 .DS_Store
 Thumbs.db
