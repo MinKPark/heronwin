@@ -1,6 +1,8 @@
 # tars
 
-`tars` is the HeronWin scenario assistant. It runs YAML scenario files with log-based assertions and debug trace output.
+`tars` is the HeronWin scenario assistant. It runs YAML scenario files with log-based assertions and debug trace output, using the same local inspection and execution tools as the interactive assistant.
+
+Use `tars` for repeatable automation: smoke tests, app playbooks, regression checks, and one-command scripted tasks that should be stored as scenario files. Use `cursor` for live text/voice control, and use AVA when the scenario should produce accessibility evidence and reports.
 
 Run from the repository root:
 

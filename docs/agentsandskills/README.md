@@ -1,8 +1,18 @@
 # Agents And Skills
 
-HeronWin agents are prompt profiles. Skills are smaller Markdown playbooks that the runtime loads only when they apply to the current turn.
+HeronWin agents are prompt profiles for a Windows-local automation system. Skills are smaller Markdown playbooks that the runtime loads only when they apply to the current turn.
 
 Use these docs when changing assistant behavior, adding app-specific guidance, or reviewing generated skill drafts.
+
+## Assistant Roles
+
+The assistants share prompt composition, LLM routing, tracing, and local MCP tools, but each assistant has a distinct job:
+
+- `cursor`: interactive text and voice control of Windows apps and browsers.
+- `tars`: repeatable YAML scenario automation with log-based assertions.
+- `ava`: scenario-backed accessibility validation with saved UI evidence and Markdown/JSON reports.
+
+Put shared app and browser behavior in shared skills. Put role-specific behavior in the assistant profile or assistant-specific skills.
 
 ## Start Here
 
@@ -29,7 +39,7 @@ src/agents/
 
 Shared app and site skills live under `src/agents/shared/skills/<group>/*.skill.md`.
 
-Assistant-specific skills live under `src/agents/<assistant>/skills` only when the guidance is truly specific to that assistant's mode.
+Assistant-specific skills live under `src/agents/<assistant>/skills` only when the guidance is truly specific to that assistant's role.
 
 ## Quick Verification
 

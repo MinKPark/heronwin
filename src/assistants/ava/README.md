@@ -1,10 +1,12 @@
 # AVA Assistant
 
-AVA is the HeronWin accessibility validation assistant host.
+AVA is the HeronWin accessibility validation assistant host. It is the assistant for scenario-backed accessibility validation of Windows apps and browser workflows.
 
 AVA owns the validation run: it reads the UX scenario, drives UI through action
 tools, collects UI evidence, runs deterministic accessibility validators, and
 writes Markdown/JSON reports.
+
+Use AVA when the goal is validation evidence and findings. Use `tars` for repeatable functional scenario automation, and use `cursor` for live text or voice control.
 
 ```powershell
 dotnet run --project src/assistants/ava -- --help

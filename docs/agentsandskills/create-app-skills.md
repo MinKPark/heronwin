@@ -2,7 +2,7 @@
 
 App skills are Markdown playbooks that teach HeronWin how to work inside a specific app or website. They do not add tools. They tell the assistant which surface it is on, which actions are appropriate, what counts as success, and when to stop instead of guessing.
 
-Use app skills for app-specific behavior. Keep generic reliability rules in the core agent, `any-app`, `generic-app`, browser, or runtime code only when the rule is truly cross-app.
+Use app skills for app-specific behavior that should help all assistants: `cursor` during live text/voice control, `tars` during repeatable scenarios, and AVA during accessibility validation runs. Keep generic reliability rules in the core agent, `any-app`, `generic-app`, browser, or runtime code only when the rule is truly cross-app.
 
 ## Where Skills Live
 
@@ -19,11 +19,21 @@ Examples:
 - [Any-app skills](../../src/agents/shared/skills/any-app/)
 - [Generic app policy](../../src/agents/shared/skills/generic-app/generic-app-policy.skill.md)
 
-Only use assistant-specific skill folders when the guidance is truly assistant-specific:
+Only use assistant-specific skill folders when the guidance is truly tied to one assistant role:
 
 - `src/agents/tars/skills`: scenario execution and reproducibility.
 - `src/agents/cursor/skills`: interactive voice/text behavior.
 - `src/agents/ava/skills`: accessibility validation behavior.
+
+## Where App Skills Fit
+
+Shared app skills are part of the common automation vocabulary. They should describe app surfaces, app-specific action order, success evidence, and stop conditions in a way that works for all three assistants.
+
+- For `cursor`, app skills make live text/voice control less guessy.
+- For `tars`, app skills make scenario steps more repeatable and easier to debug.
+- For AVA, app skills help the driver complete the workflow before accessibility evidence is interpreted.
+
+Do not put interactive conversation style, scenario assertion policy, or accessibility report policy into shared app skills. Those belong under `cursor`, `tars`, or `ava` respectively.
 
 ## When To Create One
 

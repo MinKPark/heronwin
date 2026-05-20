@@ -1,6 +1,8 @@
 # Get Started - Scenario Mode
 
-Scenario mode runs `tars` non-interactively from YAML scenario files. It bypasses microphone capture and voice playback, enables JSONL tracing, and evaluates log-based assertions.
+Scenario mode runs `tars`, the repeatable automation assistant. Use it when the workflow should be saved, replayed, debugged, or checked as a smoke test or regression scenario.
+
+`tars` runs non-interactively from YAML scenario files. It bypasses microphone capture and voice playback, enables JSONL tracing, drives UI through local MCP tools, and evaluates log-based assertions.
 
 Run the included smoke scenario:
 

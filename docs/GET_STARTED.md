@@ -1,10 +1,12 @@
 # Get Started
 
+HeronWin is designed for local, explicit, testable desktop automation on Windows. The assistant observes UI state through local MCP inspection tools, chooses actions through local execution tools, records traces, and can replay or validate workflows from YAML.
+
 Pick the assistant that matches the work:
 
-- [Scenario mode](./get-started-script-mode.md): run YAML scenarios with `tars`.
-- [Voice/text mode](./get-started-voice-mode.md): collaborate interactively with `cursor`.
-- [AVA mode](./ava/getstarted.md): run repeatable accessibility validation with saved evidence and reports.
+- [Voice/text mode](./get-started-voice-mode.md): use `cursor` for live text or voice control of Windows apps and browsers.
+- [Scenario mode](./get-started-script-mode.md): use `tars` for repeatable YAML automation and log-based assertions.
+- [AVA mode](./ava/getstarted.md): use `ava` for scenario-backed accessibility validation with saved evidence and reports.
 
 ## Prerequisites
 

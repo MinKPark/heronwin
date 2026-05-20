@@ -4,7 +4,7 @@
 
 `cursor` is the HeronWin interactive assistant. It supports typed requests, voice transcription, speech playback, and local desktop or browser automation through the configured MCP tools.
 
-Use `cursor` when you want to collaborate live with the assistant: ask it to inspect the current Windows UI, control apps, perform a workflow, or switch between text and voice interaction during the same session.
+Use `cursor` when you want to collaborate live with the assistant: ask it to inspect the current Windows UI, control apps, perform a workflow, or switch between text and voice interaction during the same session. This is the assistant for direct user-driven control rather than saved scenario automation or accessibility report generation.
 
 ## How To Run
 

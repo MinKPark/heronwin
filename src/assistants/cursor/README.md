@@ -1,6 +1,8 @@
 # cursor
 
-`cursor` is the HeronWin interactive assistant for voice and text sessions.
+`cursor` is the HeronWin interactive assistant for voice and text sessions. It is the host for direct user-driven control of Windows apps and browsers: inspect the current UI, act through local MCP tools, and keep a live conversation moving in text or voice.
+
+Use `cursor` for interactive work. Use `tars` when the same work should become a repeatable YAML scenario. Use AVA when the work should produce accessibility evidence and reports.
 
 Run from the repository root:
 

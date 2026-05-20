@@ -4,7 +4,7 @@
 
 AVA is the HeronWin accessibility validation assistant. It reads a UX scenario, drives the target UI through local MCP action tools, collects UI evidence, runs deterministic accessibility validators, and writes Markdown/JSON reports.
 
-Use AVA when you want a repeatable accessibility validation run for a Windows app or browser workflow, with saved evidence and findings that can be reviewed after the UI work is done.
+Use AVA when you want a repeatable accessibility validation run for a Windows app or browser workflow, with saved evidence and findings that can be reviewed after the UI work is done. It builds on the same scenario and local automation foundation as `tars`, then adds validation profiles, evidence capture, and reporting.
 
 ## How To Run
 

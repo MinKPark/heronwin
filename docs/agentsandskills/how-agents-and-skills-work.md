@@ -1,6 +1,20 @@
 # How Agents And Skills Work
 
-HeronWin builds the assistant system prompt at runtime from an agent profile plus selected skills. The profile gives the assistant its role and shared operating contract. Skills add focused guidance for the current request without making every turn carry every app playbook.
+HeronWin builds the assistant system prompt at runtime from an agent profile plus selected skills. The profile gives the assistant its workflow role and shared operating contract. Skills add focused guidance for the current request without making every turn carry every app playbook.
+
+The goal is local, explicit, testable Windows automation: observe UI state, choose actions through local tools, record traces, and replay or validate workflows from YAML when repeatability matters.
+
+## Assistant Roles
+
+All assistants use the same local inspection and execution foundation, but they optimize for different workflows:
+
+| Assistant | Role | Use It For |
+| --- | --- | --- |
+| `cursor` | Interactive control assistant | Live text or voice sessions that inspect and control Windows apps or browsers. |
+| `tars` | Scenario automation assistant | Repeatable YAML workflows, smoke tests, app playbooks, regression checks, and log-based assertions. |
+| `ava` | Accessibility validation assistant | Scenario-backed validation runs that collect UI evidence and write Markdown/JSON accessibility reports. |
+
+This role split is important for prompt and skill placement. A Netflix playback rule belongs in shared app skills because all assistants can use it. A voice reset rule belongs under `cursor`. A scenario assertion rule belongs under `tars`. Accessibility validation policy belongs under `ava`.
 
 ## Main Pieces
 
@@ -12,7 +26,7 @@ HeronWin builds the assistant system prompt at runtime from an agent profile plu
 
 `src/agents/shared/skills/**/*.skill.md` contains shared Windows, browser, generic app, and app/site skills.
 
-`src/agents/<assistant>/skills/**/*.skill.md` contains skills that only make sense for one assistant mode, such as `tars` scenario assertions or `cursor` voice/reset behavior.
+`src/agents/<assistant>/skills/**/*.skill.md` contains skills that only make sense for one assistant role, such as `tars` scenario assertions, `cursor` voice/reset behavior, or `ava` validation guidance.
 
 `src/agents/her.agent.md` and `src/agents/her.agent.core.md` are compatibility fallbacks for older launches and explicit overrides.
 
@@ -108,6 +122,6 @@ Use `src/agents/shared/heronwin.core.md` for cross-assistant rules that should a
 
 Use shared skills for app, website, Windows, browser, or generic app guidance that only matters in certain contexts.
 
-Use assistant-specific core prompts or skills for behavior tied to one host mode, such as `cursor` live conversation, `tars` deterministic scenario runs, or `ava` accessibility validation.
+Use assistant-specific core prompts or skills for behavior tied to one host role, such as `cursor` live conversation, `tars` deterministic scenario runs, or `ava` accessibility validation.
 
 Use runtime code when the change is deterministic recovery, tool-output interpretation, safety enforcement, evidence refresh, or a reusable invariant. See [Skill Versus Code Policy](../../src/agents/skill-vs-code-policy.md).

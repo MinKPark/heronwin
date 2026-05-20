@@ -1,10 +1,16 @@
 # Agent Prompts And Skills
 
-HeronWin now uses assistant prompt profiles layered over shared desktop skills.
+HeronWin uses assistant prompt profiles layered over shared desktop skills. The agents support a Windows-local automation system for interactive control, scripted scenario execution, and accessibility validation.
 
 Maintainer docs live under [docs/agentsandskills](../../docs/agentsandskills/README.md).
 
 ## Layout
+
+Assistant roles:
+
+- `cursor`: interactive text and voice control of Windows apps and browsers.
+- `tars`: repeatable YAML scenario automation with log-based assertions.
+- `ava`: scenario-backed accessibility validation with saved evidence and Markdown/JSON reports.
 
 - `shared/heronwin.core.md`: shared response contract, evidence rules, tool policy, and desktop automation guardrails.
 - `shared/skills/**/*.skill.md`: assistant-agnostic app, browser, Windows, and site playbooks.
@@ -30,7 +36,7 @@ Use `AVA_AGENT_DEFINITION_PATH`, `TARS_AGENT_DEFINITION_PATH`, or `CURSOR_AGENT_
 
 ## Policy
 
-- App and site skills stay under `shared/skills` unless they are truly about scenario execution or interactive voice/text behavior.
+- App and site skills stay under `shared/skills` unless they are truly about scenario execution, interactive voice/text behavior, or accessibility validation.
 - Accessibility validation guidance belongs under `ava/skills`.
 - Scenario-only guidance belongs under `tars/skills`.
 - Live collaboration, spoken pacing, reset, and mode-switch guidance belongs under `cursor/skills`.

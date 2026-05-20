@@ -1,6 +1,14 @@
 # HeronWin User Docs
 
-These docs cover how to configure and run HeronWin.
+HeronWin is a Windows-local AI assistant workspace for controlling, driving, inspecting, and validating desktop apps and browsers. It combines assistant hosts, a shared .NET runtime, local MCP tool servers, prompt/skill composition, scripted UI Automation scenarios, and accessibility validation reports.
+
+The assistants share the same local automation foundation but serve different workflows:
+
+- `cursor`: live text and voice control for interactive Windows app and browser work.
+- `tars`: repeatable YAML scenario execution for scripted automation, smoke tests, and regression checks.
+- `ava`: accessibility validation runs that drive scenarios, collect UI evidence, and write Markdown/JSON reports.
+
+These docs cover how to configure and run those workflows.
 
 - [Get Started](./GET_STARTED.md)
 - [Scenario Mode](./get-started-script-mode.md)

@@ -4,7 +4,7 @@
 
 `tars` is the HeronWin scenario assistant. It runs scripted YAML scenarios non-interactively, drives desktop or browser workflows through the local MCP tools, records trace output, and checks the run against log-based assertions.
 
-Use `tars` when you want a repeatable workflow: smoke tests, app playbooks, regression checks, or one-command scripted tasks that should be saved as scenario files.
+Use `tars` when you want a repeatable workflow: smoke tests, app playbooks, regression checks, or one-command scripted tasks that should be saved as scenario files. This is the assistant for deterministic automation rather than live conversation or accessibility reporting.
 
 ## How To Run
 

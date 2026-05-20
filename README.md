@@ -1,8 +1,8 @@
 # HeronWin
 
-HeronWin is a Windows-local AI assistant workspace for inspecting, controlling, and validating desktop and browser workflows. It combines assistant hosts, a shared .NET runtime, local MCP tool servers, prompt/skill composition, scripted scenarios, and accessibility validation reports.
+HeronWin is a Windows-local AI assistant workspace for controlling, driving, inspecting, and validating desktop apps and browsers. It combines assistant hosts, a shared .NET runtime, local MCP tool servers for UI inspection and action, LLM prompt/skill composition, scripted UI Automation scenarios, and accessibility validation reports.
 
-The project is designed around local, explicit, testable desktop automation: the assistant observes Windows UI state, chooses actions through local tools, records traces, and can replay or validate workflows from YAML.
+The project is designed around local, explicit, testable desktop automation: the assistant observes Windows UI state, chooses actions through local tools, records traces, and can replay or validate workflows from YAML. Use `cursor` for live text and voice control of Windows apps and browsers, `tars` for scripted scenario automation, and `ava` for scenario-backed accessibility validation of UIs and apps.
 
 Note: This whole codebase was written with Codex in a vibe-coding workflow.
 
