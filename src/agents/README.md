@@ -2,6 +2,8 @@
 
 HeronWin now uses assistant prompt profiles layered over shared desktop skills.
 
+Maintainer docs live under [docs/agentsandskills](../../docs/agentsandskills/README.md).
+
 ## Layout
 
 - `shared/heronwin.core.md`: shared response contract, evidence rules, tool policy, and desktop automation guardrails.

@@ -135,7 +135,8 @@ User docs:
 - [Scenario Mode](./docs/get-started-script-mode.md)
 - [Voice And Text Mode](./docs/get-started-voice-mode.md)
 - [Environment Configuration](./docs/ENV_CONFIGURATION.md)
-- [Create App Skills](./docs/APP_SKILLS.md)
+- [Agents And Skills](./docs/agentsandskills/README.md)
+- [Create App Skills](./docs/agentsandskills/create-app-skills.md)
 - [AVA Rule Catalog](./docs/ava/rules/README.md)
 - [Docs Index](./docs/README.md)
 
@@ -147,7 +148,7 @@ Component docs:
 - [ava](./src/assistants/ava/README.md)
 - [tools](./src/tools/README.md)
 - [desktop automation](./src/tools/desktop-automation/README.md)
-- [agent prompts and skills](./src/agents/README.md)
+- [agent prompts and skills](./docs/agentsandskills/README.md)
 
 Developer docs:
 
