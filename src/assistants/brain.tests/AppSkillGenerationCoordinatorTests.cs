@@ -81,7 +81,7 @@ public sealed class AppSkillGenerationCoordinatorTests
     public void TryPersistGeneratedSkillGroup_WritesFilesAndRefreshesCatalog()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"brain-skill-gen-{Guid.NewGuid():N}");
-        var agentsDirectory = Path.Combine(tempRoot, ".github", "agents");
+        var agentsDirectory = Path.Combine(tempRoot, "src", "agents");
         var skillsDirectory = Path.Combine(agentsDirectory, "skills");
         Directory.CreateDirectory(skillsDirectory);
 
@@ -139,6 +139,93 @@ public sealed class AppSkillGenerationCoordinatorTests
         }
     }
 
+    [Fact]
+    public void TryPersistGeneratedSkillGroup_WritesToSharedSkills_WhenCatalogUsesSplitPromptProfile()
+    {
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"brain-skill-gen-split-{Guid.NewGuid():N}");
+        var agentsDirectory = Path.Combine(tempRoot, "src", "agents");
+        var sharedCorePath = Path.Combine(agentsDirectory, "shared", "heronwin.core.md");
+        var cursorCorePath = Path.Combine(agentsDirectory, "cursor", "cursor.agent.core.md");
+        var cursorPromptPath = Path.Combine(agentsDirectory, "cursor", "cursor.agent.md");
+        var sharedSkillsDirectory = Path.Combine(agentsDirectory, "shared", "skills");
+        var cursorSkillsDirectory = Path.Combine(agentsDirectory, "cursor", "skills");
+
+        try
+        {
+            WriteFile(sharedCorePath, "shared core prompt");
+            WriteFile(cursorCorePath, "cursor core prompt");
+            WriteFile(cursorPromptPath, "cursor fallback prompt");
+            WriteFile(
+                Path.Combine(sharedSkillsDirectory, "windows", "desktop-launch-and-first-look.skill.md"),
+                """
+                ---
+                id: desktop-launch-and-first-look
+                group: windows
+                ---
+
+                # Skill
+
+                launch
+                """);
+            WriteFile(
+                Path.Combine(cursorSkillsDirectory, "interactive", "voice-and-reset.skill.md"),
+                """
+                ---
+                id: voice-and-reset
+                group: interactive
+                ---
+
+                # Skill
+
+                voice
+                """);
+
+            var catalog = AgentPromptLoader.LoadFromResolvedProfile(
+                cursorPromptPath,
+                [sharedCorePath, cursorCorePath],
+                [sharedSkillsDirectory, cursorSkillsDirectory]);
+            var rawReply = """
+            {
+              "say": "I drafted the Spotify skill group.",
+              "log": "Using Spotify's official getting started docs, I drafted the new Spotify skill group.",
+              "skill_generation": {
+                "app_name": "Spotify",
+                "group": "spotify",
+                "source_url": "https://support.spotify.com/us/article/getting-started/",
+                "files": [
+                  {
+                    "file_name": "spotify-surface-and-state.skill.md",
+                    "content": "---\nid: spotify-surface-and-state\ngroup: spotify\npriority: 350\nactivation:\n  when_any_keywords:\n    - spotify\n---\n\n# Skill: Spotify Surface And State\n\n- Verify Spotify state."
+                  }
+                ]
+              }
+            }
+            """;
+
+            var actual = AppSkillGenerationCoordinator.TryPersistGeneratedSkillGroup(
+                rawReply,
+                new PendingAppSkillOffer("Spotify", "spotify"),
+                catalog,
+                out var refreshedCatalog,
+                out _);
+
+            Assert.True(actual);
+            Assert.True(File.Exists(Path.Combine(sharedSkillsDirectory, "spotify", "spotify-surface-and-state.skill.md")));
+            Assert.False(Directory.Exists(Path.Combine(cursorSkillsDirectory, "spotify")));
+            Assert.Contains("shared core prompt", refreshedCatalog.CoreDefinition, StringComparison.Ordinal);
+            Assert.Contains("cursor core prompt", refreshedCatalog.CoreDefinition, StringComparison.Ordinal);
+            Assert.Contains(refreshedCatalog.Skills, skill => skill.Key == "spotify-surface-and-state");
+            Assert.Contains(refreshedCatalog.Skills, skill => skill.Key == "voice-and-reset");
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
     private static AgentPromptCatalog CreateCatalog(params AgentSkillPrompt[] skills)
         => new(
             FallbackDefinitionPath: "fallback/her.agent.md",
@@ -166,5 +253,11 @@ public sealed class AppSkillGenerationCoordinatorTests
             $"skills/{group}/{key}.skill.md",
             $"# Skill\n{key}",
             new AgentSkillMetadata(key, null, [], [], group, 100, activation, []));
+    }
+
+    private static void WriteFile(string path, string content)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, content.Replace("\r\n", "\n"));
     }
 }

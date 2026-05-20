@@ -42,4 +42,4 @@ Launcher:
 - [cursor](../src/assistants/cursor/README.md)
 - [tars](../src/assistants/tars/README.md)
 - [tools](../src/tools/README.md)
-- [agent prompts and skills](../.github/agents/README.md)
+- [agent prompts and skills](../src/agents/README.md)

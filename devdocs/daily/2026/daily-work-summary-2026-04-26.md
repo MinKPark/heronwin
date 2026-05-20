@@ -55,7 +55,7 @@ Key behavior changes:
 
 ## Netflix Search Skill
 
-Added `.github/agents/skills/netflix/netflix-search.skill.md`.
+Added `src/agents/shared/skills/netflix/netflix-search.skill.md`.
 
 The skill covers Netflix in-site search entry and result verification.
 
@@ -73,7 +73,7 @@ Expected effect:
 
 ## Netflix Profile And PIN Skill
 
-Updated `.github/agents/skills/netflix/netflix-profile-and-pin.skill.md`.
+Updated `src/agents/shared/skills/netflix/netflix-profile-and-pin.skill.md`.
 
 Main rules:
 

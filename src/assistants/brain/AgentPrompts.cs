@@ -115,7 +115,7 @@ internal static class AgentPromptLoader
             skills);
     }
 
-    private static AgentPromptCatalog LoadFromResolvedProfile(
+    internal static AgentPromptCatalog LoadFromResolvedProfile(
         string fallbackDefinitionPath,
         IReadOnlyList<string> coreDefinitionPaths,
         IReadOnlyList<string> skillDirectories)
@@ -155,8 +155,8 @@ internal static class AgentPromptLoader
 
         foreach (var candidatePath in new[]
                  {
-                     $".github/agents/{assistantId}/{assistantId}.agent.md",
-                     ".github/agents/her.agent.md",
+                     $"src/agents/{assistantId}/{assistantId}.agent.md",
+                     "src/agents/her.agent.md",
                      "her.agent.md"
                  })
         {
@@ -177,8 +177,8 @@ internal static class AgentPromptLoader
     {
         var candidatePaths = new List<string>
         {
-            Path.GetFullPath(Path.Combine(currentDirectory, ".github/agents/shared/heronwin.core.md")),
-            Path.GetFullPath(Path.Combine(currentDirectory, $".github/agents/{assistantId}/{assistantId}.agent.core.md")),
+            Path.GetFullPath(Path.Combine(currentDirectory, "src/agents/shared/heronwin.core.md")),
+            Path.GetFullPath(Path.Combine(currentDirectory, $"src/agents/{assistantId}/{assistantId}.agent.core.md")),
         };
 
         var resolvedAssistantPaths = candidatePaths
@@ -206,9 +206,9 @@ internal static class AgentPromptLoader
     {
         var candidateDirectories = new List<string>
         {
-            Path.GetFullPath(Path.Combine(currentDirectory, ".github/agents/shared/skills")),
-            Path.GetFullPath(Path.Combine(currentDirectory, $".github/agents/{assistantId}/skills")),
-            Path.GetFullPath(Path.Combine(currentDirectory, ".github/agents/skills")),
+            Path.GetFullPath(Path.Combine(currentDirectory, "src/agents/shared/skills")),
+            Path.GetFullPath(Path.Combine(currentDirectory, $"src/agents/{assistantId}/skills")),
+            Path.GetFullPath(Path.Combine(currentDirectory, "src/agents/skills")),
         };
 
         return candidateDirectories
@@ -227,7 +227,7 @@ internal static class AgentPromptLoader
         }
 
         candidatePaths.Add(Path.GetFullPath(Path.Combine(currentDirectory, "her.agent.core.md")));
-        candidatePaths.Add(Path.GetFullPath(Path.Combine(currentDirectory, ".github/agents/her.agent.core.md")));
+        candidatePaths.Add(Path.GetFullPath(Path.Combine(currentDirectory, "src/agents/her.agent.core.md")));
 
         return candidatePaths
             .Distinct(StringComparer.OrdinalIgnoreCase)

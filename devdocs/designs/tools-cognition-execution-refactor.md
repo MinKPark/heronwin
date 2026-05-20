@@ -29,7 +29,7 @@ As of 2026-04-18, the structural cutover is complete for the main runtime path:
   `execution`.
 - `DesktopSessionContext` is in place, and the main brain/test call paths are
   retargeted to the new tool and server names.
-- `.github/agents`, repo docs, and code-facing references have been updated to
+- `src/agents`, repo docs, and code-facing references have been updated to
   use `cognition/...` and `execution/...`.
 - The empty historical `src\herbody` directory has been removed, and lingering
   live test references to the old tool names have been retargeted.
@@ -212,7 +212,7 @@ Use these nouns consistently:
 
 ### Docs and prompts
 
-- Update `.github/agents` prompts and skills from `eyesandhands/...` to
+- Update `src/agents` prompts and skills from `eyesandhands/...` to
   `cognition/...` and `execution/...`.
 - Update repository docs to describe `tools`, the server split, and
   `brain`-owned desktop session state.

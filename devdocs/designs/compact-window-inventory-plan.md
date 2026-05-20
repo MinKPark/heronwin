@@ -45,7 +45,7 @@ This startup pattern is generic across apps:
 - only after that move deeper into app-specific navigation
 
 The startup skill already expresses that playbook in
-`.github/agents/skills/windows/desktop-launch-and-first-look.skill.md`.
+`src/agents/shared/skills/windows/desktop-launch-and-first-look.skill.md`.
 
 ## Non-Goals
 

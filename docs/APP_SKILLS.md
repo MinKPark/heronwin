@@ -9,20 +9,20 @@ Use app skills for app-specific behavior. Keep generic reliability rules in the 
 Shared app and site skills live under:
 
 ```text
-.github/agents/shared/skills/<group>/*.skill.md
+src/agents/shared/skills/<group>/*.skill.md
 ```
 
 Examples:
 
-- [Netflix skills](../.github/agents/shared/skills/netflix/)
-- [Edge browser skill](../.github/agents/shared/skills/edge/browser-navigation-and-web-operations.skill.md)
-- [Any-app skills](../.github/agents/shared/skills/any-app/)
-- [Generic app policy](../.github/agents/shared/skills/generic-app/generic-app-policy.skill.md)
+- [Netflix skills](../src/agents/shared/skills/netflix/)
+- [Edge browser skill](../src/agents/shared/skills/edge/browser-navigation-and-web-operations.skill.md)
+- [Any-app skills](../src/agents/shared/skills/any-app/)
+- [Generic app policy](../src/agents/shared/skills/generic-app/generic-app-policy.skill.md)
 
 Only use assistant-specific skill folders when the guidance is truly assistant-specific:
 
-- `.github/agents/tars/skills`: scenario execution and reproducibility.
-- `.github/agents/cursor/skills`: interactive voice/text behavior.
+- `src/agents/tars/skills`: scenario execution and reproducibility.
+- `src/agents/cursor/skills`: interactive voice/text behavior.
 
 ## When To Create One
 
@@ -35,7 +35,7 @@ Create or update an app skill when the behavior is mainly about app policy:
 - app-specific ASR repair hints
 - deterministic same-surface batches for stable UI phases
 
-Do not create an app skill to paper over a generic runtime problem. If the fix is deterministic recovery, tool-output interpretation, safety, evidence refresh, or a reusable invariant, start with [Development Guardrails](../devdocs/DEVELOPMENT_GUARDRAILS.md) and [Skill Versus Code Policy](../.github/agents/skill-vs-code-policy.md).
+Do not create an app skill to paper over a generic runtime problem. If the fix is deterministic recovery, tool-output interpretation, safety, evidence refresh, or a reusable invariant, start with [Development Guardrails](../devdocs/DEVELOPMENT_GUARDRAILS.md) and [Skill Versus Code Policy](../src/agents/skill-vs-code-policy.md).
 
 ## File Shape
 
@@ -136,14 +136,14 @@ Split by independently activatable UI surface and distinct decision logic, not b
 A good app group often starts with one surface/state skill:
 
 ```text
-.github/agents/shared/skills/spotify/
+src/agents/shared/skills/spotify/
   spotify-surface-and-state.skill.md
 ```
 
 Add narrower skills only when a workflow has different activation and rules:
 
 ```text
-.github/agents/shared/skills/spotify/
+src/agents/shared/skills/spotify/
   spotify-surface-and-state.skill.md
   spotify-search.skill.md
   spotify-playback-controls.skill.md
@@ -175,7 +175,7 @@ Good app skills are operational. They say what to do from evidence.
    - Keep product-specific vocabulary inside that group.
 
 2. Create the folder and first skill file:
-   - `.github/agents/shared/skills/<group>/<group>-surface-and-state.skill.md`
+   - `src/agents/shared/skills/<group>/<group>-surface-and-state.skill.md`
 
 3. Draft the frontmatter:
    - Include `id`, `group`, `priority`, `summary`, `preferred_tools`, `activation`, and `applies_when`.
@@ -210,7 +210,7 @@ Treat generated skills as drafts:
 
 - Review the source URL and prefer official documentation.
 - Check that the group slug is correct.
-- Keep the files under `.github/agents/shared/skills/<group>/`.
+- Keep the files under `src/agents/shared/skills/<group>/`.
 - Confirm each file has complete YAML frontmatter and a clear body.
 - Remove generic filler that belongs in core, `any-app`, or `generic-app`.
 - Add tests or a runtime smoke pass before relying on the skill for repeatable work.
@@ -230,8 +230,8 @@ Before merging a new app skill, ask:
 
 ## Related References
 
-- [Agent Prompts And Skills](../.github/agents/README.md)
-- [Skill Versus Code Policy](../.github/agents/skill-vs-code-policy.md)
+- [Agent Prompts And Skills](../src/agents/README.md)
+- [Skill Versus Code Policy](../src/agents/skill-vs-code-policy.md)
 - [Goal And Design](../devdocs/GOAL_AND_DESIGN.md)
 - [App-Agnostic Runtime And Skills Plan](../devdocs/designs/app-agnostic-runtime-and-skills-plan.md)
 - [Generic Continuations And Discrete Entry Plan](../devdocs/designs/generic-continuations-and-discrete-entry-plan.md)

@@ -46,7 +46,7 @@ smaller follow-on plans when a new cross-app pattern appears.
 ## Why This Plan Exists
 
 The repository already has the right high-level policy in
-`.github/agents/skill-vs-code-policy.md`:
+`src/agents/skill-vs-code-policy.md`:
 
 - prompts and skills define app behavior
 - runtime code enforces generic reliability
@@ -62,11 +62,11 @@ This plan turns that policy into an executable migration plan.
 
 After this migration:
 
-- `.github/agents/her.agent.md` and `.github/agents/her.agent.core.md` stay
+- `src/agents/her.agent.md` and `src/agents/her.agent.core.md` stay
   app agnostic
 - runtime code in `src/head/brain` contains only generic orchestration,
   guardrails, evidence collection, retries, and trace plumbing
-- app-specific playbooks live in `.github/agents/skills/<app>/*.skill.md`
+- app-specific playbooks live in `src/agents/shared/skills/<app>/*.skill.md`
 - scenario-specific wording lives in `src/scenarios/*.yml`
 - when runtime code needs extra capability, it is introduced as a reusable,
   app-agnostic primitive instead of an app-specific branch
@@ -135,10 +135,10 @@ matching app skill group instead of being scattered across unrelated skills.
 
 For Netflix today, this means the behavior should live primarily in:
 
-- `.github/agents/skills/netflix/netflix-surface-and-state.skill.md`
-- `.github/agents/skills/netflix/netflix-profile-and-pin.skill.md`
-- `.github/agents/skills/netflix/netflix-browse-and-play.skill.md`
-- `.github/agents/skills/netflix/netflix-playback-controls.skill.md`
+- `src/agents/shared/skills/netflix/netflix-surface-and-state.skill.md`
+- `src/agents/shared/skills/netflix/netflix-profile-and-pin.skill.md`
+- `src/agents/shared/skills/netflix/netflix-browse-and-play.skill.md`
+- `src/agents/shared/skills/netflix/netflix-playback-controls.skill.md`
 
 ## Current Migration Targets
 
@@ -161,7 +161,7 @@ The original remaining migration debt from this plan has been cleared:
 
 ## 1. Core Agent Stays Generic
 
-`.github/agents/her.agent.md` and `.github/agents/her.agent.core.md` should
+`src/agents/her.agent.md` and `src/agents/her.agent.core.md` should
 contain only cross-app rules:
 
 - how to reason from evidence
@@ -249,12 +249,12 @@ Create a small migration checklist of every app-specific item currently in:
 
 - `src/head/brain/Conversation.cs`
 - `src/head/brain/AgentPrompts.cs`
-- `.github/agents/her.agent.md`
-- `.github/agents/her.agent.core.md`
+- `src/agents/her.agent.md`
+- `src/agents/her.agent.core.md`
 - cross-app skill files that currently mention a specific product outside that
-  product's own skill group, especially under `.github/agents/skills/any-app`,
-  `.github/agents/skills/generic-app`, and browser-host skills such as
-  `.github/agents/skills/edge`
+  product's own skill group, especially under `src/agents/shared/skills/any-app`,
+  `src/agents/shared/skills/generic-app`, and browser-host skills such as
+  `src/agents/shared/skills/edge`
 
 For each item, classify it as one of:
 
@@ -335,7 +335,7 @@ Candidate enforcement mechanisms:
 
 Approved locations should include:
 
-- `.github/agents/skills/<app>/**` for that app's playbooks
+- `src/agents/shared/skills/<app>/**` for that app's playbooks
 - `src/scenarios/**`
 - tests that explicitly exercise a named app flow
 - design docs
@@ -347,10 +347,10 @@ being taught.
 Restricted locations should include:
 
 - production code under `src/head/brain/**/*.cs`
-- `.github/agents/her.agent.md`
-- `.github/agents/her.agent.core.md`
-- cross-app skill groups such as `.github/agents/skills/any-app/**` and
-  `.github/agents/skills/generic-app/**` for app-specific workflow policy
+- `src/agents/her.agent.md`
+- `src/agents/her.agent.core.md`
+- cross-app skill groups such as `src/agents/shared/skills/any-app/**` and
+  `src/agents/shared/skills/generic-app/**` for app-specific workflow policy
 
 ## Implementation Principles
 

@@ -13,7 +13,7 @@ Note: This whole codebase was written with Codex in a vibe-coding workflow.
 - Drive accessibility validation runs through `ava`, collecting UI evidence and writing Markdown/JSON reports.
 - Inspect Windows UI state with local MCP tools: visible windows, taskbar items, UI Automation trees, focused controls, screenshots, main menus, and context menus.
 - Act on Windows UI with local MCP tools: activate windows/apps, launch apps through taskbar search, focus/click/invoke controls, set text, type text, send shortcuts, and invoke menu paths.
-- Compose assistant prompts from shared and assistant-specific skills under `.github/agents`, including app/site playbooks for Windows, Edge, generic apps, and Netflix.
+- Compose assistant prompts from shared and assistant-specific skills under `src/agents`, including app/site playbooks for Windows, Edge, generic apps, and Netflix.
 - Use multiple LLM routes: OpenAI Platform API, ChatGPT/Codex CLI sign-in, and Anthropic API, depending on the assistant `.env`.
 - Produce JSONL traces and trace-report Markdown for debugging scenario and interactive runs.
 
@@ -28,7 +28,7 @@ Note: This whole codebase was written with Codex in a vibe-coding workflow.
 | `src/tools/cognition` | MCP server for read-only Windows UI inspection. |
 | `src/tools/execution` | MCP server for Windows UI actions. |
 | `src/tools/desktop-automation` | Shared Win32/UI Automation library used by the tool servers. |
-| `.github/agents` | Prompt profiles and runtime-loaded skills. |
+| `src/agents` | Prompt profiles and runtime-loaded skills. |
 | `src/scenarios` | Scenario and accessibility validation YAML files. |
 | `docs` | User setup and workflow documentation. |
 | `devdocs` | Design notes, guardrails, history, bugs, and performance notes. |
@@ -147,7 +147,7 @@ Component docs:
 - [ava](./src/assistants/ava/README.md)
 - [tools](./src/tools/README.md)
 - [desktop automation](./src/tools/desktop-automation/README.md)
-- [agent prompts and skills](./.github/agents/README.md)
+- [agent prompts and skills](./src/agents/README.md)
 
 Developer docs:
 

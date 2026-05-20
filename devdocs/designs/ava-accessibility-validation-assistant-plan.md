@@ -110,7 +110,7 @@ src/assistants/
 Prompt profile:
 
 ```text
-.github/agents/
+src/agents/
   ava/
     ava.agent.md
     ava.agent.core.md
@@ -754,9 +754,9 @@ unit coverage.
   AVA from the start.
 - Update both `AppConfig.NormalizeAssistantId` and
   `AgentPromptLoader.NormalizeAssistantId` to accept `ava`.
-- Add `.github/agents/ava/ava.agent.md` and `ava.agent.core.md`.
+- Add `src/agents/ava/ava.agent.md` and `ava.agent.core.md`.
 - Add a minimal AVA `*.skill.md` file for accessibility validation policy.
-- Update `.github/agents/README.md` when the AVA prompt profile exists.
+- Update `src/agents/README.md` when the AVA prompt profile exists.
 - Update root setup docs and `docs/README.md` only after the AVA host can run
   `--help`, so live setup docs continue to describe runnable assistants.
 - Sketch the AVA client/runner boundary early, even if the first skeleton only

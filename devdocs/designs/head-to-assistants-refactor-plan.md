@@ -30,7 +30,7 @@ The structural refactor pass is implemented:
 - both assistant CLIs expose the shared `--trace-report` diagnostic command.
 - assistant-specific `.env.example` files and prompt profiles were added for
   `tars` and `cursor`, with shared prompt/skill content under
-  `.github/agents/shared`.
+  `src/agents/shared`.
 - the solution, launcher, live docs, and component READMEs now point at the
   `src/assistants` layout.
 
@@ -42,7 +42,7 @@ dotnet test src\heronwin.sln
 dotnet run --project src\assistants\tars -- --help
 dotnet run --project src\assistants\cursor -- --help
 dotnet run --project src\assistants\cursor -- --trace-report .tmp\trace-smoke.jsonl
-rg -n "src[/\\]head|head[/\\]brain|dotnet run --project src[/\\]head|BrainOnly|FaceOnly|--command|--commands-file|brain \.env|herface|face UI|settings window" README.md docs .github\agents src\tools src\assistants buildandrun.ps1
+rg -n "src[/\\]head|head[/\\]brain|dotnet run --project src[/\\]head|BrainOnly|FaceOnly|--command|--commands-file|brain \.env|herface|face UI|settings window" README.md docs src\agents src\tools src\assistants buildandrun.ps1
 ```
 
 Live scenario measurement:
@@ -206,14 +206,14 @@ needs these concrete adjustments:
   `AgentRunner`, `ContextManager`, scenario parsing, command-file parsing, and
   trace reporting. The test split should move or duplicate tests according to
   final ownership rather than leaving runner tests in `brain.tests`.
-- `AgentPromptLoader` resolves `.github/agents` from the current working
+- `AgentPromptLoader` resolves `src/agents` from the current working
   directory. That should keep working for repo-root launches, but host READMEs
   should tell users to run from the repo root or set explicit prompt paths.
 - The current prompt loader assumes one default agent definition and one core
   prompt. That is too narrow for assistant-specific operating models. The split
   should add assistant-aware prompt catalog loading instead of only swapping
   `AGENT_DEFINITION_PATH`.
-- The prompt documentation under `.github/agents` still describes the current
+- The prompt documentation under `src/agents` still describes the current
   `her.agent.*` / `herface` layout. Treat that README and related prompt policy
   docs as live docs during the refactor.
 
@@ -312,7 +312,7 @@ things at the top level instead of relying only on runtime code differences.
 Recommended prompt layout:
 
 ```text
-.github/agents/
+src/agents/
   shared/
     heronwin.core.md
     skills/
@@ -473,9 +473,9 @@ Initial split:
 | `BrainCommandFileLoader` | delete |
 | `BrainTraceReporter` generic engine | `brain`, exposed through every assistant CLI |
 | scenario-specific trace report sections | `tars` |
-| assistant main/core prompt files | `.github/agents/tars` and `.github/agents/cursor` |
-| shared prompt and app/site skills | `.github/agents/shared` |
-| assistant operating-mode skills | `.github/agents/tars/skills` and `.github/agents/cursor/skills` |
+| assistant main/core prompt files | `src/agents/tars` and `src/agents/cursor` |
+| shared prompt and app/site skills | `src/agents/shared` |
+| assistant operating-mode skills | `src/agents/tars/skills` and `src/agents/cursor/skills` |
 
 The key rule: assistant policy stays in assistant projects, shared mechanics
 stay in `brain`.
@@ -576,8 +576,8 @@ Must update:
 - `src/assistants/brain/README.md`
 - `src/assistants/tars/README.md`
 - `src/assistants/cursor/README.md`
-- `.github/agents/README.md`
-- `.github/agents/skill-vs-code-policy.md` if it still names the old runtime
+- `src/agents/README.md`
+- `src/agents/skill-vs-code-policy.md` if it still names the old runtime
 
 Expected content changes:
 
@@ -635,7 +635,7 @@ todo rows that mention deleted projects, old paths, or old launcher commands.
 After implementation, run stale-reference searches and review each hit:
 
 ```powershell
-rg -n "src[/\\]head|head[/\\]brain|dotnet run --project src[/\\]head|BrainOnly|FaceOnly|--command|--commands-file|brain \.env|herface|face UI|settings window" README.md docs .github/agents src/tools src/assistants buildandrun.ps1
+rg -n "src[/\\]head|head[/\\]brain|dotnet run --project src[/\\]head|BrainOnly|FaceOnly|--command|--commands-file|brain \.env|herface|face UI|settings window" README.md docs src/agents src/tools src/assistants buildandrun.ps1
 ```
 
 Expected result:

@@ -92,7 +92,7 @@ decision state. The trace did not directly answer:
 ## Architecture Boundary
 
 This patch should follow the repository rule in
-`.github/agents/skill-vs-code-policy.md`:
+`src/agents/skill-vs-code-policy.md`:
 
 - prompts and skills define app behavior
 - runtime code enforces generic reliability
@@ -118,8 +118,8 @@ App-specific agent or skill files should own:
 
 For Netflix specifically, that policy should live in:
 
-- `.github/agents/skills/netflix/netflix-profile-and-pin.skill.md`
-- `.github/agents/skills/netflix/netflix-surface-and-state.skill.md`
+- `src/agents/shared/skills/netflix/netflix-profile-and-pin.skill.md`
+- `src/agents/shared/skills/netflix/netflix-surface-and-state.skill.md`
 - `src/scenarios/netflix-boyfriend-on-demand.yml` when scenario wording needs
   to make turn boundaries clearer
 

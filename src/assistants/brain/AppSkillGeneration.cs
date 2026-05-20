@@ -128,8 +128,8 @@ internal static class AppSkillGenerationCoordinator
         }
     }
 
-        public static string BuildGenerationPromptAugmentation(PendingAppSkillOffer offer)
-                => $@"Special task: the user approved generating a new app skill group for {offer.AppName} before app launch.
+    public static string BuildGenerationPromptAugmentation(PendingAppSkillOffer offer)
+        => $@"Special task: the user approved generating a new app skill group for {offer.AppName} before app launch.
 
 Do not launch or operate {offer.AppName} yet.
 Use browser-capable tools to reach the official website, official help center, or official documentation for {offer.AppName}. Prefer the vendor's own domain over third-party guides. Look for quickstart, onboarding, getting started, or first-use instructions.
@@ -190,9 +190,7 @@ File rules:
             File.WriteAllText(destinationPath, NormalizeFileContent(file.Content), Encoding.UTF8);
         }
 
-        refreshedCatalog = AgentPromptLoader.LoadFromResolvedPaths(
-            currentCatalog.FallbackDefinitionPath,
-            currentCatalog.CoreDefinitionPath);
+        refreshedCatalog = ReloadCatalogAfterSkillGeneration(currentCatalog, skillsRootDirectory);
 
         persistenceSummary = string.IsNullOrWhiteSpace(draft.SourceUrl)
             ? $"Saved {draft.Files.Count} skill file(s) for the `{expectedOffer.Group}` group."
@@ -321,10 +319,16 @@ File rules:
     {
         skillsRootDirectory = string.Empty;
 
-        var agentDirectory = Path.GetDirectoryName(
-            string.IsNullOrWhiteSpace(catalog.CoreDefinitionPath)
-                ? catalog.FallbackDefinitionPath
-                : catalog.CoreDefinitionPath!);
+        if (TryGetSharedSkillsRootDirectory(catalog, out skillsRootDirectory))
+        {
+            Directory.CreateDirectory(skillsRootDirectory);
+            return true;
+        }
+
+        var coreDefinitionPaths = SplitCatalogPathList(catalog.CoreDefinitionPath);
+        var promptPath = coreDefinitionPaths.FirstOrDefault()
+            ?? catalog.FallbackDefinitionPath;
+        var agentDirectory = Path.GetDirectoryName(promptPath);
         if (string.IsNullOrWhiteSpace(agentDirectory))
         {
             return false;
@@ -334,6 +338,114 @@ File rules:
         Directory.CreateDirectory(skillsRootDirectory);
         return true;
     }
+
+    private static AgentPromptCatalog ReloadCatalogAfterSkillGeneration(
+        AgentPromptCatalog currentCatalog,
+        string skillsRootDirectory)
+    {
+        var coreDefinitionPaths = SplitCatalogPathList(currentCatalog.CoreDefinitionPath)
+            .Where(File.Exists)
+            .ToArray();
+
+        if (coreDefinitionPaths.Length <= 1)
+        {
+            return AgentPromptLoader.LoadFromResolvedPaths(
+                currentCatalog.FallbackDefinitionPath,
+                coreDefinitionPaths.FirstOrDefault());
+        }
+
+        var skillDirectories = ResolveSkillDirectoriesForCorePaths(coreDefinitionPaths, skillsRootDirectory);
+        return AgentPromptLoader.LoadFromResolvedProfile(
+            currentCatalog.FallbackDefinitionPath,
+            coreDefinitionPaths,
+            skillDirectories);
+    }
+
+    private static IReadOnlyList<string> ResolveSkillDirectoriesForCorePaths(
+        IReadOnlyList<string> coreDefinitionPaths,
+        string skillsRootDirectory)
+    {
+        var skillDirectories = new List<string>();
+        foreach (var coreDefinitionPath in coreDefinitionPaths)
+        {
+            var coreDirectory = Path.GetDirectoryName(coreDefinitionPath);
+            if (string.IsNullOrWhiteSpace(coreDirectory))
+            {
+                continue;
+            }
+
+            var candidateDirectory = Path.Combine(coreDirectory, "skills");
+            if (Directory.Exists(candidateDirectory))
+            {
+                skillDirectories.Add(candidateDirectory);
+            }
+        }
+
+        if (Directory.Exists(skillsRootDirectory))
+        {
+            skillDirectories.Add(skillsRootDirectory);
+        }
+
+        return skillDirectories
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static bool TryGetSharedSkillsRootDirectory(AgentPromptCatalog catalog, out string skillsRootDirectory)
+    {
+        foreach (var skill in catalog.Skills)
+        {
+            if (TryFindSharedSkillsRootDirectory(skill.FilePath, out skillsRootDirectory))
+            {
+                return true;
+            }
+        }
+
+        foreach (var coreDefinitionPath in SplitCatalogPathList(catalog.CoreDefinitionPath))
+        {
+            var coreDirectory = Path.GetDirectoryName(coreDefinitionPath);
+            if (!string.IsNullOrWhiteSpace(coreDirectory) &&
+                string.Equals(Path.GetFileName(coreDirectory), "shared", StringComparison.OrdinalIgnoreCase))
+            {
+                skillsRootDirectory = Path.Combine(coreDirectory, "skills");
+                return true;
+            }
+        }
+
+        skillsRootDirectory = string.Empty;
+        return false;
+    }
+
+    private static bool TryFindSharedSkillsRootDirectory(string skillPath, out string skillsRootDirectory)
+    {
+        var skillDirectory = Path.GetDirectoryName(skillPath);
+        if (string.IsNullOrWhiteSpace(skillDirectory))
+        {
+            skillsRootDirectory = string.Empty;
+            return false;
+        }
+
+        var currentDirectory = new DirectoryInfo(skillDirectory);
+        while (currentDirectory is not null)
+        {
+            if (string.Equals(currentDirectory.Name, "skills", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(currentDirectory.Parent?.Name, "shared", StringComparison.OrdinalIgnoreCase))
+            {
+                skillsRootDirectory = currentDirectory.FullName;
+                return true;
+            }
+
+            currentDirectory = currentDirectory.Parent;
+        }
+
+        skillsRootDirectory = string.Empty;
+        return false;
+    }
+
+    private static IReadOnlyList<string> SplitCatalogPathList(string? pathList)
+        => string.IsNullOrWhiteSpace(pathList)
+            ? []
+            : pathList.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     private static string NormalizeFileContent(string content)
         => content.Replace("\r\n", "\n").Trim() + Environment.NewLine;

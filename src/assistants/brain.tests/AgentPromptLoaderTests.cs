@@ -88,7 +88,7 @@ public sealed class AgentPromptLoaderTests
     [Fact]
     public void RepositoryNetflixSkills_AreSplitBySurfaceAndRetainKeyGuidance()
     {
-        var skillsDirectory = Path.Combine(FindRepoRoot(), ".github", "agents", "shared", "skills");
+        var skillsDirectory = Path.Combine(FindRepoRoot(), "src", "agents", "shared", "skills");
 
         var prompts = AgentPromptLoader.LoadSkillPrompts(skillsDirectory);
 
@@ -135,7 +135,7 @@ public sealed class AgentPromptLoaderTests
     [Fact]
     public void RepositoryCoreAgent_IncludesSkillSplitGuardrail()
     {
-        var corePromptPath = Path.Combine(FindRepoRoot(), ".github", "agents", "shared", "heronwin.core.md");
+        var corePromptPath = Path.Combine(FindRepoRoot(), "src", "agents", "shared", "heronwin.core.md");
         var corePrompt = File.ReadAllText(corePromptPath);
 
         Assert.Contains("split by independently activatable UI surface and distinct decision logic", corePrompt, StringComparison.OrdinalIgnoreCase);
@@ -145,7 +145,7 @@ public sealed class AgentPromptLoaderTests
     [Fact]
     public void RepositoryBrowserSkill_IncludesOfficialInstructionLookupGuidance()
     {
-        var skillsDirectory = Path.Combine(FindRepoRoot(), ".github", "agents", "shared", "skills");
+        var skillsDirectory = Path.Combine(FindRepoRoot(), "src", "agents", "shared", "skills");
 
         var prompts = AgentPromptLoader.LoadSkillPrompts(skillsDirectory);
 
@@ -160,7 +160,7 @@ public sealed class AgentPromptLoaderTests
     [Fact]
     public void RepositoryBrowserSkill_IncludesAddressBarUrlSubmissionBatchingGuidance()
     {
-        var skillsDirectory = Path.Combine(FindRepoRoot(), ".github", "agents", "shared", "skills");
+        var skillsDirectory = Path.Combine(FindRepoRoot(), "src", "agents", "shared", "skills");
 
         var prompts = AgentPromptLoader.LoadSkillPrompts(skillsDirectory);
 
@@ -191,7 +191,7 @@ public sealed class AgentPromptLoaderTests
 
             var catalog = AgentPromptLoader.Load("ava");
 
-            Assert.EndsWith(Path.Combine(".github", "agents", "ava", "ava.agent.md"), catalog.FallbackDefinitionPath);
+            Assert.EndsWith(Path.Combine("src", "agents", "ava", "ava.agent.md"), catalog.FallbackDefinitionPath);
             Assert.Contains("accessibility validation assistant", catalog.FallbackDefinition, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("AVA Accessibility Validation Policy", catalog.CoreDefinition, StringComparison.Ordinal);
             Assert.Contains(catalog.Skills, skill => skill.Key == "accessibility-validation-policy");
@@ -207,7 +207,7 @@ public sealed class AgentPromptLoaderTests
     [Fact]
     public void RepositoryDesktopLaunchSkill_IncludesHandleActivationAndContinueGuidance()
     {
-        var skillsDirectory = Path.Combine(FindRepoRoot(), ".github", "agents", "shared", "skills");
+        var skillsDirectory = Path.Combine(FindRepoRoot(), "src", "agents", "shared", "skills");
 
         var prompts = AgentPromptLoader.LoadSkillPrompts(skillsDirectory);
 
@@ -222,7 +222,7 @@ public sealed class AgentPromptLoaderTests
     [Fact]
     public void RepositoryGenericAppSkill_IncludesCloseAndWindowTargetingGuidance()
     {
-        var skillsDirectory = Path.Combine(FindRepoRoot(), ".github", "agents", "shared", "skills");
+        var skillsDirectory = Path.Combine(FindRepoRoot(), "src", "agents", "shared", "skills");
 
         var prompts = AgentPromptLoader.LoadSkillPrompts(skillsDirectory);
 
@@ -240,21 +240,21 @@ public sealed class AgentPromptLoaderTests
         var repoRoot = FindRepoRoot();
         var restrictedPaths = new List<string>
         {
-            Path.Combine(repoRoot, ".github", "agents", "shared", "heronwin.core.md"),
-            Path.Combine(repoRoot, ".github", "agents", "cursor", "cursor.agent.core.md"),
-            Path.Combine(repoRoot, ".github", "agents", "tars", "tars.agent.core.md")
+            Path.Combine(repoRoot, "src", "agents", "shared", "heronwin.core.md"),
+            Path.Combine(repoRoot, "src", "agents", "cursor", "cursor.agent.core.md"),
+            Path.Combine(repoRoot, "src", "agents", "tars", "tars.agent.core.md")
         };
 
         restrictedPaths.AddRange(Directory.GetFiles(
-            Path.Combine(repoRoot, ".github", "agents", "shared", "skills", "any-app"),
+            Path.Combine(repoRoot, "src", "agents", "shared", "skills", "any-app"),
             "*.skill.md",
             SearchOption.AllDirectories));
         restrictedPaths.AddRange(Directory.GetFiles(
-            Path.Combine(repoRoot, ".github", "agents", "shared", "skills", "generic-app"),
+            Path.Combine(repoRoot, "src", "agents", "shared", "skills", "generic-app"),
             "*.skill.md",
             SearchOption.AllDirectories));
         restrictedPaths.AddRange(Directory.GetFiles(
-            Path.Combine(repoRoot, ".github", "agents", "shared", "skills", "edge"),
+            Path.Combine(repoRoot, "src", "agents", "shared", "skills", "edge"),
             "*.skill.md",
             SearchOption.AllDirectories));
 
@@ -342,21 +342,21 @@ public sealed class AgentPromptLoaderTests
         var restrictedPaths = new List<string>
         {
             Path.Combine(repoRoot, "src", "assistants", "brain", "Conversation.cs"),
-            Path.Combine(repoRoot, ".github", "agents", "shared", "heronwin.core.md"),
-            Path.Combine(repoRoot, ".github", "agents", "cursor", "cursor.agent.core.md"),
-            Path.Combine(repoRoot, ".github", "agents", "tars", "tars.agent.core.md")
+            Path.Combine(repoRoot, "src", "agents", "shared", "heronwin.core.md"),
+            Path.Combine(repoRoot, "src", "agents", "cursor", "cursor.agent.core.md"),
+            Path.Combine(repoRoot, "src", "agents", "tars", "tars.agent.core.md")
         };
 
         restrictedPaths.AddRange(Directory.GetFiles(
-            Path.Combine(repoRoot, ".github", "agents", "shared", "skills", "any-app"),
+            Path.Combine(repoRoot, "src", "agents", "shared", "skills", "any-app"),
             "*.skill.md",
             SearchOption.AllDirectories));
         restrictedPaths.AddRange(Directory.GetFiles(
-            Path.Combine(repoRoot, ".github", "agents", "shared", "skills", "generic-app"),
+            Path.Combine(repoRoot, "src", "agents", "shared", "skills", "generic-app"),
             "*.skill.md",
             SearchOption.AllDirectories));
         restrictedPaths.AddRange(Directory.GetFiles(
-            Path.Combine(repoRoot, ".github", "agents", "shared", "skills", "edge"),
+            Path.Combine(repoRoot, "src", "agents", "shared", "skills", "edge"),
             "*.skill.md",
             SearchOption.AllDirectories));
 
@@ -388,7 +388,7 @@ public sealed class AgentPromptLoaderTests
         {
             var candidate = Path.Combine(
                 current.FullName,
-                ".github",
+                "src",
                 "agents",
                 "shared",
                 "skills",

@@ -15,7 +15,7 @@ The retired `face` UI and named-pipe status bridge are no longer part of the act
 
 ## Prompt And Skill Layer
 
-Runtime-loaded prompts live under `.github/agents`:
+Runtime-loaded prompts live under `src/agents`:
 
 - `shared`: common desktop automation contract and app/site skills.
 - `tars`: scenario execution profile and scenario-only skills.

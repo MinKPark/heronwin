@@ -364,7 +364,7 @@ enough to decide whether a hard automated threshold is safe.
   - trace reading and scripted reporting
 - `src/head/brain.tests`
   - focused regression coverage for any optimized runtime path
-- `.github/agents/skills/netflix/*.skill.md`
+- `src/agents/shared/skills/netflix/*.skill.md`
   - only if the model is stopping short or choosing inefficient action paths
 - `docs/README.md`
   - final perf workflow documentation after the report helper exists

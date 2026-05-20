@@ -9,7 +9,7 @@ public sealed class TurnProcessorSkillGenerationTests
     public async Task ProcessAsync_OffersThenGeneratesUnknownAppSkillGroup()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"brain-turn-skill-gen-{Guid.NewGuid():N}");
-        var agentsDirectory = Path.Combine(tempRoot, ".github", "agents");
+        var agentsDirectory = Path.Combine(tempRoot, "src", "agents");
         var skillsDirectory = Path.Combine(agentsDirectory, "skills");
         Directory.CreateDirectory(Path.Combine(skillsDirectory, "windows"));
         Directory.CreateDirectory(Path.Combine(skillsDirectory, "any-app"));
@@ -140,7 +140,7 @@ public sealed class TurnProcessorSkillGenerationTests
     public async Task ProcessAsync_OffersThenDeclinesGeneration_AndContinuesNormalLaunchFlow()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"brain-turn-skill-skip-{Guid.NewGuid():N}");
-        var agentsDirectory = Path.Combine(tempRoot, ".github", "agents");
+        var agentsDirectory = Path.Combine(tempRoot, "src", "agents");
         var skillsDirectory = Path.Combine(agentsDirectory, "skills");
         Directory.CreateDirectory(Path.Combine(skillsDirectory, "windows"));
         Directory.CreateDirectory(Path.Combine(skillsDirectory, "any-app"));

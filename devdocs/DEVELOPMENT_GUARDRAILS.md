@@ -34,7 +34,7 @@ Promote a fix into runtime code when the issue is mainly about:
 - retry behavior,
 - reusable state handling across multiple scenarios.
 
-Reference: [skill-vs-code policy](../.github/agents/skill-vs-code-policy.md)
+Reference: [skill-vs-code policy](../src/agents/skill-vs-code-policy.md)
 
 ## Verification Guardrail
 
