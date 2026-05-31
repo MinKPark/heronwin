@@ -32,6 +32,26 @@ This file has two jobs:
 These notes describe local work that exists in the working tree but is not yet
 part of committed repo history.
 
+- End-of-day 2026-05-30 wrap-up:
+  - before this wrap-up documentation update, `git status --short --branch`
+    was clean on `dev/minkpark/remote...origin/dev/minkpark/remote` at commit
+    `285bf52`.
+  - committed compact-tree work introduced the AVA `--evaluate-compact-tree`
+    entry point, optional `--vision-verdict`, artifact writing for compact JSON,
+    compact renders, real screenshots, and verdict JSON, plus tests and docs.
+  - live `src/agents` prompt and skill files no longer reference the retired
+    `describe_window_compact` / `describe_window_focus_compact` names.
+  - remaining P1 work is to run and document real-window parity checks,
+    benchmarks, and at least three manual evaluation passes.
+  - verification from the implementation pass:
+    - `dotnet test src\assistants\ava.tests\HeronWin.Ava.Tests.csproj`
+      passed with 71 tests.
+    - `dotnet test src\assistants\brain.tests\HeronWin.Brain.Tests.csproj --filter "FullyQualifiedName~AgentPromptComposerTests|FullyQualifiedName~AssistantIdNormalizationTests|FullyQualifiedName~ProviderModeTests"`
+      passed with 40 tests.
+    - `dotnet test src\heronwin.sln` passed with 481 tests.
+    - `dotnet run --project src\assistants\ava -- --help` printed the new
+      compact-tree evaluation options.
+    - `git diff --check` reported only expected CRLF normalization warnings.
 - Start-of-day 2026-05-16 update:
   - before this task-tracking edit, `git status --short --branch` was clean at
     commit `05cfa9d` on `main` / `origin/main`.
@@ -92,12 +112,24 @@ part of committed repo history.
 
 Source shape: `git log --date=short --pretty=format:"%ad %h %s"`
 
-- `2026-05-16` (7 commits): added the AVA accessibility validation assistant
+- `2026-05-30` (1 commit): implemented AVA compact-tree evaluation mode with
+  optional vision verdict support, cleaned live prompt/skill references to
+  retired compact tool names, marked the old compact-tree migration plan done,
+  and added the active evaluation rollout plan.
+- `2026-05-19` (4 commits): added browser, Netflix, desktop-management, and
+  generic app skills; restructured agent/skill documentation; and clarified
+  assistant roles, workflows, and usage docs.
+- `2026-05-17` (11 commits): expanded AVA docs and samples, added browser and
+  web validation with CDP evidence, enhanced AVA findings/reporting with
+  screenshots and deduplication, and added Netflix validation evidence/reporting.
+- `2026-05-16` (8 commits): added the AVA accessibility validation assistant
   plan, introduced the runnable AVA host and tests, implemented the AVA-owned
   validation runner with command execution and evidence collection, added
   role-specific LLM configuration, added report regeneration, and fixed README
   project capitalization.
-- `2026-05-10` (3 commits): swept stale validation artifacts and old-name
+- `2026-05-15` (1 commit): implemented Codex Spark support and related
+  enhancements.
+- `2026-05-10` (4 commits): swept stale validation artifacts and old-name
   references, moved daily summaries under `devdocs/daily/2026/`, added the
   daily-summary index, and completed the P2 built-in process-tools coverage
   pass with parsing, argument-validation, and safe start/list/stop tests.
@@ -114,24 +146,24 @@ Source shape: `git log --date=short --pretty=format:"%ad %h %s"`
   same-surface actions, added Netflix search/profile/PIN skill updates,
   improved trace model resolution, documented OpenAI configuration, and added
   the post-action UI settle delay.
-- `2026-04-25` (10 commits): landed scripted turn-start evidence carry-forward,
+- `2026-04-25` (11 commits): landed scripted turn-start evidence carry-forward,
   compact window inventory, MCP call instrumentation, scripted lookahead for
   no-op next turns, trace-report fixes, browser/startup skill tightening, and
   tracked Netflix smoke rerun notes.
-- `2026-04-22` (1 commit): added the scripted cross-turn evidence reuse plan,
+- `2026-04-22` (2 commits): added the scripted cross-turn evidence reuse plan,
   the tracked Netflix smoke baseline summary under `devdocs/perfbase`, and the
   repo-native trace-report implementation and focused tests that make later
   before/after runtime comparisons repeatable.
-- `2026-04-21` (1 commit): added the scripted Netflix smoke runtime
+- `2026-04-21` (2 commits): added the scripted Netflix smoke runtime
   performance plan documentation and made the runtime-cut P0 investigation
   explicit in repo docs.
-- `2026-04-19` (20 commits): landed the app-agnostic runtime-and-skills
+- `2026-04-19` (21 commits): landed the app-agnostic runtime-and-skills
   migration, generic continuations and discrete-slot entry primitives,
   additional debug instrumentation and argument previews, refreshed plan and
   bug docs, fixed the stale PIN continuation and PIN-prompt contradiction
   issues, and updated the active todo list to make runtime performance the top
   priority.
-- `2026-04-18` (18 commits): split the docs, added `process-manager`, finished
+- `2026-04-18` (19 commits): split the docs, added `process-manager`, finished
   the `tools` / `cognition` / `execution` cutover, normalized tool names and
   renamed `src\herhead` to `src\head`, tightened Netflix/browser guardrails
   and test coverage, moved compact-tree compaction into `cognition` with

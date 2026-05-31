@@ -15,6 +15,7 @@ These docs cover project design, development guardrails, bugs, performance notes
 - [Daily Work Summary 2026-05-04](./daily/2026/daily-work-summary-2026-05-04.md)
 - [Daily Work Summary 2026-05-10](./daily/2026/daily-work-summary-2026-05-10.md)
 - [Daily Work Summary 2026-05-16](./daily/2026/daily-work-summary-2026-05-16.md)
+- [Daily Work Summary 2026-05-30](./daily/2026/daily-work-summary-2026-05-30.md)
 
 ## Design Docs
 
