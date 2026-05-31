@@ -22,7 +22,10 @@ internal sealed record AvaConsoleOptions(
     string? ValidationConfigPath,
     string? RunBundlePath,
     string? TraceReportPath,
-    string? RegenerateReportPath)
+    string? RegenerateReportPath,
+    string? CompactTreeEvaluationWindowHandle,
+    string? CompactTreeEvaluationOutputDirectory,
+    bool RunCompactTreeVisionVerdict)
 {
     public bool IsValidationRun =>
         !ShowHelp &&
@@ -36,6 +39,10 @@ internal sealed record AvaConsoleOptions(
     public bool IsReportRegeneration =>
         !ShowHelp &&
         !string.IsNullOrWhiteSpace(RegenerateReportPath);
+
+    public bool IsCompactTreeEvaluation =>
+        !ShowHelp &&
+        !string.IsNullOrWhiteSpace(CompactTreeEvaluationWindowHandle);
 }
 
 internal static class BrainConsoleMode
@@ -53,7 +60,7 @@ internal static class BrainConsoleMode
     {
         if (args.Length == 0)
         {
-            return new AvaConsoleOptions(false, null, null, null, null, null);
+            return new AvaConsoleOptions(false, null, null, null, null, null, null, null, false);
         }
 
         var showHelp = false;
@@ -62,6 +69,10 @@ internal static class BrainConsoleMode
         string? runBundlePath = null;
         string? traceReportPath = null;
         string? regenerateReportPath = null;
+        string? compactTreeEvaluationWindowHandle = null;
+        string? compactTreeEvaluationOutputDirectory = null;
+        var compactTreeEvaluationRequested = false;
+        var runCompactTreeVisionVerdict = false;
 
         for (var index = 0; index < args.Length; index += 1)
         {
@@ -121,6 +132,32 @@ internal static class BrainConsoleMode
                         : Path.GetFullPath(reportPath);
                     break;
 
+                case "--evaluate-compact-tree":
+                    compactTreeEvaluationRequested = true;
+                    break;
+
+                case "--window-handle":
+                    if (!string.IsNullOrWhiteSpace(compactTreeEvaluationWindowHandle))
+                    {
+                        throw new InvalidOperationException("Only one --window-handle value can be provided.");
+                    }
+
+                    compactTreeEvaluationWindowHandle = RequireValue(args, ref index, arg);
+                    break;
+
+                case "--output-dir":
+                    if (!string.IsNullOrWhiteSpace(compactTreeEvaluationOutputDirectory))
+                    {
+                        throw new InvalidOperationException("Only one --output-dir path can be provided.");
+                    }
+
+                    compactTreeEvaluationOutputDirectory = Path.GetFullPath(RequireValue(args, ref index, arg));
+                    break;
+
+                case "--vision-verdict":
+                    runCompactTreeVisionVerdict = true;
+                    break;
+
                 default:
                     throw new InvalidOperationException(
                         $"Unknown argument \"{arg}\". Use --help to see supported options.");
@@ -134,13 +171,18 @@ internal static class BrainConsoleMode
             var hasRunBundle = !string.IsNullOrWhiteSpace(runBundlePath);
             var hasTraceReport = !string.IsNullOrWhiteSpace(traceReportPath);
             var hasRegenerateReport = !string.IsNullOrWhiteSpace(regenerateReportPath);
+            var hasCompactTreeEvaluation = compactTreeEvaluationRequested ||
+                                           !string.IsNullOrWhiteSpace(compactTreeEvaluationWindowHandle) ||
+                                           !string.IsNullOrWhiteSpace(compactTreeEvaluationOutputDirectory) ||
+                                           runCompactTreeVisionVerdict;
 
             if ((hasTraceReport ? 1 : 0) +
                 (hasRegenerateReport ? 1 : 0) +
-                (hasRunBundle || hasUxScenario || hasValidationConfig ? 1 : 0) > 1)
+                (hasRunBundle || hasUxScenario || hasValidationConfig ? 1 : 0) +
+                (hasCompactTreeEvaluation ? 1 : 0) > 1)
             {
                 throw new InvalidOperationException(
-                    "Use only one AVA mode: --trace-report, --regenerate-report, or validation run flags.");
+                    "Use only one AVA mode: --trace-report, --regenerate-report, compact-tree evaluation, or validation run flags.");
             }
 
             if (hasRunBundle && (hasUxScenario || hasValidationConfig))
@@ -154,6 +196,21 @@ internal static class BrainConsoleMode
                 throw new InvalidOperationException(
                     "Direct validation requires both --ux-scenario and --validation-config.");
             }
+
+            if (hasCompactTreeEvaluation)
+            {
+                if (!compactTreeEvaluationRequested)
+                {
+                    throw new InvalidOperationException(
+                        "Compact-tree evaluation options require --evaluate-compact-tree.");
+                }
+
+                if (string.IsNullOrWhiteSpace(compactTreeEvaluationWindowHandle))
+                {
+                    throw new InvalidOperationException(
+                        "Compact-tree evaluation requires --window-handle.");
+                }
+            }
         }
 
         return new AvaConsoleOptions(
@@ -162,7 +219,10 @@ internal static class BrainConsoleMode
             validationConfigPath,
             runBundlePath,
             traceReportPath,
-            regenerateReportPath);
+            regenerateReportPath,
+            compactTreeEvaluationWindowHandle,
+            compactTreeEvaluationOutputDirectory,
+            runCompactTreeVisionVerdict);
     }
 
     private static BrainConsoleOptions Parse(string[] args, bool allowScenario)
@@ -279,6 +339,10 @@ internal static class BrainConsoleMode
         Console.WriteLine("                                           Rebuild report.md/report.json for the newest AVA run");
         Console.WriteLine("  ava.exe --regenerate-report .\\artifacts\\ava\\run-id");
         Console.WriteLine("                                           Rebuild report.md/report.json from saved run data");
+        Console.WriteLine("  ava.exe --evaluate-compact-tree --window-handle 0x00123456");
+        Console.WriteLine("                                           Capture compact tree/screenshot evaluation artifacts");
+        Console.WriteLine("  ava.exe --evaluate-compact-tree --window-handle 0x00123456 --vision-verdict");
+        Console.WriteLine("                                           Also ask the configured evaluator LLM for a visual verdict");
         Console.WriteLine();
         Console.WriteLine("Accessibility validation notes:");
         Console.WriteLine("  Direct validation requires both --ux-scenario and --validation-config.");

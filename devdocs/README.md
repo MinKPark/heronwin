@@ -24,6 +24,7 @@ These docs cover project design, development guardrails, bugs, performance notes
 - [Brain Debuggability And Rewrite Guardrails](./designs/brain-debuggability-and-rewrite-guardrails.md)
 - [Brain OpenAI ChatGPT Subscription](./designs/brain-openai-chatgpt-subscription.md)
 - [Built-In Process Tools Test Plan](./designs/built-in-process-tools-test-plan.md)
+- [Cognition Compact Tree Evaluation Rollout Plan](./designs/cognition-compact-tree-evaluation-rollout-plan.md)
 - [Cognition Compact Tree Migration](./designs/cognition-compact-tree-migration.md)
 - [Codex Spark Support Plan](./designs/codex-spark-support-plan.md)
 - [Compact Window Inventory Plan](./designs/compact-window-inventory-plan.md)

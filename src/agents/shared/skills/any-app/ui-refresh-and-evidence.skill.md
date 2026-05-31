@@ -4,15 +4,13 @@ group: any-app
 priority: 150
 summary: "Refresh the UI state after actions and gather stronger evidence when confidence is low."
 preferred_tools:
-  - cognition/describe_window_compact
-  - cognition/describe_window_focus_compact
+  - cognition/describe_window
+  - cognition/describe_window_focus
   - cognition/capture_window_screenshot
 activation:
   when_any_tools:
     - describe_window
-    - describe_window_compact
     - describe_window_focus
-    - describe_window_focus_compact
     - capture_window_screenshot
 applies_when:
   - The UI may have changed after an action.
@@ -33,8 +31,8 @@ applies_when:
 - Treat shortcuts, text entry, and other keyboard input as actions that still require follow-up verification.
 - Do not assume the previous focus path is still valid after search results, dialogs, overlays, or navigation updates.
 - When focus remains inside a search box or another text control, avoid relying on movement keys until the refreshed state has been inspected.
-- Prefer `cognition/describe_window_compact` after state-changing actions so newly exposed elements can be discovered without sending the full raw tree back to the model.
-- Use `cognition/describe_window_focus_compact` to confirm what currently owns focus, but do not treat that focused subtree alone as the full interaction surface when the UI may have expanded or changed.
+- Prefer `cognition/describe_window` after state-changing actions so newly exposed elements can be discovered without sending the full raw tree back to the model.
+- Use `cognition/describe_window_focus` to confirm what currently owns focus, but do not treat that focused subtree alone as the full interaction surface when the UI may have expanded or changed.
 
 ## Confidence Rules
 

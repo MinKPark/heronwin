@@ -32,9 +32,9 @@ from behavior that belongs to a particular assistant host.
 General improvements strengthen the shared runtime, tool servers, docs, and
 test surface without being specific to `cursor` or `tars`.
 
-- Finish the `cognition` compact-tree rollout by adding the opt-in
-  screenshot-vs-compact evaluation harness, then running parity checks,
-  benchmarks, and manual evaluation passes.
+- Finish the `cognition` compact-tree evaluation rollout by using the new AVA
+  compact-tree evaluation entry point, then running parity checks, benchmarks,
+  and manual evaluation passes.
 - Broaden the prompt and skill intent vocabulary, with focused activation
   tests for the new generic intents.
 - Keep repository housekeeping current, including keeping developer indexes

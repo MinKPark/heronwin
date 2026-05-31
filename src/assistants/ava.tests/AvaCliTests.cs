@@ -14,6 +14,7 @@ public sealed class AvaCliTests
         Assert.False(options.IsValidationRun);
         Assert.False(options.IsTraceReport);
         Assert.False(options.IsReportRegeneration);
+        Assert.False(options.IsCompactTreeEvaluation);
     }
 
     [Fact]
@@ -35,6 +36,7 @@ public sealed class AvaCliTests
         Assert.Null(options.RunBundlePath);
         Assert.Null(options.TraceReportPath);
         Assert.Null(options.RegenerateReportPath);
+        Assert.False(options.IsCompactTreeEvaluation);
     }
 
     [Fact]
@@ -49,6 +51,7 @@ public sealed class AvaCliTests
         Assert.Null(options.UxScenarioPath);
         Assert.Null(options.ValidationConfigPath);
         Assert.Null(options.RegenerateReportPath);
+        Assert.False(options.IsCompactTreeEvaluation);
     }
 
     [Fact]
@@ -61,6 +64,7 @@ public sealed class AvaCliTests
         Assert.True(options.IsTraceReport);
         Assert.False(options.IsValidationRun);
         Assert.False(options.IsReportRegeneration);
+        Assert.False(options.IsCompactTreeEvaluation);
         Assert.Equal(Path.GetFullPath(tracePath), options.TraceReportPath);
     }
 
@@ -74,6 +78,7 @@ public sealed class AvaCliTests
         Assert.True(options.IsReportRegeneration);
         Assert.False(options.IsTraceReport);
         Assert.False(options.IsValidationRun);
+        Assert.False(options.IsCompactTreeEvaluation);
         Assert.Equal(Path.GetFullPath(runPath), options.RegenerateReportPath);
     }
 
@@ -84,6 +89,47 @@ public sealed class AvaCliTests
 
         Assert.True(options.IsReportRegeneration);
         Assert.Equal("latest", options.RegenerateReportPath);
+    }
+
+    [Fact]
+    public void ParseAva_ReturnsCompactTreeEvaluationArgument()
+    {
+        var outputDirectory = Path.Combine(Path.GetTempPath(), "compact-tree-eval");
+
+        var options = BrainConsoleMode.ParseAva([
+            "--evaluate-compact-tree",
+            "--window-handle",
+            "0x00010001",
+            "--output-dir",
+            outputDirectory,
+            "--vision-verdict"
+        ]);
+
+        Assert.True(options.IsCompactTreeEvaluation);
+        Assert.False(options.IsValidationRun);
+        Assert.False(options.IsTraceReport);
+        Assert.False(options.IsReportRegeneration);
+        Assert.Equal("0x00010001", options.CompactTreeEvaluationWindowHandle);
+        Assert.Equal(Path.GetFullPath(outputDirectory), options.CompactTreeEvaluationOutputDirectory);
+        Assert.True(options.RunCompactTreeVisionVerdict);
+    }
+
+    [Fact]
+    public void ParseAva_RejectsCompactTreeEvaluationWithoutWindowHandle()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => BrainConsoleMode.ParseAva(["--evaluate-compact-tree"]));
+
+        Assert.Contains("--window-handle", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ParseAva_RejectsCompactTreeEvaluationOptionsWithoutMode()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => BrainConsoleMode.ParseAva(["--window-handle", "0x00010001"]));
+
+        Assert.Contains("--evaluate-compact-tree", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]
@@ -138,6 +184,21 @@ public sealed class AvaCliTests
                 "latest",
                 "--run",
                 "bundle.yml"
+            ]));
+
+        Assert.Contains("only one AVA mode", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ParseAva_RejectsCompactTreeEvaluationMixedWithValidation()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => BrainConsoleMode.ParseAva([
+                "--run",
+                "bundle.yml",
+                "--evaluate-compact-tree",
+                "--window-handle",
+                "0x00010001"
             ]));
 
         Assert.Contains("only one AVA mode", ex.Message, StringComparison.OrdinalIgnoreCase);

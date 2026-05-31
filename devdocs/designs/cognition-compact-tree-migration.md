@@ -1,15 +1,13 @@
 # Cognition Compact Tree Migration
 
-Last updated: 2026-04-19
-Status: in progress
+Last updated: 2026-05-31
+Status: done
 
 ## Summary
 
-This design moves UI snapshot compaction from `brain` into the `cognition`
-MCP server, improves compaction speed by operating on typed snapshot data
-instead of parsing serialized JSON, and adds an opt-in evaluation flow that
-checks whether a rendered compact-tree image still matches the real visible
-screen.
+This completed design moved UI snapshot compaction from `brain` into the
+`cognition` MCP server and improved compaction speed by operating on typed
+snapshot data instead of parsing serialized JSON.
 
 The runtime migration is now landed: `describe_window` and
 `describe_window_focus` are the compact model-facing tools, the old raw full
@@ -19,13 +17,22 @@ continues to carry two tree-shaped views over the same retained nodes: a richer
 `compactTree` for runtime/debugging and a slim `llmTree` projection that
 `brain` can pass to the LLM.
 
-## Remaining Work
+Follow-up validation and documentation work moved to
+[Cognition Compact Tree Evaluation Rollout Plan](./cognition-compact-tree-evaluation-rollout-plan.md).
 
-The runtime migration is landed, but the rollout is still open until these
-follow-ups are done:
+## Completion Notes
 
-- add the opt-in screenshot-vs-compact evaluation harness
-- run and document parity checks, benchmarks, and manual evaluation passes
+- `cognition` now exposes compact snapshots through the current
+  `describe_window` and `describe_window_focus` tools.
+- `brain`, and therefore `cursor` and `tars`, use the `llmTree` projection as
+  model-facing UI context.
+- AVA collects `describe_window`, `describe_window_focus`, and
+  `capture_window_screenshot` evidence and requests rendered compact-tree
+  images with `includeImage=true`.
+- The old plan text below is retained as historical design context. Sections
+  that mention `describe_window_compact`, `describe_window_focus_compact`, a
+  raw-first runtime path, or a local `UiSnapshotCompactor` reflect earlier
+  migration assumptions rather than the current implementation.
 
 ## Goals
 
