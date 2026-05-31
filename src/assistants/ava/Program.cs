@@ -18,7 +18,8 @@ catch (Exception ex) when (ex is InvalidOperationException or FileNotFoundExcept
 if (consoleOptions.ShowHelp ||
     !consoleOptions.IsValidationRun &&
     !consoleOptions.IsTraceReport &&
-    !consoleOptions.IsReportRegeneration)
+    !consoleOptions.IsReportRegeneration &&
+    !consoleOptions.IsCompactTreeEvaluation)
 {
     BrainConsoleMode.PrintAvaHelp();
     Environment.ExitCode = consoleOptions.ShowHelp ? 0 : 1;
@@ -66,6 +67,111 @@ Console.CancelKeyPress += (_, eventArgs) =>
     eventArgs.Cancel = true;
     cancellationSource.Cancel();
 };
+
+if (consoleOptions.IsCompactTreeEvaluation)
+{
+    try
+    {
+        var runId = CreateRunId();
+        var outputDirectory = consoleOptions.CompactTreeEvaluationOutputDirectory ??
+                              Path.Combine(
+                                  Directory.GetCurrentDirectory(),
+                                  "artifacts",
+                                  "ava",
+                                  "compact-tree-evaluation",
+                                  runId);
+        var appConfig = AppConfig.Load("ava");
+
+        ArtifactCleanup.CleanupPreviousRunArtifacts(AppContext.BaseDirectory, Environment.ProcessPath);
+        DebugTrace.Configure(true);
+        Display.Banner("ava", "compact-tree evaluation");
+
+        var httpClientSetup = BrainHttpClientFactory.Create();
+        using var httpClient = httpClientSetup.Client;
+        await using var mcpClientManager = new McpClientManager();
+
+        DebugTrace.WriteStructuredEvent(
+            "session.start",
+            new Dictionary<string, object?>
+            {
+                ["pid"] = Environment.ProcessId,
+                ["process"] = Environment.ProcessPath ?? "(unknown)",
+                ["cwd"] = Directory.GetCurrentDirectory(),
+                ["baseDir"] = AppContext.BaseDirectory,
+                ["sessionId"] = DebugTrace.SessionId,
+                ["assistantId"] = "ava",
+                ["launchMode"] = "compact-tree-evaluation",
+                ["runId"] = runId,
+                ["windowHandle"] = consoleOptions.CompactTreeEvaluationWindowHandle,
+                ["outputDirectory"] = outputDirectory,
+                ["visionVerdictRequested"] = consoleOptions.RunCompactTreeVisionVerdict,
+                ["debugTraceEnabled"] = DebugTrace.IsEnabled,
+                ["logsDirectory"] = DebugTrace.BuildLogsDirectory(AppContext.BaseDirectory),
+                ["mcpServers"] = appConfig.McpServers.Select(server => new Dictionary<string, object?>
+                {
+                    ["name"] = server.Name,
+                    ["command"] = server.Command,
+                    ["args"] = server.Args ?? [],
+                    ["envKeys"] = server.Env?.Keys.OrderBy(static key => key, StringComparer.OrdinalIgnoreCase).ToArray() ?? [],
+                }).ToArray(),
+                ["displayTopology"] = DisplayTopology.Capture(),
+                ["textLogPath"] = DebugTrace.LogFilePath,
+                ["jsonLogPath"] = DebugTrace.JsonLogFilePath,
+            });
+
+        if (httpClientSetup.BypassedBrokenLoopbackProxy)
+        {
+            Display.Warn(
+                $"Ignoring broken loopback proxy setting for outbound API calls: {httpClientSetup.BypassedProxyValue}");
+        }
+
+        var tools = await ConnectMcpServersAsync(appConfig, mcpClientManager, cancellationSource.Token);
+        if (!HasEvidenceTools(tools))
+        {
+            Display.Error("Compact-tree evaluation requires describe_window, describe_window_focus, and capture_window_screenshot.");
+            Environment.ExitCode = 1;
+            return;
+        }
+
+        ILlmClient? evaluatorClient = null;
+        if (consoleOptions.RunCompactTreeVisionVerdict)
+        {
+            var provider = LlmProviderCatalog.Resolve(appConfig);
+            if (!provider.Capabilities.SupportsVisionInputs)
+            {
+                Display.Error($"{provider.DisplayName} does not support vision inputs for compact-tree evaluation.");
+                Environment.ExitCode = 1;
+                return;
+            }
+
+            provider.ValidateConfiguration(appConfig);
+            evaluatorClient = provider.CreateClient(appConfig, httpClient, LlmRole.AvaEvaluator);
+            Display.Info($"Evaluator LLM: {evaluatorClient.DisplayName}");
+        }
+
+        var result = await AvaCompactTreeEvaluationRunner.RunAsync(
+            new AvaCompactTreeEvaluationRequest(
+                runId,
+                consoleOptions.CompactTreeEvaluationWindowHandle!,
+                outputDirectory,
+                consoleOptions.RunCompactTreeVisionVerdict,
+                DebugTrace.IsEnabled),
+            mcpClientManager,
+            evaluatorClient,
+            cancellationSource.Token);
+
+        Console.WriteLine($"Compact-tree evaluation: {result.ReportPath}");
+        Console.WriteLine($"Compact-tree verdict: {result.VerdictPath}");
+        Environment.ExitCode = result.HasErrors ? 1 : 0;
+    }
+    catch (Exception ex) when (ex is InvalidOperationException or FileNotFoundException)
+    {
+        Console.Error.WriteLine($"x  {ex.Message}");
+        Environment.ExitCode = 1;
+    }
+
+    return;
+}
 
 try
 {

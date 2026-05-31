@@ -15,6 +15,7 @@ These docs cover project design, development guardrails, bugs, performance notes
 - [Daily Work Summary 2026-05-04](./daily/2026/daily-work-summary-2026-05-04.md)
 - [Daily Work Summary 2026-05-10](./daily/2026/daily-work-summary-2026-05-10.md)
 - [Daily Work Summary 2026-05-16](./daily/2026/daily-work-summary-2026-05-16.md)
+- [Daily Work Summary 2026-05-30](./daily/2026/daily-work-summary-2026-05-30.md)
 
 ## Design Docs
 
@@ -24,6 +25,7 @@ These docs cover project design, development guardrails, bugs, performance notes
 - [Brain Debuggability And Rewrite Guardrails](./designs/brain-debuggability-and-rewrite-guardrails.md)
 - [Brain OpenAI ChatGPT Subscription](./designs/brain-openai-chatgpt-subscription.md)
 - [Built-In Process Tools Test Plan](./designs/built-in-process-tools-test-plan.md)
+- [Cognition Compact Tree Evaluation Rollout Plan](./designs/cognition-compact-tree-evaluation-rollout-plan.md)
 - [Cognition Compact Tree Migration](./designs/cognition-compact-tree-migration.md)
 - [Codex Spark Support Plan](./designs/codex-spark-support-plan.md)
 - [Compact Window Inventory Plan](./designs/compact-window-inventory-plan.md)

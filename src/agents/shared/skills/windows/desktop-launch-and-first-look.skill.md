@@ -9,7 +9,7 @@ preferred_tools:
   - cognition/list_taskbar_items
   - execution/activate_taskbar_app
   - execution/launch_application
-  - cognition/describe_window_compact
+  - cognition/describe_window
   - cognition/capture_window_screenshot
 activation:
   when_any_intents:
@@ -63,7 +63,7 @@ fresh evidence.
 
 ## Evidence Rules
 
-- Use `cognition/describe_window_compact` first for the initial app description. Fall back to raw `cognition/describe_window` only when you need exact full-tree debugging detail.
+- Use `cognition/describe_window` first for the initial app description. Request debug evidence only when you need exact full-tree debugging detail.
 - If UI Automation only exposes generic containers, sparse metadata, or otherwise does not support a useful description, capture a screenshot and describe the visible UI from the image.
 - When using the screenshot fallback, say briefly that the visual description comes from the screenshot because UI Automation was not detailed enough.
 

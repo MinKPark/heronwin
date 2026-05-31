@@ -31,9 +31,23 @@ dotnet run --project src/assistants/ava -- --regenerate-report latest
 dotnet run --project src/assistants/ava -- --regenerate-report .\artifacts\ava\<run-id>
 ```
 
+Capture compact-tree evaluation artifacts for a known window handle:
+
+```powershell
+dotnet run --project src/assistants/ava -- --evaluate-compact-tree --window-handle 0x00123456
+```
+
+Add `--vision-verdict` to ask the configured AVA evaluator LLM to compare the
+real screenshot with the rendered compact tree:
+
+```powershell
+dotnet run --project src/assistants/ava -- --evaluate-compact-tree --window-handle 0x00123456 --vision-verdict
+```
+
 AVA uses role-specific LLM settings for its logical conversations. The driver
-role is active now; evaluator and reporter settings are reserved for future
-LLM-based accessibility review and triage passes:
+role drives validation scenarios. The evaluator role is also used when
+`--vision-verdict` is passed to compact-tree evaluation. Reporter settings are
+reserved for future LLM-based reporting passes:
 
 ```dotenv
 DRIVER_MODEL=

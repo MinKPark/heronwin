@@ -4,8 +4,8 @@ group: any-app
 priority: 210
 summary: "Search within an app or enumerate visible UI state without over-claiming."
 preferred_tools:
-  - cognition/describe_window_compact
-  - cognition/describe_window_focus_compact
+  - cognition/describe_window
+  - cognition/describe_window_focus
   - execution/focus_window_element
   - execution/click_window_element
   - execution/invoke_window_element
@@ -18,9 +18,7 @@ activation:
     - search_or_enumeration_request
   when_any_tools:
     - describe_window
-    - describe_window_compact
     - describe_window_focus
-    - describe_window_focus_compact
     - capture_window_screenshot
 applies_when:
   - The user asks to search within an app.
@@ -56,7 +54,7 @@ applies_when:
 - If the tool surface cannot directly type into or invoke the relevant control, say so plainly.
 - If a direct search-control action fails, refresh the window state and pick a new exact target from the latest evidence instead of reusing a guessed variant of the old path.
 - After entering or submitting a search, expect the accessibility tree to lag behind the visible UI.
-- Retry `cognition/describe_window_compact` or `cognition/describe_window_focus_compact` a few times with short waits before concluding that the result is not exposed yet.
+- Retry `cognition/describe_window` or `cognition/describe_window_focus` a few times with short waits before concluding that the result is not exposed yet.
 - Treat newly appearing named results as fresher evidence than an earlier sparse tree snapshot.
 - If the user asked to wait until visible search results are on screen, keep that wait-and-refresh loop inside the same turn. Do not stop with "search is in progress" after only one sparse refresh while stronger evidence is still available.
 - If the refreshed tree is still sparse after search entry but the URL, page state, or surrounding UI indicates the app is already on the results surface, capture a screenshot and use it as the source of truth for whether visible results are actually on screen.
