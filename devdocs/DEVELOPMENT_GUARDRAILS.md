@@ -13,6 +13,15 @@ These guardrails describe how `heronwin` should be developed and debugged.
 6. Keep evidence clear after UI-changing actions.
 7. Keep project docs and active todos up to date as the work moves.
 
+## Agent Collaboration Guardrail
+
+- Ask the user before making a decision that can lead to materially different
+  outcomes.
+- Do not hallucinate. Do not make claims, recommendations, or proposals without
+  a supporting reference from the user's request, repository evidence, tool
+  output, active project documentation, or another source-backed lookup. If no
+  reference is available, say what is missing and gather evidence or ask first.
+
 ## Skill First, Code Last
 
 Start with prompts and skills when the issue is mainly about:

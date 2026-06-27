@@ -26,6 +26,11 @@ Local references:
 
 - `README.md`
 - `src/assistants/brain/README.md`
+- `src/assistants/ava/Program.cs:178`
+- `src/assistants/ava/Program.cs:254`
+- `src/assistants/ava/AvaValidationRunner.cs:124`
+- `src/assistants/ava/AvaValidationRunner.cs:154`
+- `src/assistants/ava/AvaValidationRunner.cs:520`
 - `src/assistants/brain/Conversation.cs:81`
 - `src/assistants/brain/Conversation.cs:1281`
 - `src/assistants/brain/Conversation.cs:2413`
@@ -72,16 +77,127 @@ Local references:
 
 Start with a contained SDK spike, not a provider replacement.
 
-### Phase 1 - Sidecar Smoke Project
+### Phase 1 - Sidecar Smoke And AVA Prompt Ownership Spike
 
-Create a small reviewable spike, for example `src/assistants/copilot-sdk-smoke`, that:
+Create a small reviewable spike, for example `src/assistants/copilot-sdk-smoke`, that proves the SDK can run locally and makes AVA's prompt ownership explicit before any production provider replacement.
+
+The spike should answer one concrete question: can AVA keep owning validation orchestration and user/scenario input while the Copilot SDK and bundled CLI own the inner agent/tool loop?
+
+Current AVA structure:
+
+```mermaid
+flowchart TD
+  User[User / CLI args] --> Program[Ava Program.cs]
+  Program --> Scenario[UX scenario YAML]
+  Program --> Config[Validation config YAML]
+  Program --> Provider[LLM provider]
+  Program --> MCP[MCP servers: cognition + execution]
+
+  Program --> Runner[AvaValidationRunner]
+  Runner --> Driver[AvaBrainCommandDriver]
+  Driver --> Brain[BrainTurnProcessor / AgentConversation]
+  Brain --> Provider
+  Brain --> MCP
+
+  Runner --> Evidence[Ava evidence collectors]
+  Runner --> Validators[Deterministic accessibility validators]
+  Runner --> Report[Markdown / JSON report]
+```
+
+Current AVA prompt flow:
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant Ava as AVA CLI
+  participant Scenario as scenario.yml
+  participant Runner as AvaValidationRunner
+  participant Brain as BrainTurnProcessor
+  participant LLM as Current LLM provider
+  participant Tools as MCP tools
+
+  U->>Ava: dotnet run -- --run bundle.yml
+  Ava->>Scenario: Load commands
+  loop each command
+    Scenario->>Runner: command string
+    Runner->>Brain: request.Command
+    Brain->>Brain: Compose system prompt + active skills
+    Brain->>LLM: user message = command
+    LLM->>Brain: tool calls / answer
+    Brain->>Tools: execute UI tools
+    Tools->>Brain: tool results + screenshots/tree
+    Brain->>LLM: follow-up evidence
+    Brain->>Runner: final say/log
+  end
+  Runner->>U: report paths
+```
+
+In this model, the user's runtime input is usually the bundle or scenario path. The per-turn prompt is the scenario command string from YAML. AVA passes that command into `BrainTurnProcessor.ProcessAsync` as the user message for one validation step.
+
+Proposed Phase 1 Copilot SDK structure:
+
+```mermaid
+flowchart TD
+  User[User / CLI args] --> Ava[AVA sidecar host]
+  Ava --> Scenario[Scenario YAML commands]
+  Ava --> SDK[GitHub Copilot SDK]
+  SDK --> CLI[Bundled Copilot CLI child process]
+
+  CLI --> Model[Copilot model/backend]
+  CLI --> MCP[HeronWin MCP servers]
+  MCP --> Cognition[cognition: inspect UI]
+  MCP --> Execution[execution: act on UI]
+
+  CLI --> Events[SDK events: messages, tool calls, idle]
+  Events --> Ava
+  Ava --> Evidence[Ava evidence collectors]
+  Ava --> Validators[Ava deterministic validators]
+  Ava --> Report[Markdown / JSON report]
+```
+
+Proposed Phase 1 Copilot prompt flow:
+
+```mermaid
+sequenceDiagram
+  participant Ava as AVA sidecar host
+  participant SDK as Copilot SDK
+  participant CLI as Bundled Copilot CLI
+  participant Model as Copilot model
+  participant MCP as HeronWin MCP tools
+
+  Ava->>SDK: Create session with AVA prompt, MCP config, permissions
+  loop each scenario command
+    Ava->>SDK: Send prompt = scenario command
+    SDK->>CLI: JSON-RPC message
+    CLI->>Model: conversation + tools
+    Model->>CLI: tool request or final answer
+    CLI->>MCP: call cognition/execution tool
+    MCP->>CLI: result
+    CLI->>Model: result in next turn
+    CLI->>SDK: events
+    SDK->>Ava: assistant messages / idle signal
+    Ava->>Ava: collect evidence + validate + report
+  end
+```
+
+The desired ownership boundary for the spike is:
+
+```text
+AVA owns: scenario -> prompt -> validation -> report
+Copilot owns: prompt -> tool loop -> assistant result
+HeronWin tools own: Windows/browser observation and action
+```
+
+Build the spike so that it:
 
 - References `GitHub.Copilot.SDK`.
 - Starts a local Copilot SDK session with bundled CLI mode.
+- Loads a single AVA scenario command from an existing UX scenario file, or accepts one command string as a CLI argument.
+- Sends the scenario command as the Copilot SDK user prompt for one session turn.
 - Uses the same local MCP server configuration shape as HeronWin `.env` files.
 - Registers `cognition` only at first, then optionally `execution` behind an explicit confirmation flag.
-- Sends a basic prompt that asks Copilot to inspect the active window.
 - Captures SDK session events into a small JSONL file under `logs`.
+- Records the exact source of every prompt-like input: CLI args, scenario path, scenario command, system prompt, SDK session message, and tool-result follow-up event.
 - Exits without changing the existing `cursor`, `tars`, or `ava` provider paths.
 
 Reasoning and references:
@@ -95,6 +211,9 @@ Exit criteria:
 - The spike can create a session and receive a response.
 - It can list and call at least one read-only cognition tool through MCP.
 - Tool calls, tool results, and idle/completion events can be recorded with enough IDs/timestamps to map into `DebugTrace`.
+- A one-command AVA-style run proves that AVA can supply the user prompt while the bundled Copilot CLI executes the inner agent loop.
+- The event log makes it clear whether Copilot exposes enough detail for AVA to map assistant text, tool calls, tool results, and idle/completion into step results.
+- The spike documents whether deterministic AVA evidence collection should happen outside the SDK loop, through SDK hooks, or as explicit post-turn AVA code.
 - We can identify whether HeronWin can keep its own tool loop, or whether Copilot SDK must own tool execution.
 
 ### Phase 2 - Choose Tool Ownership
@@ -143,6 +262,7 @@ Feature adoption order:
 
 | Area | Proposed change | Source-backed reason |
 | --- | --- | --- |
+| `src/assistants/copilot-sdk-smoke` | In Phase 1, add a sidecar CLI that can load one AVA scenario command or accept `--command`, send it to a Copilot SDK session, and log prompt provenance plus SDK events. | This directly tests whether AVA can own scenario input while the SDK/bundled CLI owns the inner agent loop, without touching production assistant paths. |
 | `src/assistants/brain/Brain.csproj` or sidecar project | Add `GitHub.Copilot.SDK` package only in the smoke project first. | Official `.NET` SDK package exists, and .NET SDKs bundle the CLI. |
 | `src/assistants/brain/AppConfig.cs` | Later add `CopilotSdk` to `LlmProviderId` and normalize `LLM_PROVIDER=copilot-sdk`. | Current provider routing is centralized, so this is the narrowest production integration point. |
 | `src/assistants/brain/LlmProviders.cs` | Later add `CopilotSdkProvider`. | Current provider catalog already isolates provider validation and client creation. |
