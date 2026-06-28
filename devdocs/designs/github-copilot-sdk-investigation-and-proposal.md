@@ -198,7 +198,10 @@ Build the spike so that it:
 - Registers `cognition` only at first, then optionally `execution` behind an explicit confirmation flag.
 - Captures SDK session events into a small JSONL file under `logs`.
 - Records the exact source of every prompt-like input: CLI args, scenario path, scenario command, system prompt, SDK session message, and tool-result follow-up event.
+- Treats the Netflix Boyfriend On Demand AVA bundle as the Phase 1 promotion gate, with speed and stability compared against a fresh same-machine current-path control run.
 - Exits without changing the existing `cursor`, `tars`, or `ava` provider paths.
+
+Detailed Phase 1 implementation and test plan: [Copilot SDK Phase 1 Spike Plan](./copilot-sdk-phase-1-spike-plan.md).
 
 Reasoning and references:
 
